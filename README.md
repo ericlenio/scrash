@@ -1,2 +1,2 @@
-# esh
-enhanced bash shell framework
+# scrash
+gnu screen and bash shell framework
