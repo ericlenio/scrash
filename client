@@ -1,0 +1,6 @@
+#! /usr/bin/env bash
+
+export ESH_PORT=4553
+url="http://127.0.0.1:$ESH_PORT/esh-functions"
+eval "$(curl -S -f -s --compressed $url)"
+eval "$(-shell-init -v $1)"

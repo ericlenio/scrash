@@ -1,0 +1,12 @@
+{
+  "name": "esh",
+  "version": "1.0.0",
+  "description": "",
+  "type":"module",
+  "main": "index.js",
+  "scripts": {
+    "test": "./client -t"
+  },
+  "author": "",
+  "license": "AGPL-3.0-only"
+}

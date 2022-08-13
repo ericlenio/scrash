@@ -1,0 +1,382 @@
+# vim filetype=bash
+
+-sty-env-file() {
+  local sty_env_file=/tmp/esh-sty-$STY
+  if [ "$STY" -a ! -f $sty_env_file ]; then
+    touch $sty_env_file
+  fi
+  echo $sty_env_file
+}
+
+-esh-port() {
+  if [ "$STY" ]; then
+    local sty_env_file=$(-sty-env-file)
+    if [ ! -f $sty_env_file ]; then
+      echo "$FUNCNAME: expected $sty_env_file to exist" >&2
+      return 1
+    fi
+    source $sty_env_file
+  fi
+  echo $ESH_PORT
+}
+
+#
+# call within gnu screen to update important environment variables; in
+# particular, this must be called prior to any call to -ws or -ssh
+-screen-env() {
+  if [ -z "$STY" ]; then
+    echo "$FUNCNAME: not running gnu screen" >&2
+    return 1
+  fi
+  if [ ! -e $ESH_STY_FIFO ]; then
+    mkfifo -m 0600 $ESH_STY_FIFO
+  fi
+  #if [ -s $ESH_STY_FIFO_UPDATE ]; then
+  #  local updates=$(<$ESH_STY_FIFO_UPDATE)
+  #  # merge updates
+  #  if rm -f $ESH_STY_FIFO_UPDATE; then
+  #    local buf=$(
+  #      $FUNCNAME
+  #      eval "$updates"
+  #      for v in $ESH_UPDATEABLE; do
+  #        printf "%s='%s';" $v ${!v}
+  #      done
+  #    )
+  #    # set buf to ":" if it is unset: want to avoid an empty register
+  #    env screen -X register p "${buf:-:}"
+  #    echo "$FUNCNAME: info was updated: $updates" >/dev/tty
+  #  else
+  #    echo "$FUNCNAME: could not delete $ESH_STY_FIFO_UPDATE" >&2
+  #    return 1
+  #  fi
+  #fi
+  # paste the contents of register "p" into the named pipe, then
+  # source it's contents into the current shell
+  if env screen -X eval "paste p ." "writebuf $ESH_STY_FIFO"; then
+    # note: cannot do "source $ESH_STY_FIFO" here, at least not with bash 3.2
+    # on Mac
+    eval "$(<$ESH_STY_FIFO)"
+  else
+    echo "$FUNCNAME: failed to load data from paste buffer" >&2
+    return 1
+  fi
+}
+
+-random-string() {
+  local length=${1:-16}
+  LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom | head -c $length
+}
+
+# wrapper around gnu screen. Call with "-test" to run the test suite
+screen() {
+  local i rcfile session_id_prefix="esh-" session_id file_prefix=esh-sty-fifo tmpdir=/tmp opt run_tests=0 cmd=(env screen)
+  export ESH_UPDATEABLE="ESH_PORT SSH_AUTH_SOCK"
+  for ((i=1;i<=$#;i++)); do
+    opt="${!i}"
+    case $opt in
+      (--generate-session-id)
+        printf "%s%s" $session_id_prefix $(-random-string 6)
+        return
+        ;;
+      (-r)
+        # we override gnu screen's handling of -r, set up our own logic to pick
+        # a session to resume
+        local curr_sty=${STY:-some_value} pick_sty pick_sty_line esh_sty
+        local stys=$(
+          while read l; do
+            if [[ "$l" =~ ^[[:blank:]]*([0-9]+\.[^[:blank:]]+)[[:blank:]]+([[:print:]]+) ]]; then
+              pick_sty=${BASH_REMATCH[1]}
+              pick_sty_status=${BASH_REMATCH[2]}
+              echo "$pick_sty $pick_sty_status"
+            fi
+          done < <(env screen -ls | grep -v $curr_sty)
+        )
+        if [ -z "$stys" ]; then
+          echo "No screen sessions detected."
+          return 0
+        fi
+        if ! pick_sty_line=$(-pick-something "Resume which session?" "$stys"); then
+          return $?
+        fi
+        if [[ $pick_sty_line =~ ^([0-9]+\.([-[:alnum:]]+)) ]]; then
+          pick_sty=${BASH_REMATCH[1]}
+          session_id=${BASH_REMATCH[2]}
+          if [[ "$session_id" =~ ^$session_id_prefix ]]; then
+            # update critical environment variables
+            local buf=$(
+              for v in $ESH_UPDATEABLE; do
+                if [ "${!v}" ]; then
+                  printf "%s='%s';" $v ${!v}
+                fi
+              done
+            )
+            # set buf to ":" if it is unset: want to avoid an empty register
+            if ! env screen -S $session_id -X register p "${buf:-:}"; then
+              echo "failed to update environment: $buf" >&2
+              return 1
+            fi
+          fi
+          env screen -d -r $session_id
+          return $?
+        else
+          echo "$FUNCNAME: no match for pick_sty_line: $pick_sty_line" >&2
+          return 1
+        fi
+        ;;
+      (-D|-ls|-list|-Q|-v|-x|-X|-wipe|-R|-RR)
+        env screen "$@"
+        return $?
+        ;;
+      (-test)
+        run_tests=1
+        shift
+        ;;
+      (-S)
+        local i2=$(($i+1))
+        session_id=${!i2}
+        ;;
+      (-c)
+        local i2=$(($i+1))
+        rcfile=${!i2}
+        ;;
+    esac
+  done
+  if [ ! "$session_id" ]; then
+    session_id=$($FUNCNAME --generate-session-id)
+    cmd+=(-S $session_id)
+  fi
+  local old_fifo old_fifo_id
+  for old_fifo in $(ls $tmpdir/$file_prefix-* 2>/dev/null); do
+    if [[ $old_fifo =~ $file_prefix-(.*) ]]; then
+      old_fifo_id=${BASH_REMATCH[1]}
+      if ! screen -ls | grep -q $old_fifo_id; then
+        rm -f $old_fifo
+        echo "removed old fifo: $old_fifo"
+      fi
+    fi
+  done
+  if [ -z "$rcfile" ]; then
+    rcfile=$(mktemp)
+    cmd+=(-c $rcfile)
+    cat << EOF >$rcfile
+setenv ESH_STY_FIFO $tmpdir/$file_prefix-$session_id
+setenv ESH_STY_LAST_UPDATE "$(date)"
+register p ":"
+#screen bash -c "bootfunc 1 < <(echo $ESH_TERM_AUTH_TOKEN; tty)"
+#bind c screen bash -c "bootfunc 0 < <(echo $ESH_TERM_AUTH_TOKEN; tty)"
+$(
+  if [ $run_tests = 1 ]; then
+    printf "screen bash -c -- -test\n"
+  else
+    printf "screen bash\n"
+  fi
+)
+multiuser off
+# bind "%" to take a screenshot, and open a new window to edit it
+bind % exec bash -c 'f=\$(mktemp) t=\$RANDOM; env screen -X hardcopy \$f; env screen -t \$t sh -c "$ESH_EDITOR \$f; rm \$f"; env screen -X select \$t'
+bind \040 windowlist -b
+vbell on
+vbell_msg DING
+defmonitor on
+msgwait 1
+#hardstatus ignore
+shelltitle "$ |:"
+caption always "%{= kw}%-w%{= BW}%n%t%{-}%+w %-= @%H %{= Y}%l%{-} %m/%d %0c$esh_info"
+bind P eval "password none" "detach"
+screen rm $rcfile
+EOF
+  fi
+  # strip off "screen." prefix from $TERM to avoid "$TERM too long" issue
+  cmd+=(-T ${TERM#screen.} -ln -e^Aa "$@")
+  "${cmd[@]}"
+}
+export -f screen
+
+-ws() {
+  local base_url=http://127.0.0.1:$(-esh-port) endpoint=$1 url rc
+  shift
+  printf -v url "%s%s" $base_url $endpoint
+  set -- "$@" "$url"
+  curl -f -S -v "$@"
+  rc=$?
+  if [ $rc -gt 0 ]; then
+    echo "curl failed with arguments: $@" >&2
+    echo "stack trace: ${FUNCNAME[*]}" >&2
+  fi
+  return $rc
+}
+
+-init() {
+  echo "inside $FUNCNAME" >/dev/tty
+}
+
+-v() {
+  echo "inside $FUNCNAME" >/dev/tty
+  #vim "$@"
+}
+
+-shell-init() {
+  local opts="vts:" opt OPTIND log_tty verbose=0 i fcns num_fcns test_mode=0 start
+  log_tty() {
+    if [ $verbose = 1 -a -e /dev/tty ]; then
+      local args=("$@")
+      declare -p args
+      echo 'echo "${args[@]}" >/dev/tty'
+    fi
+  }
+  while builtin getopts $opts opt; do
+    case $opt in
+      (v) verbose=1
+        ;;
+      (t) test_mode=1
+        url="http://127.0.0.1:$ESH_PORT/esh-test-framework"
+        eval "$(curl -S -f -s --compressed $url)"
+        ;;
+      (s)
+        # pass start=1 to start an interactive shell, any other value is
+        # assumed to be a base64 encoded command to be run
+        start=$OPTARG
+        ;;
+    esac
+  done
+  declare -p ESH_PORT
+  [ "$STY" ] && declare -p STY
+  fcns=($(compgen -A function "-"))
+  log_tty "loading functions ..."
+  num_fcns=${#fcns[*]}
+  for ((i=0;i<$num_fcns;i++)); do
+    fcn=${fcns[$i]}
+    declare -f -- $fcn
+    log_tty -n $fcn
+    if [ $i -lt $(($num_fcns-1)) ]; then
+      log_tty -n ", "
+      if [ $i -gt 0 -a $((i % 5)) -eq 0 ]; then
+        log_tty
+      fi
+    fi
+    printf "export -f -- %s\n" $fcn
+  done
+  log_tty
+  log_tty "DONE"
+  if [ $test_mode = 1 ]; then
+    echo "exec bash -c -- -test"
+  elif [ "$start" -a "$start" != 1 ]; then
+    echo "exec bash -c -- '\"\$@\"' -- $(echo $start | openssl enc -d -a -A)"
+  else
+    echo "exec bash --norc --noprofile"
+  fi
+}
+
+-s() {
+  local user=$1 tmpfile=$(mktemp)
+  -shell-init > $tmpfile
+  chmod 644 $tmpfile
+  sudo -u $user bash $tmpfile
+  rm -f $tmpfile
+}
+
+ssh() {
+  local remote_port bootstr OPTIND \
+    ssh_legal_opts="1246ab:c:e:fgi:kl:m:no:p:qstvxACD:E:F:GI:J:KL:MNO:PQ:R:S:TVw:W:XYy" \
+    opt ssh_user_host cmd=(env ssh) start=1
+  while builtin getopts $ssh_legal_opts opt; do
+    #case $opt in
+    #  f|N|M|V)
+    #    env ssh "$@"
+    #    return $?
+    #    ;;
+    #esac
+    cmd+=("-$opt")
+    [ "$OPTARG" ] && cmd+=("$OPTARG")
+  done
+  # after this shift, the ssh user@host should be left in $1 (assuming an
+  # user@host was provided on the command line, which is most of the time)
+  [ $OPTIND -gt 1 ] && shift $(($OPTIND-1))
+  ssh_user_host="$1"
+  if [ "$ssh_user_host" ]; then
+    shift
+    if [ $# -gt 0 ]; then
+      start=$(echo "$@" | openssl enc -a -A)
+    else
+      cmd+=(-t)
+    fi
+    remote_port=$(( $RANDOM % 5000 + 56100 ))
+    printf -v bootstr "'eval \"\$(curl -S -f -s --compressed http://127.0.0.1:%s/esh-functions?start=%s)\"'" $remote_port $start
+    cmd+=(
+      -oExitOnForwardFailure=yes
+      -R$remote_port:127.0.0.1:$(-esh-port)
+      "$ssh_user_host"
+      exec bash -c $bootstr
+    )
+  fi
+  "${cmd[@]}"
+}
+export -f ssh
+
+# copy to clipboard
+-copy-to-clipboard() {
+  local f="$1"
+  if [ -t 0 ]; then
+    if [ ! -e "$f" ]; then
+      echo "$FUNCNAME: no such file, or file is not readable: $f" >&2
+      return 1
+    fi
+  else
+    f="/dev/stdin"
+  fi
+  -ws /esh-copy-to-clipboard --data-binary @$f
+}
+
+#
+# pick 1 line from a list. positional parameters:
+#
+#   intro_label: the label to display before presenting the list
+#
+#   pick_list: a multiline string with the choices to be given to user
+#
+#   use_idx: if 1, this script outputs the index number of the user's choice,
+#   else we output the chosen line from pick_list
+#
+# example usage: 
+#
+#   file=$(-pick-something "Pick a file:" "$(find $logdir -type f | sort)")
+#   [ -f "$file" ] && lwsa_view_file "$file"
+#
+# the user selected item from the original list is echoed to stdout
+#
+# return code: 0 user picked a valid entry from the list; 1 user did not choose
+# anything; 2 user gave some other bogus choice
+#
+-pick-something() {
+  local tty=$(tty) intro_label="$1" pick_list="$2" use_idx="$3" i l c
+  local -a pick_array
+  IFS=$'\n' read -d '' -a pick_array <<< "$pick_list"
+  local indexes=${!pick_array[@]}
+  local n=${#pick_array[@]}
+  pick_list=$(
+    echo "$intro_label"
+    for ((i=0; i<$n; i++)); do
+      l=${pick_array[$i]}
+      printf "%s. %s\n" $(($i+1)) "$l"
+    done
+  )
+  l=$(tput lines)
+  if [ $((${#pick_array[@]}-2)) -gt $l ]; then
+    less <<< "$pick_list" >$tty
+  else
+    echo "$pick_list" >$tty
+  fi
+  read -p "Enter choice: " c
+  [ -z "$c" ] && return 1
+  ! [[ "$c" =~ ^[0-9]+$ ]] && return 2
+  c=$(($c-1))
+  if echo $indexes | grep -q -w -- "$c"; then
+    if [ "$use_idx" = 1 ]; then
+      echo $c
+    else
+      echo "${pick_array[$c]}"
+    fi
+  else
+    return 2
+  fi
+}

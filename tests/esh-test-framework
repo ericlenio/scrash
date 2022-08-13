@@ -1,0 +1,215 @@
+# vim filetype=bash
+
+-assert() {
+  local status=FAIL assertion opts="br:" opt OPTIND base64=0 raw_mode_named_pipe
+  while builtin getopts "$opts" opt; do
+    case $opt in
+      (b)
+        # assertion is base 64 encoded
+        base64=1
+        ;;
+      (r)
+        raw_mode_named_pipe=$OPTARG
+        ;;
+    esac
+  done
+  [ $OPTIND -gt 1 ] && shift $(($OPTIND-1))
+  assertion="$1"
+  if [ $base64 = 1 ]; then
+    assertion="$(echo $assertion | openssl enc -d -a -A)"
+  fi
+  #if [ "$session_id" ]; then
+  #  IFS=$'\t' read -a result <(-assert-sty $session_id "$assertion")
+  #  if [ ${#result} -gt 0 ]; then
+  #    status=${result[0]}
+  #  else
+  #    echo "sty:$result"
+  #  fi
+  #else
+    if eval -- "$assertion"; then
+      status="PASS"
+    fi
+  #fi
+  if [ -z "$raw_mode_named_pipe" ]; then
+    -assert-result $status "$assertion"
+    #printf "%s. %s: %s\n" $num_assertions $status "$assertion"
+  else
+    printf "%s\t%s\n" $status "$assertion" >$raw_mode_named_pipe
+  fi
+}
+
+-assert-result() {
+  local status=$1 assertion="$2"
+  let assertion_counter+=1
+  printf "%s. %s: %s\n" $assertion_counter $status "$assertion"
+  if [ $status = PASS ]; then
+    let assertion_successes+=1
+  else
+    let assertion_fails+=1
+    return 1
+  fi
+}
+
+-assert-sty() {
+  local assertion="$1" STY="$2" eof
+  assertion64=$(echo "$assertion" | openssl enc -a -A)
+  screen -X screen bash -c -- "-assert -b $assertion64"
+  eof=0
+  while :; do
+    unset REPLY
+    if ! read; then
+      eof=1
+    fi
+    if [ "$REPLY" ]; then
+      echo "$REPLY"
+    fi
+    if [ $eof = 1 ]; then
+      break
+    fi
+  done
+}
+
+-test-sty-launch() {
+  local STY_ID="$1" i n eof_stdout=0 eof_stderr=0 result
+  set -e
+
+  screen -S $STY_ID -X screen bash -c -- -test-sty
+  while :; do
+    unset REPLY
+    if ! read -d '' <$ESH_TEST_STY_STDOUT; then
+      eof_stdout=1
+    fi
+    if [ "$REPLY" ]; then
+      echo "$REPLY"
+    fi
+    if [ $eof_stdout = 1 ]; then
+      break
+    fi
+  done &
+
+  # noting that stderr is properly closed, but stdout still listening for output; "echo -n '' > stdout" seems to close it
+  while :; do
+    unset REPLY
+    if ! read -d '' <$ESH_TEST_STY_STDERR; then
+      eof_stderr=1
+    fi
+    if [ "$REPLY" ]; then
+      echo "$REPLY" >&2
+    fi
+    if [ $eof_stderr = 1 ]; then
+      break
+    fi
+  done &
+
+  -test-sty-assertions
+  n=${#ESH_TEST_STY_ASSERTIONS[@]}
+  for ((i=0;i<$n;i++)); do
+    IFS=$'\t' read -t 1 -ra result <$ESH_TEST_STY_TEST_RESULT || true
+#read result <$ESH_TEST_STY_TEST_RESULT || true
+    -assert-result "${result[@]}"
+  done
+
+  wait
+}
+
+-test-sty-assertions() {
+  # grrrrrrr bash arrays are not exportable so dedicating an exportable
+  # function to do it
+  ESH_TEST_STY_ASSERTIONS=(
+    '[ ${#STY} -gt 0 ]'
+    '! [ -e $ESH_STY_FIFO ]'
+    '-screen-env'
+    '[ -e $ESH_STY_FIFO ]'
+  )
+}
+
+# this runs the test cases for gnu screen
+-test-sty() {
+  local assertion
+  exec 1>$ESH_TEST_STY_STDOUT 2>$ESH_TEST_STY_STDERR
+  -test-sty-assertions
+  for assertion in "${ESH_TEST_STY_ASSERTIONS[@]}"; do
+    -assert -r $ESH_TEST_STY_TEST_RESULT -- "$assertion"
+#echo "assertion=$assertion" >$ESH_TEST_STY_TEST_RESULT
+  done
+  #osascript -e 'tell application (path to frontmost application as text) to display dialog "Hello from osxdaily.com" buttons {"OK"} with icon stop'
+}
+
+-test() (
+  local num_assertions=${1:-1} len=8 env_file=/tmp/esh-test-log opts="r" opt OPTIND
+  assertion_counter=0
+  assertion_successes=0
+  assertion_fails=0
+  declare -x ESH_TEST_ASSERTIONS=(
+    '[[ $ESH_PORT =~ ^[0-9]+$ ]]'
+    'v=$(-random-string $len)'
+    '[ $len = ${#v} ]'
+    'session_id=$(screen --generate-session-id)'
+    '[ ${#session_id} -gt 0 ]'
+    '[[ $session_id =~ ^[-[:alnum:]]+$ ]]'
+
+    'screen -S $session_id -d -m'
+    'screen -ls | grep -q $session_id'
+    'screen -S $session_id -X quit'
+    '! screen -ls | grep -q $session_id'
+
+    'ESH_TEST_STY=$(screen --generate-session-id)'
+    'screen -S $ESH_TEST_STY -d -m'
+    'screen -ls | grep -q $ESH_TEST_STY'
+    '-test-sty-launch $ESH_TEST_STY'
+    'screen -S $ESH_TEST_STY -X quit'
+    '! screen -ls | grep -q $ESH_TEST_STY'
+    'ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null localhost hostname'
+    'ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null localhost set|grep -q ^ESH_PORT'
+  )
+
+  declare -x ESH_TEST_STY_TEST_RESULT=/tmp/esh-test-sty-test-result
+  declare -x ESH_TEST_STY_STDOUT=/tmp/esh-test-sty-stdout
+  declare -x ESH_TEST_STY_STDERR=/tmp/esh-test-sty-stderr
+
+  for f in $ESH_TEST_STY_TEST_RESULT $ESH_TEST_STY_STDOUT $ESH_TEST_STY_STDERR; do
+    if [ ! -e $f ]; then
+      mkfifo $f
+    fi
+  done
+
+  set -e
+  trap -- '-cleanup;exit' INT QUIT HUP EXIT
+
+  -cleanup() {
+    echo "inside $FUNCNAME"
+    if [ -z "$STY" ]; then
+      for f in $ESH_TEST_STY_TEST_RESULT $ESH_TEST_STY_STDOUT $ESH_TEST_STY_STDERR; do
+        echo "rm $f"
+        rm -f $f
+      done
+    fi
+    if [ "$ESH_TEST_STY" ] && screen -ls | grep -q $ESH_TEST_STY; then
+      echo "force quit STY=$ESH_TEST_STY"
+      env screen -S $ESH_TEST_STY -X quit
+    fi
+  }
+
+  if [ "$STY" ]; then
+    echo "$FUNCNAME: please do not run this inside gnu screen" >&2
+    return 1
+  fi
+
+  printf "************************************************\n"
+  printf "START TEST SPECS on $(tty)\n"
+  printf "************************************************\n"
+  for assertion in "${ESH_TEST_ASSERTIONS[@]}"; do
+    -assert -- "$assertion"
+  done
+
+  if [ $assertion_fails -gt 0 ]; then
+    status=FAIL
+    printf "final status: FAIL (%s/%s failed assertions), see %s for current environment\n" $assertion_fails $assertion_counter $env_file
+    set > $env_file
+  else
+    printf "************************************************\n"
+    printf "final status: PASS (%s/%s successful assertions)\n" $assertion_successes $assertion_counter
+    printf "************************************************\n"
+  fi
+  return $assertion_fails
+)
