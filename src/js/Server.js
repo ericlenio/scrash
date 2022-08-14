@@ -41,6 +41,8 @@ class Server extends http.Server {
         return this.copyToClipboard(req,res);
       case "/scr-get-clipboard":
         return this.getClipboard(req,res);
+      case "/scr-hello-world":
+        return res.end("hello world\n");
     }
     res.end();
   }

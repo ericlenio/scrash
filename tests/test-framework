@@ -145,6 +145,7 @@
     '[[ $SCR_PORT =~ ^[0-9]+$ ]]'
     'v=$(-random-string $len)'
     '[ $len = ${#v} ]'
+    '-hello-world'
     'session_id=$(screen --generate-session-id)'
     '[ ${#session_id} -gt 0 ]'
     '[[ $session_id =~ ^[-[:alnum:]]+$ ]]'
@@ -161,8 +162,22 @@
     '-test-sty-launch $SCR_TEST_STY'
     'screen -S $SCR_TEST_STY -X quit'
     '! screen -ls | grep -q $SCR_TEST_STY'
-    'ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null localhost hostname'
-    'ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null localhost set|grep -q ^SCR_PORT'
+
+    # ssh
+    'h=$(ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null localhost hostname)'
+    '[ $h = $(hostname) ]'
+    # remote SCR_PORT from ssh session should always be different from parent shell
+    'remote_port=$(ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null localhost echo \$SCR_PORT)'
+    '[ $remote_port != $SCR_PORT ]'
+    '[[ $remote_port =~ ^[0-9]+$ ]]'
+
+    # md5
+    's="hello world"'
+    't=$(mktemp) && echo "$s" > $t'
+    '[ $(-md5 $t) = 6f5902ac237024bdd0c176cb93063dc4 ]'
+    '[ $(echo "$s" | -md5) = 6f5902ac237024bdd0c176cb93063dc4 ]'
+    '! -md5 /no-such-file'
+    'rm $t'
 
     # clipboard
     'r=$(-random-string $len)'
@@ -170,6 +185,14 @@
     'echo -n $r | -copy-to-clipboard'
     'r2=$(-clipboard)'
     '[ $r = $r2 ]'
+    '-copy-to-clipboard /etc/profile'
+    '[ $(-clipboard | -md5) = $(-md5 /etc/profile) ]'
+
+    # clipboard over ssh
+    't=$(mktemp) && uname -a > $t'
+    'ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null localhost -copy-to-clipboard $t'
+    '[ $(-md5 $t) = $(-clipboard | -md5) ]'
+    'rm $t'
   )
 
   declare -x SCR_TEST_STY_TEST_RESULT=/tmp/esh-test-sty-test-result

@@ -206,14 +206,14 @@ export -f screen
   return $rc
 }
 
--init() {
-  echo "inside $FUNCNAME" >/dev/tty
+-hello-world() {
+  -ws /scr-hello-world -f -S "$@"
 }
 
--v() {
-  echo "inside $FUNCNAME" >/dev/tty
-  #vim "$@"
+v() {
+  env vim "$@"
 }
+export -f v
 
 -shell-init() {
   local opts="vts:" opt OPTIND log_tty verbose=0 i fcns num_fcns test_mode=0 start
@@ -263,7 +263,8 @@ export -f screen
   elif [ "$start" -a "$start" != 1 ]; then
     echo "exec bash -c -- '\"\$@\"' -- $(echo $start | openssl enc -d -a -A)"
   else
-    echo "exec bash --norc --noprofile"
+    #echo "exec bash --norc --noprofile"
+    echo "exec bash"
   fi
 }
 
@@ -298,6 +299,7 @@ ssh() {
     if [ $# -gt 0 ]; then
       start=$(echo "$@" | openssl enc -a -A)
     else
+      start=1
       cmd+=(-t)
     fi
     remote_port=$(( $RANDOM % 5000 + 56100 ))
@@ -315,20 +317,31 @@ export -f ssh
 
 # copy to clipboard
 -copy-to-clipboard() {
-  local f="$1"
-  if [ -t 0 ]; then
-    if [ ! -e "$f" ]; then
-      echo "$FUNCNAME: no such file, or file is not readable: $f" >&2
-      return 1
-    fi
-  else
-    f="/dev/stdin"
+  local f="${1:-/dev/stdin}"
+  if [ ! -e "$f" ]; then
+    echo "$FUNCNAME: no such file, or file is not readable: $f" >&2
+    return 1
   fi
   -ws /scr-copy-to-clipboard --data-binary @$f
 }
 
 -clipboard() {
-  -ws /scr-get-clipboard --compressed -v
+  -ws /scr-get-clipboard --compressed
+}
+
+-md5() {
+  local f="${1:-/dev/stdin}"
+  if [ ! -e "$f" ]; then
+    echo "$FUNCNAME: no such file, or file is not readable: $f" >&2
+    return 1
+  fi
+  local md5=$(openssl md5 -hex "$f")
+  # md5 will look something like this:
+  # MD5(somefile)= 7f851736b8f86d8ee734a5d94bedf2f7
+  # remove the prefix
+  md5=${md5##*= }
+  # force to lowercase: OS X cannot do "md5=${md5,,}" so use tr
+  echo $md5 | tr "[:upper:]" "[:lower:]"
 }
 
 #
