@@ -33,12 +33,14 @@ class Server extends http.Server {
   onRequest(req,res) {
     const url=new URL(req.url,`http://${req.headers.host}`);
     switch(url.pathname) {
-      case "/esh-functions":
-        return this.getEshFunctions(url,res);
-      case "/esh-test-framework":
-        return this.getEshTestFramework(url,res);
-      case "/esh-copy-to-clipboard":
+      case "/scr-get-bash-functions":
+        return this.getBashFunctions(url,res);
+      case "/scr-get-test-framework":
+        return this.getTestFramework(url,res);
+      case "/scr-copy-to-clipboard":
         return this.copyToClipboard(req,res);
+      case "/scr-get-clipboard":
+        return this.getClipboard(req,res);
     }
     res.end();
   }
@@ -52,12 +54,12 @@ class Server extends http.Server {
     }
   }
 
-  getEshTestFramework(url,res) {
-    fsPromises.readFile("./tests/esh-test-framework",'utf8')
+  getTestFramework(url,res) {
+    fsPromises.readFile("./tests/test-framework",'utf8')
       .then(shellScript=>{
         res.writeHead(200,{'Content-Encoding':'gzip'});
         const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
-        gz.write(`export ESH_PORT=${url.port}\n`);
+        gz.write(`export SCR_PORT=${url.port}\n`);
         gz.pipe(res);
         gz.end(shellScript);
       })
@@ -67,12 +69,12 @@ class Server extends http.Server {
       });
   }
 
-  getEshFunctions(url,res) {
-    fsPromises.readFile("./src/bash/esh-functions",'utf8')
+  getBashFunctions(url,res) {
+    fsPromises.readFile("./src/bash/bash-functions",'utf8')
       .then(shellScript=>{
         res.writeHead(200,{'Content-Encoding':'gzip'});
         const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
-        gz.write(`export ESH_PORT=${url.port}\n`);
+        gz.write(`export SCR_PORT=${url.port}\n`);
         gz.pipe(res);
         gz.write(shellScript);
         const start=url.searchParams.get('start');
@@ -88,7 +90,6 @@ class Server extends http.Server {
   }
 
   copyToClipboard(req,res) {
-    let body="";
     const cp_prog=this.getOsProgram(E_OS_PROG_ENUM.COPY);
     const p=child_process.spawn(cp_prog[0],cp_prog.slice(1),{stdio:['pipe','ignore',process.stderr]});
     req.pipe(p.stdin);
@@ -118,6 +119,22 @@ class Server extends http.Server {
       }
       */
     });
+  }
+
+  getClipboard(req,res) {
+    const paste_prog=this.getOsProgram(E_OS_PROG_ENUM.PASTE);
+    const p=child_process.spawn(paste_prog[0],paste_prog.slice(1),
+      {stdio:['ignore','pipe',process.stderr]});
+    p.on("error",e=>{
+      console.error("getClipboard:"+e);
+      res.statusCode=500;
+      res.statusMessage=e.toString();
+      res.end();
+    });
+    const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
+    res.setHeader('Content-Type','text/plain');
+    res.setHeader('Content-Encoding','gzip');
+    p.stdout.pipe(gz).pipe(res);
   }
 }
 

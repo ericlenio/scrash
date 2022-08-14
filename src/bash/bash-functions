@@ -17,7 +17,7 @@
     fi
     source $sty_env_file
   fi
-  echo $ESH_PORT
+  echo $SCR_PORT
 }
 
 #
@@ -28,17 +28,17 @@
     echo "$FUNCNAME: not running gnu screen" >&2
     return 1
   fi
-  if [ ! -e $ESH_STY_FIFO ]; then
-    mkfifo -m 0600 $ESH_STY_FIFO
+  if [ ! -e $SCR_STY_FIFO ]; then
+    mkfifo -m 0600 $SCR_STY_FIFO
   fi
-  #if [ -s $ESH_STY_FIFO_UPDATE ]; then
-  #  local updates=$(<$ESH_STY_FIFO_UPDATE)
+  #if [ -s $SCR_STY_FIFO_UPDATE ]; then
+  #  local updates=$(<$SCR_STY_FIFO_UPDATE)
   #  # merge updates
-  #  if rm -f $ESH_STY_FIFO_UPDATE; then
+  #  if rm -f $SCR_STY_FIFO_UPDATE; then
   #    local buf=$(
   #      $FUNCNAME
   #      eval "$updates"
-  #      for v in $ESH_UPDATEABLE; do
+  #      for v in $SCR_UPDATEABLE; do
   #        printf "%s='%s';" $v ${!v}
   #      done
   #    )
@@ -46,16 +46,16 @@
   #    env screen -X register p "${buf:-:}"
   #    echo "$FUNCNAME: info was updated: $updates" >/dev/tty
   #  else
-  #    echo "$FUNCNAME: could not delete $ESH_STY_FIFO_UPDATE" >&2
+  #    echo "$FUNCNAME: could not delete $SCR_STY_FIFO_UPDATE" >&2
   #    return 1
   #  fi
   #fi
   # paste the contents of register "p" into the named pipe, then
   # source it's contents into the current shell
-  if env screen -X eval "paste p ." "writebuf $ESH_STY_FIFO"; then
-    # note: cannot do "source $ESH_STY_FIFO" here, at least not with bash 3.2
+  if env screen -X eval "paste p ." "writebuf $SCR_STY_FIFO"; then
+    # note: cannot do "source $SCR_STY_FIFO" here, at least not with bash 3.2
     # on Mac
-    eval "$(<$ESH_STY_FIFO)"
+    eval "$(<$SCR_STY_FIFO)"
   else
     echo "$FUNCNAME: failed to load data from paste buffer" >&2
     return 1
@@ -70,7 +70,7 @@
 # wrapper around gnu screen. Call with "-test" to run the test suite
 screen() {
   local i rcfile session_id_prefix="esh-" session_id file_prefix=esh-sty-fifo tmpdir=/tmp opt run_tests=0 cmd=(env screen)
-  export ESH_UPDATEABLE="ESH_PORT SSH_AUTH_SOCK"
+  export SCR_UPDATEABLE="SCR_PORT SSH_AUTH_SOCK"
   for ((i=1;i<=$#;i++)); do
     opt="${!i}"
     case $opt in
@@ -104,7 +104,7 @@ screen() {
           if [[ "$session_id" =~ ^$session_id_prefix ]]; then
             # update critical environment variables
             local buf=$(
-              for v in $ESH_UPDATEABLE; do
+              for v in $SCR_UPDATEABLE; do
                 if [ "${!v}" ]; then
                   printf "%s='%s';" $v ${!v}
                 fi
@@ -159,11 +159,11 @@ screen() {
     rcfile=$(mktemp)
     cmd+=(-c $rcfile)
     cat << EOF >$rcfile
-setenv ESH_STY_FIFO $tmpdir/$file_prefix-$session_id
-setenv ESH_STY_LAST_UPDATE "$(date)"
+setenv SCR_STY_FIFO $tmpdir/$file_prefix-$session_id
+setenv SCR_STY_LAST_UPDATE "$(date)"
 register p ":"
-#screen bash -c "bootfunc 1 < <(echo $ESH_TERM_AUTH_TOKEN; tty)"
-#bind c screen bash -c "bootfunc 0 < <(echo $ESH_TERM_AUTH_TOKEN; tty)"
+#screen bash -c "bootfunc 1 < <(echo $SCR_TERM_AUTH_TOKEN; tty)"
+#bind c screen bash -c "bootfunc 0 < <(echo $SCR_TERM_AUTH_TOKEN; tty)"
 $(
   if [ $run_tests = 1 ]; then
     printf "screen bash -c -- -test\n"
@@ -173,7 +173,7 @@ $(
 )
 multiuser off
 # bind "%" to take a screenshot, and open a new window to edit it
-bind % exec bash -c 'f=\$(mktemp) t=\$RANDOM; env screen -X hardcopy \$f; env screen -t \$t sh -c "$ESH_EDITOR \$f; rm \$f"; env screen -X select \$t'
+bind % exec bash -c 'f=\$(mktemp) t=\$RANDOM; env screen -X hardcopy \$f; env screen -t \$t sh -c "$SCR_EDITOR \$f; rm \$f"; env screen -X select \$t'
 bind \040 windowlist -b
 vbell on
 vbell_msg DING
@@ -197,7 +197,7 @@ export -f screen
   shift
   printf -v url "%s%s" $base_url $endpoint
   set -- "$@" "$url"
-  curl -f -S -v "$@"
+  curl -f -S -s "$@"
   rc=$?
   if [ $rc -gt 0 ]; then
     echo "curl failed with arguments: $@" >&2
@@ -229,7 +229,7 @@ export -f screen
       (v) verbose=1
         ;;
       (t) test_mode=1
-        url="http://127.0.0.1:$ESH_PORT/esh-test-framework"
+        url="http://127.0.0.1:$SCR_PORT/scr-get-test-framework"
         eval "$(curl -S -f -s --compressed $url)"
         ;;
       (s)
@@ -239,7 +239,7 @@ export -f screen
         ;;
     esac
   done
-  declare -p ESH_PORT
+  declare -p SCR_PORT
   [ "$STY" ] && declare -p STY
   fcns=($(compgen -A function "-"))
   log_tty "loading functions ..."
@@ -301,7 +301,7 @@ ssh() {
       cmd+=(-t)
     fi
     remote_port=$(( $RANDOM % 5000 + 56100 ))
-    printf -v bootstr "'eval \"\$(curl -S -f -s --compressed http://127.0.0.1:%s/esh-functions?start=%s)\"'" $remote_port $start
+    printf -v bootstr "'eval \"\$(curl -S -f -s --compressed http://127.0.0.1:%s/scr-get-bash-functions?start=%s)\"'" $remote_port $start
     cmd+=(
       -oExitOnForwardFailure=yes
       -R$remote_port:127.0.0.1:$(-esh-port)
@@ -324,7 +324,11 @@ export -f ssh
   else
     f="/dev/stdin"
   fi
-  -ws /esh-copy-to-clipboard --data-binary @$f
+  -ws /scr-copy-to-clipboard --data-binary @$f
+}
+
+-clipboard() {
+  -ws /scr-get-clipboard --compressed -v
 }
 
 #

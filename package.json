@@ -5,7 +5,7 @@
   "type":"module",
   "main": "index.js",
   "scripts": {
-    "test": "./client -t"
+    "test": "./test"
   },
   "author": "",
   "license": "AGPL-3.0-only"
