@@ -136,7 +136,7 @@
 }
 
 -test() (
-  local num_assertions=${1:-1} len=8 env_file=/tmp/esh-test-log opts="r" opt OPTIND
+  local num_assertions=${1:-1} len=8 env_file=$SCR_TMPDIR/esh-test-log opts="r" opt OPTIND
   assertion_counter=0
   assertion_successes=0
   assertion_fails=0
@@ -145,10 +145,21 @@
     '[[ $SCR_PORT =~ ^[0-9]+$ ]]'
     'v=$(-random-string $len)'
     '[ $len = ${#v} ]'
-    '-hello-world'
+    '-ws-hello-world'
+    '-ws-hello-world | grep -q "hello world"'
     'session_id=$(screen --generate-session-id)'
     '[ ${#session_id} -gt 0 ]'
     '[[ $session_id =~ ^[-[:alnum:]]+$ ]]'
+    '[ -d $SCR_TMPDIR ]'
+    '[ $SCR_ENV = test ]'
+
+    # vim
+    '[ ${#EDITOR} -gt 0 ]'
+    'v --version >/dev/null'
+    '[ -e $EDITOR ]'
+    'rm $EDITOR'
+    'v --version >/dev/null'
+    '[ -e $EDITOR ]'
 
     # start/stop gnu screen
     'screen -S $session_id -d -m'
@@ -195,9 +206,9 @@
     'rm $t'
   )
 
-  declare -x SCR_TEST_STY_TEST_RESULT=/tmp/esh-test-sty-test-result
-  declare -x SCR_TEST_STY_STDOUT=/tmp/esh-test-sty-stdout
-  declare -x SCR_TEST_STY_STDERR=/tmp/esh-test-sty-stderr
+  declare -x SCR_TEST_STY_TEST_RESULT=$SCR_TMPDIR/esh-test-sty-test-result
+  declare -x SCR_TEST_STY_STDOUT=$SCR_TMPDIR/esh-test-sty-stdout
+  declare -x SCR_TEST_STY_STDERR=$SCR_TMPDIR/esh-test-sty-stderr
 
   for f in $SCR_TEST_STY_TEST_RESULT $SCR_TEST_STY_STDOUT $SCR_TEST_STY_STDERR; do
     if [ ! -e $f ]; then

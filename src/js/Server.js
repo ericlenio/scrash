@@ -41,6 +41,8 @@ class Server extends http.Server {
         return this.copyToClipboard(req,res);
       case "/scr-get-clipboard":
         return this.getClipboard(req,res);
+      case "/scr-get-vimrc":
+        return this.getVimrc(req,res);
       case "/scr-hello-world":
         return res.end("hello world\n");
     }
@@ -64,6 +66,20 @@ class Server extends http.Server {
         gz.write(`export SCR_PORT=${url.port}\n`);
         gz.pipe(res);
         gz.end(shellScript);
+      })
+      .catch(e=>{
+        res.statusCode=500;
+        res.end(e.toString());
+      });
+  }
+
+  getVimrc(url,res) {
+    fsPromises.readFile("./src/vim/vimrc",'utf8')
+      .then(vimrc=>{
+        res.writeHead(200,{'Content-Encoding':'gzip'});
+        const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
+        gz.pipe(res);
+        gz.end(vimrc);
       })
       .catch(e=>{
         res.statusCode=500;

@@ -1,23 +1,19 @@
 # vim filetype=bash
 
--sty-env-file() {
-  local sty_env_file=/tmp/esh-sty-$STY
-  if [ "$STY" -a ! -f $sty_env_file ]; then
-    touch $sty_env_file
-  fi
-  echo $sty_env_file
+l() {
+  ls -laF "$@"
+}
+export -f l
+
+-vars() {
+  set | grep ^SCR
 }
 
--esh-port() {
-  if [ "$STY" ]; then
-    local sty_env_file=$(-sty-env-file)
-    if [ ! -f $sty_env_file ]; then
-      echo "$FUNCNAME: expected $sty_env_file to exist" >&2
-      return 1
-    fi
-    source $sty_env_file
+-clear-cache() {
+  if [[ "$SCR_TMPDIR" =~ ^/tmp/ ]]; then
+    rm -rf $SCR_TMPDIR/*
+    echo "cleaned out $SCR_TMPDIR"
   fi
-  echo $SCR_PORT
 }
 
 #
@@ -25,8 +21,7 @@
 # particular, this must be called prior to any call to -ws or -ssh
 -screen-env() {
   if [ -z "$STY" ]; then
-    echo "$FUNCNAME: not running gnu screen" >&2
-    return 1
+    return
   fi
   if [ ! -e $SCR_STY_FIFO ]; then
     mkfifo -m 0600 $SCR_STY_FIFO
@@ -69,7 +64,7 @@
 
 # wrapper around gnu screen. Call with "-test" to run the test suite
 screen() {
-  local i rcfile session_id_prefix="esh-" session_id file_prefix=esh-sty-fifo tmpdir=/tmp opt run_tests=0 cmd=(env screen)
+  local i rcfile session_id_prefix="esh-" session_id file_prefix=esh-sty-fifo opt run_tests=0 cmd=(env screen) esc=^Aa
   export SCR_UPDATEABLE="SCR_PORT SSH_AUTH_SOCK"
   for ((i=1;i<=$#;i++)); do
     opt="${!i}"
@@ -146,7 +141,7 @@ screen() {
     cmd+=(-S $session_id)
   fi
   local old_fifo old_fifo_id
-  for old_fifo in $(ls $tmpdir/$file_prefix-* 2>/dev/null); do
+  for old_fifo in $(ls $SCR_TMPDIR/$file_prefix-* 2>/dev/null); do
     if [[ $old_fifo =~ $file_prefix-(.*) ]]; then
       old_fifo_id=${BASH_REMATCH[1]}
       if ! screen -ls | grep -q $old_fifo_id; then
@@ -159,7 +154,7 @@ screen() {
     rcfile=$(mktemp)
     cmd+=(-c $rcfile)
     cat << EOF >$rcfile
-setenv SCR_STY_FIFO $tmpdir/$file_prefix-$session_id
+setenv SCR_STY_FIFO $SCR_TMPDIR/$file_prefix-$session_id
 setenv SCR_STY_LAST_UPDATE "$(date)"
 register p ":"
 #screen bash -c "bootfunc 1 < <(echo $SCR_TERM_AUTH_TOKEN; tty)"
@@ -186,14 +181,18 @@ bind P eval "password none" "detach"
 screen rm $rcfile
 EOF
   fi
+  if [ "$SSH_TTY" ]; then
+    esc=^Ee
+  fi
   # strip off "screen." prefix from $TERM to avoid "$TERM too long" issue
-  cmd+=(-T ${TERM#screen.} -ln -e^Aa "$@")
+  cmd+=(-T ${TERM#screen.} -ln -e$esc "$@")
   "${cmd[@]}"
 }
 export -f screen
 
 -ws() {
-  local base_url=http://127.0.0.1:$(-esh-port) endpoint=$1 url rc
+  -screen-env
+  local base_url=http://127.0.0.1:$SCR_PORT endpoint=$1 url rc
   shift
   printf -v url "%s%s" $base_url $endpoint
   set -- "$@" "$url"
@@ -206,12 +205,35 @@ export -f screen
   return $rc
 }
 
--hello-world() {
+-ws-hello-world() {
   -ws /scr-hello-world -f -S "$@"
 }
 
 v() {
-  env vim "$@"
+  if [ -z "$EDITOR" ]; then
+    echo "$FUNCNAME: EDITOR is not set" >&2
+    return 1
+  fi
+  local d=$(dirname $EDITOR)
+  [ ! -d $d ] && mkdir -p $d
+  if [ ! -e $EDITOR ]; then
+    local p='#!/usr/bin/env bash
+[ "$1" = "--version" ] && exec vim "$@"
+%s
+exec vim "$@"
+'
+    #local url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
+    #eval "$(curl -S -f -s --compressed $url)"
+    printf "$p" "$(-shell-init)" > $EDITOR
+    chmod 755 $EDITOR || {
+      echo "ERROR: could not chmod $EDITOR: $?" >&2
+      return 1
+    }
+  fi
+  if [ ! -e $SCR_VIMRC ]; then
+    -ws /scr-get-vimrc --compressed > $SCR_VIMRC
+  fi
+  $EDITOR -u $SCR_VIMRC "$@"
 }
 export -f v
 
@@ -239,6 +261,7 @@ export -f v
         ;;
     esac
   done
+  [ $OPTIND -gt 1 ] && shift $(($OPTIND-1))
   declare -p SCR_PORT
   [ "$STY" ] && declare -p STY
   fcns=($(compgen -A function "-"))
@@ -258,13 +281,22 @@ export -f v
   done
   log_tty
   log_tty "DONE"
+  # SCR_ENV is like node's NODE_ENV, we can use it to create a separate name
+  # space for run time files and such
+  printf "export SCR_ENV=%s\n" $([ $test_mode = 1 ] && echo test || echo dev)
+  echo 'export SCR_TMPDIR=/tmp/scr-$SCR_ENV'
+  echo 'export EDITOR=$SCR_TMPDIR/scr-editor'
+  echo 'export SCR_VIMRC=$SCR_TMPDIR/scr-vimrc'
+  #echo '[ -z "$SUDO_USER" ] && rm -f $EDITOR $SCR_VIMRC'
+  echo '[ ! -d $SCR_TMPDIR ] && mkdir $SCR_TMPDIR'
   if [ $test_mode = 1 ]; then
     echo "exec bash -c -- -test"
-  elif [ "$start" -a "$start" != 1 ]; then
-    echo "exec bash -c -- '\"\$@\"' -- $(echo $start | openssl enc -d -a -A)"
-  else
-    #echo "exec bash --norc --noprofile"
-    echo "exec bash"
+  elif [ "$start" ]; then
+    if [ "$start" = 1 ]; then
+      echo "exec bash"
+    else
+      echo "exec bash -c -- '\"\$@\"' -- $(echo $start | openssl enc -d -a -A)"
+    fi
   fi
 }
 
@@ -304,9 +336,10 @@ ssh() {
     fi
     remote_port=$(( $RANDOM % 5000 + 56100 ))
     printf -v bootstr "'eval \"\$(curl -S -f -s --compressed http://127.0.0.1:%s/scr-get-bash-functions?start=%s)\"'" $remote_port $start
+    -screen-env
     cmd+=(
       -oExitOnForwardFailure=yes
-      -R$remote_port:127.0.0.1:$(-esh-port)
+      -R$remote_port:127.0.0.1:$SCR_PORT
       "$ssh_user_host"
       exec bash -c $bootstr
     )
