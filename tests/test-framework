@@ -120,6 +120,23 @@
     '! [ -e $SCR_STY_FIFO ]'
     '-screen-env'
     '[ -e $SCR_STY_FIFO ]'
+    '-ws-hello-world >/dev/null'
+
+    # start a gnu screen in ssh session
+    'session_id=$(screen --generate-session-id)'
+    '-ssh-localhost screen -S $session_id -d -m'
+    'screen -ls | grep -q $session_id'
+    'screen -S $session_id -X quit'
+
+    # disconnect/reconnect screen over ssh
+    'session_id=$(screen --generate-session-id)'
+    '-ssh-localhost screen -S $session_id -d -m'
+    't1=$SCR_TMPDIR/t1'
+    '-ssh-localhost screen -S $session_id -X screen bash -c -- "\"-ws-hello-world -o $t1\""'
+    'grep -q $session_id $t1'
+    'rm $t1'
+    'sleep 0.5'
+    'screen -ls | grep -q $session_id'
   )
 }
 
@@ -135,6 +152,11 @@
   #osascript -e 'tell application (path to frontmost application as text) to display dialog "Hello from osxdaily.com" buttons {"OK"} with icon stop'
 }
 
+-ssh-localhost() {
+   # disable "Warning: Permanently added ..." by using error log level
+   ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oLogLevel=error localhost "$@"
+}
+
 -test() (
   local num_assertions=${1:-1} len=8 env_file=$SCR_TMPDIR/esh-test-log opts="r" opt OPTIND
   assertion_counter=0
@@ -145,13 +167,14 @@
     '[[ $SCR_PORT =~ ^[0-9]+$ ]]'
     'v=$(-random-string $len)'
     '[ $len = ${#v} ]'
-    '-ws-hello-world'
+    '-ws-hello-world >/dev/null'
     '-ws-hello-world | grep -q "hello world"'
     'session_id=$(screen --generate-session-id)'
     '[ ${#session_id} -gt 0 ]'
     '[[ $session_id =~ ^[-[:alnum:]]+$ ]]'
     '[ -d $SCR_TMPDIR ]'
     '[ $SCR_ENV = test ]'
+    '-clear-cache'
 
     # vim
     '[ ${#EDITOR} -gt 0 ]'
@@ -175,10 +198,10 @@
     '! screen -ls | grep -q $SCR_TEST_STY'
 
     # ssh
-    'h=$(ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null localhost hostname)'
+    'h=$(-ssh-localhost hostname)'
     '[ $h = $(hostname) ]'
     # remote SCR_PORT from ssh session should always be different from parent shell
-    'remote_port=$(ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null localhost echo \$SCR_PORT)'
+    'remote_port=$(-ssh-localhost echo \$SCR_PORT)'
     '[ $remote_port != $SCR_PORT ]'
     '[[ $remote_port =~ ^[0-9]+$ ]]'
 
@@ -201,7 +224,7 @@
 
     # clipboard over ssh
     't=$(mktemp) && uname -a > $t'
-    'ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null localhost -copy-to-clipboard $t'
+    '-ssh-localhost -copy-to-clipboard $t'
     '[ $(-md5 $t) = $(-clipboard | -md5) ]'
     'rm $t'
   )

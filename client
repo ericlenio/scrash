@@ -14,6 +14,6 @@ while builtin getopts "p:t" opt; do
   esac
 done
 
-url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
+url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions?start=1"
 eval "$(curl -S -f -s --compressed $url)"
-eval "$(-shell-init -v -s 1 $TEST_MODE)"
+#eval "$(-shell-init -v -s 1 $TEST_MODE)"

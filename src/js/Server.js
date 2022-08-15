@@ -92,12 +92,13 @@ class Server extends http.Server {
       .then(shellScript=>{
         res.writeHead(200,{'Content-Encoding':'gzip'});
         const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
-        gz.write(`export SCR_PORT=${url.port}\n`);
         gz.pipe(res);
         gz.write(shellScript);
         const start=url.searchParams.get('start');
         if (start) {
-          gz.write(`eval "$(-shell-init -s ${start})"\n`);
+          gz.write(`export SCR_PORT=${url.port}\n`);
+          //gz.write(`eval "$(-shell-init -s ${start})"\n`);
+          gz.write(`-shell-init -s ${start}\n`);
         }
         gz.end();
       })
