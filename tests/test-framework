@@ -196,8 +196,8 @@
     'echo -n $r | -copy-to-clipboard'
     'r2=$(-clipboard)'
     '[ $r = $r2 ]'
-    '-copy-to-clipboard /etc/profile'
-    '[ $(-clipboard | -md5) = $(-md5 /etc/profile) ]'
+    '-copy-to-clipboard /etc/passwd'
+    '[ $(-clipboard | -md5) = $(-md5 /etc/passwd) ]'
 
     # clipboard over ssh
     't=$(mktemp) && uname -a > $t'

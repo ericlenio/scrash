@@ -58,15 +58,21 @@ export -f l
 }
 
 -random-string() {
-  local length=${1:-16}
-  LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom | head -c $length
+  local length=${1:-16} r="" c
+  while [ ${#r} -lt $length ]; do
+    read -n 1 c
+    r+=$c
+  done < <(LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom)
+  echo $r
 }
 
 # wrapper around gnu screen. Call with "-test" to run the test suite
 screen() {
-  local i rcfile session_id_prefix="esh-" session_id file_prefix=esh-sty-fifo opt run_tests=0 cmd=(env screen) esc=^Aa
+  local i i2 next_arg rcfile session_id_prefix="esh-" session_id file_prefix=esh-sty-fifo opt run_tests=0 cmd=(env screen) esc=^Aa
   export SCR_UPDATEABLE="SCR_PORT SSH_AUTH_SOCK"
   for ((i=1;i<=$#;i++)); do
+    i2=$(($i+1))
+    next_arg="${!i2}"
     opt="${!i}"
     case $opt in
       (--generate-session-id)
@@ -76,47 +82,56 @@ screen() {
       (-r)
         # we override gnu screen's handling of -r, set up our own logic to pick
         # a session to resume
-        local curr_sty=${STY:-some_value} pick_sty pick_sty_line esh_sty
-        local stys=$(
-          while read l; do
-            if [[ "$l" =~ ^[[:blank:]]*([0-9]+\.[^[:blank:]]+)[[:blank:]]+([[:print:]]+) ]]; then
-              pick_sty=${BASH_REMATCH[1]}
-              pick_sty_status=${BASH_REMATCH[2]}
-              echo "$pick_sty $pick_sty_status"
-            fi
-          done < <(env screen -ls | grep -v $curr_sty)
-        )
-        if [ -z "$stys" ]; then
-          echo "No screen sessions detected."
-          return 0
-        fi
-        if ! pick_sty_line=$(-pick-something "Resume which session?" "$stys"); then
-          return $?
-        fi
-        if [[ $pick_sty_line =~ ^([0-9]+\.([-[:alnum:]]+)) ]]; then
-          pick_sty=${BASH_REMATCH[1]}
-          session_id=${BASH_REMATCH[2]}
-          if [[ "$session_id" =~ ^$session_id_prefix ]]; then
-            # update critical environment variables
-            local buf=$(
-              for v in $SCR_UPDATEABLE; do
-                if [ "${!v}" ]; then
-                  printf "%s='%s';" $v ${!v}
-                fi
-              done
-            )
-            # set buf to ":" if it is unset: want to avoid an empty register
-            if ! env screen -S $session_id -X register p "${buf:-:}"; then
-              echo "failed to update environment: $buf" >&2
-              return 1
-            fi
-          fi
-          env screen -d -r $session_id
-          return $?
+        local curr_sty=${STY:-some_value} pick_sty pick_sty_line esh_sty stys next_arg
+        # see if a session_id was provided in the next arg
+        if [[ "$next_arg" =~ ^[[:alnum:]] ]]; then
+          session_id=$next_arg
         else
-          echo "$FUNCNAME: no match for pick_sty_line: $pick_sty_line" >&2
-          return 1
+          # make a pick list of available session ids
+          stys=$(
+            while read l; do
+              if [[ "$l" =~ ^[[:blank:]]*([0-9]+\.[^[:blank:]]+)[[:blank:]]+([[:print:]]+) ]]; then
+                pick_sty=${BASH_REMATCH[1]}
+                pick_sty_status=${BASH_REMATCH[2]}
+                echo "$pick_sty $pick_sty_status"
+              fi
+            done < <(env screen -ls | grep -v $curr_sty)
+          )
+          if [ -z "$stys" ]; then
+            echo "No screen sessions detected."
+            return 0
+          fi
+          if ! pick_sty_line=$(-pick-something "Resume which session?" "$stys"); then
+            return $?
+          fi
+          if [[ $pick_sty_line =~ ^([0-9]+\.([-[:alnum:]]+)) ]]; then
+            pick_sty=${BASH_REMATCH[1]}
+            session_id=${BASH_REMATCH[2]}
+          else
+            echo "$FUNCNAME: no match for pick_sty_line: $pick_sty_line" >&2
+            return 1
+          fi
         fi
+        if [[ "$session_id" =~ ^$session_id_prefix ]]; then
+          # update critical environment variables
+          local buf=$(
+            for v in $SCR_UPDATEABLE; do
+              if [ "${!v}" ]; then
+                printf "%s='%s';" $v ${!v}
+              fi
+            done
+          )
+          # set buf to ":" if it is unset: want to avoid an empty register
+          if ! env screen -S $session_id -X register p "${buf:-:}"; then
+            echo "failed to update environment: $buf" >&2
+            return 1
+          fi
+        else
+          echo "warning: \"$session_id\" is not a scrash-controlled screen session"
+          read -p "press RETURN to continue, ctrl-c to cancel"
+        fi
+        env screen -d -r $session_id
+        return $?
         ;;
       (-D|-ls|-list|-Q|-v|-x|-X|-wipe|-R|-RR)
         env screen "$@"
@@ -127,12 +142,10 @@ screen() {
         shift
         ;;
       (-S)
-        local i2=$(($i+1))
-        session_id=${!i2}
+        session_id=$next_arg
         ;;
       (-c)
-        local i2=$(($i+1))
-        rcfile=${!i2}
+        rcfile=$next_arg
         ;;
     esac
   done
