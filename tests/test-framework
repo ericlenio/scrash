@@ -18,23 +18,17 @@
   if [ $base64 = 1 ]; then
     assertion="$(echo $assertion | openssl enc -d -a -A)"
   fi
-  #if [ "$session_id" ]; then
-  #  IFS=$'\t' read -a result <(-assert-sty $session_id "$assertion")
-  #  if [ ${#result} -gt 0 ]; then
-  #    status=${result[0]}
-  #  else
-  #    echo "sty:$result"
-  #  fi
-  #else
-    if eval -- "$assertion"; then
-      status="PASS"
-    fi
-  #fi
+  if eval -- "$assertion"; then
+    status="PASS"
+  fi
   if [ -z "$raw_mode_named_pipe" ]; then
     -assert-result $status "$assertion"
     #printf "%s. %s: %s\n" $num_assertions $status "$assertion"
   else
     printf "%s\t%s\n" $status "$assertion" >$raw_mode_named_pipe
+  fi
+  if [ $status = FAIL ]; then
+    return 1
   fi
 }
 
@@ -106,7 +100,10 @@
   for ((i=0;i<$n;i++)); do
     IFS=$'\t' read -t 1 -ra result <$SCR_TEST_STY_TEST_RESULT || true
 #read result <$SCR_TEST_STY_TEST_RESULT || true
-    -assert-result "${result[@]}"
+    if ! -assert-result "${result[@]}"; then
+echo "ans:$?:${result[@]}" >&2
+break
+fi
   done
 
   wait
@@ -132,7 +129,8 @@
     'session_id=$(screen --generate-session-id)'
     '-ssh-localhost screen -S $session_id -d -m'
     't1=$SCR_TMPDIR/t1'
-    '-ssh-localhost screen -S $session_id -X screen bash -c -- "\"-ws-hello-world -o $t1\""'
+    '-ssh-localhost screen -S $session_id -X screen bash -c -- "-ws-hello-world -o $t1"'
+    '[ -e $t1 ]'
     'grep -q $session_id $t1'
     'rm $t1'
     'sleep 0.5'
@@ -143,6 +141,7 @@
 # this runs the test cases for gnu screen
 -test-sty() {
   local assertion
+  set -e
   exec 1>$SCR_TEST_STY_STDOUT 2>$SCR_TEST_STY_STDERR
   -test-sty-assertions
   for assertion in "${SCR_TEST_STY_ASSERTIONS[@]}"; do
@@ -174,7 +173,6 @@
     '[[ $session_id =~ ^[-[:alnum:]]+$ ]]'
     '[ -d $SCR_TMPDIR ]'
     '[ $SCR_ENV = test ]'
-    '-clear-cache'
 
     # vim
     '[ ${#EDITOR} -gt 0 ]'
@@ -228,6 +226,8 @@
     '[ $(-md5 $t) = $(-clipboard | -md5) ]'
     'rm $t'
   )
+
+  -clear-cache
 
   declare -x SCR_TEST_STY_TEST_RESULT=$SCR_TMPDIR/esh-test-sty-test-result
   declare -x SCR_TEST_STY_STDOUT=$SCR_TMPDIR/esh-test-sty-stdout

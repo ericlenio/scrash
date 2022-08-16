@@ -1,6 +1,7 @@
 #! /usr/bin/env bash
 
 export SCR_PORT=4553
+export SCR_ENV=dev
 TEST_MODE=''
 
 while builtin getopts "p:t" opt; do
@@ -10,10 +11,11 @@ while builtin getopts "p:t" opt; do
       ;;
     (t)
       TEST_MODE="-t"
+      SCR_ENV=test
       ;;
   esac
 done
 
-url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions?start=1"
+url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
 eval "$(curl -S -f -s --compressed $url)"
-#eval "$(-shell-init -v -s 1 $TEST_MODE)"
+-shell-init -v -s 1 $TEST_MODE

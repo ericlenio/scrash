@@ -315,7 +315,6 @@ export -f v
 
 -shell-init() {
   local opts="vts:" opt OPTIND log_tty verbose=0 i fcns num_fcns test_mode=0 start
-  SCR_ENV=dev
   while builtin getopts $opts opt; do
     case $opt in
       (v) verbose=1
