@@ -164,7 +164,7 @@ screen() {
     fi
   done
   if [ -z "$rcfile" ]; then
-    rcfile=$(mktemp)
+    rcfile=$SCR_TMPDIR/screenrc
     cmd+=(-c $rcfile)
     cat << EOF >$rcfile
 setenv SCR_STY_FIFO $SCR_TMPDIR/$file_prefix-$session_id
@@ -191,7 +191,6 @@ msgwait 1
 shelltitle "$ |:"
 caption always "%{= kw}%-w%{= BW}%n%t%{-}%+w %-= @%H %{= Y}%l%{-} %m/%d %0c$esh_info"
 bind P eval "password none" "detach"
-screen rm $rcfile
 EOF
   fi
   if [ "$SSH_TTY" ]; then
