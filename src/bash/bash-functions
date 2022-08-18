@@ -20,6 +20,32 @@ export -f l
 # call within gnu screen to update important environment variables; in
 # particular, this must be called prior to any call to -ws or -ssh
 -screen-env() {
+  local opts="uS:" opt OPTIND update=0 v
+  while builtin getopts $opts opt; do
+    case $opt in
+      (u) update=1
+        ;;
+      (S) STY=$OPTIND
+        ;;
+    esac
+  done
+  if [ $update = 1 ]; then
+    # update critical environment variables
+    local buf=$(
+      for v in $SCR_UPDATEABLE; do
+        if [ "${!v}" ]; then
+          printf "%s='%s';" $v ${!v}
+        fi
+      done
+    )
+    # set buf to ":" if it is unset: want to avoid an empty register
+    if ! env screen -S $STY -X register p "${buf:-:}"; then
+      echo "$FUNCNAME: failed to update environment for $STY: $buf" >&2
+      return 1
+    fi
+    echo "$FUNCNAME: successful update: $buf"
+    return
+  fi
   if [ -z "$STY" ]; then
     return
   fi
@@ -66,10 +92,82 @@ export -f l
   echo $r
 }
 
+-pick-sty() {
+  local stys pick_sty pick_sty_line session_id
+  # make a pick list of available session ids
+  stys=$(
+    while read l; do
+      if [[ "$l" =~ ^[[:blank:]]*([0-9]+\.[^[:blank:]]+)[[:blank:]]+([[:print:]]+) ]]; then
+        pick_sty=${BASH_REMATCH[1]}
+        pick_sty_status=${BASH_REMATCH[2]}
+        echo "$pick_sty $pick_sty_status" >/dev/tty
+      fi
+    done < <(env screen -ls | grep -v $curr_sty)
+  )
+  if [ -z "$stys" ]; then
+    echo "No screen sessions detected." >/dev/tty
+    return 0
+  fi
+  if ! pick_sty_line=$(-pick-something "Resume which session?" "$stys"); then
+    return $?
+  fi
+  if [[ $pick_sty_line =~ ^([0-9]+\.([-[:alnum:]]+)) ]]; then
+    pick_sty=${BASH_REMATCH[1]}
+    session_id=${BASH_REMATCH[2]}
+    echo $session_id
+  else
+    echo "$FUNCNAME: no match for pick_sty_line: $pick_sty_line" >&2
+    return 1
+  fi
+}
+
 # wrapper around gnu screen. Call with "-test" to run the test suite
 screen() {
-  local i i2 next_arg rcfile session_id_prefix="esh-" session_id file_prefix=esh-sty-fifo opt run_tests=0 cmd=(env screen) esc=^Aa
+  local i i2 next_arg rcfile session_id_prefix="scr-" session_id file_prefix=scr-sty-fifo OPTIND opts=":S:r:u-:" opt OPTERR=1 run_tests=0 cmd=(env screen) esc=^Aa update=0 command=0
   export SCR_UPDATEABLE="SCR_PORT SSH_AUTH_SOCK"
+  while builtin getopts $opts opt; do
+    case $opt in
+      (-)
+        if [ "$OPTARG" = generate-session-id ]; then
+          printf "%s%s" $session_id_prefix $(-random-string 4)
+          return
+        fi
+        ;;
+      (r)
+        if [[ $OPTARG =~ ^- ]]; then
+          let OPTIND-=1
+        else
+          session_id=$OPTARG
+        fi
+        ;;
+      (u)
+        update=1
+        ;;
+      (S)
+        cmd+=(-$opt "$OPTARG")
+        ;;
+      (:)
+        # can get here if we have an arg that requires an option but that arg
+        # is missing; specifically we want to handle -r without an argument
+        case $OPTARG in
+          (r)
+            if ! session_id=$(-pick-sty); then
+              return 1
+            fi
+            ;;
+          (*)
+            echo "unknown arg: $OPTARG" >&2
+            cmd+=($OPTARG)
+            ;;
+        esac
+        ;;
+      (*)
+        cmd+=(-$OPTARG)
+        ;;
+    esac
+  done
+echo cmd to run :${#cmd[@]}:${cmd[@]}
+return
   for ((i=1;i<=$#;i++)); do
     i2=$(($i+1))
     next_arg="${!i2}"
@@ -113,17 +211,7 @@ screen() {
           fi
         fi
         if [[ "$session_id" =~ ^$session_id_prefix ]]; then
-          # update critical environment variables
-          local buf=$(
-            for v in $SCR_UPDATEABLE; do
-              if [ "${!v}" ]; then
-                printf "%s='%s';" $v ${!v}
-              fi
-            done
-          )
-          # set buf to ":" if it is unset: want to avoid an empty register
-          if ! env screen -S $session_id -X register p "${buf:-:}"; then
-            echo "failed to update environment: $buf" >&2
+          if ! -screen-env -S $session_id -u; then
             return 1
           fi
         else
@@ -133,9 +221,12 @@ screen() {
         env screen -d -r $session_id
         return $?
         ;;
-      (-D|-ls|-list|-Q|-v|-x|-X|-wipe|-R|-RR)
+      (-D|-ls|-list|-Q|-v|-x|-wipe|-R|-RR)
         env screen "$@"
         return $?
+        ;;
+      (X)
+        command=1
         ;;
       (-test)
         run_tests=1
@@ -147,8 +238,15 @@ screen() {
       (-c)
         rcfile=$next_arg
         ;;
+      (-u)
+        update=1
+        shift
+        ;;
     esac
   done
+  if [ $update = 1 ]; then
+    -screen-env -S ${session_id:-${STY:-no-such-STY}} -u
+  fi
   if [ ! "$session_id" ]; then
     session_id=$($FUNCNAME --generate-session-id)
     cmd+=(-S $session_id)
@@ -249,69 +347,6 @@ exec vim "$@"
 }
 export -f v
 
--shell-init-ORIG() {
-  local opts="vts:" opt OPTIND log_tty verbose=0 i fcns num_fcns test_mode=0 start
-  log_tty() {
-    if [ $verbose = 1 -a -e /dev/tty ]; then
-      local args=("$@")
-      declare -p args
-      echo 'echo "${args[@]}" >/dev/tty'
-    fi
-  }
-  while builtin getopts $opts opt; do
-    case $opt in
-      (v) verbose=1
-        ;;
-      (t) test_mode=1
-        url="http://127.0.0.1:$SCR_PORT/scr-get-test-framework"
-        eval "$(curl -S -f -s --compressed $url)"
-        ;;
-      (s)
-        # pass start=1 to start an interactive shell, any other value is
-        # assumed to be a base64 encoded command to be run
-        start=$OPTARG
-        ;;
-    esac
-  done
-  [ $OPTIND -gt 1 ] && shift $(($OPTIND-1))
-  declare -p SCR_PORT
-  [ "$STY" ] && declare -p STY
-  fcns=($(compgen -A function "-"))
-  log_tty "loading functions ..."
-  num_fcns=${#fcns[*]}
-  for ((i=0;i<$num_fcns;i++)); do
-    fcn=${fcns[$i]}
-    declare -f -- $fcn
-    log_tty -n $fcn
-    if [ $i -lt $(($num_fcns-1)) ]; then
-      log_tty -n ", "
-      if [ $i -gt 0 -a $((i % 5)) -eq 0 ]; then
-        log_tty
-      fi
-    fi
-    printf "export -f -- %s\n" $fcn
-  done
-  log_tty
-  log_tty "DONE"
-  # SCR_ENV is like node's NODE_ENV, we can use it to create a separate name
-  # space for run time files and such
-  printf "export SCR_ENV=%s\n" $([ $test_mode = 1 ] && echo test || echo dev)
-  echo 'export SCR_TMPDIR=/tmp/scr-$SCR_ENV'
-  echo 'export EDITOR=$SCR_TMPDIR/scr-editor'
-  echo 'export SCR_VIMRC=$SCR_TMPDIR/scr-vimrc'
-  #echo '[ -z "$SUDO_USER" ] && rm -f $EDITOR $SCR_VIMRC'
-  echo '[ ! -d $SCR_TMPDIR ] && mkdir $SCR_TMPDIR'
-  if [ $test_mode = 1 ]; then
-    echo "exec bash -c -- -test"
-  elif [ "$start" ]; then
-    if [ "$start" = 1 ]; then
-      echo "exec bash"
-    else
-      echo "exec bash -c -- '\"\$@\"' -- $(echo $start | openssl enc -d -a -A)"
-    fi
-  fi
-}
-
 -shell-init() {
   local opts="vts:" opt OPTIND log_tty verbose=0 i fcns num_fcns test_mode=0 start
   while builtin getopts $opts opt; do
@@ -325,7 +360,8 @@ export -f v
         ;;
       (s)
         # pass start=1 to start an interactive shell, any other value is
-        # assumed to be a base64 encoded command to be run
+        # assumed to be a base64 encoded command to be run (generated by
+        # -ssh-serialize-cmd)
         start=$OPTARG
         ;;
     esac
@@ -345,7 +381,7 @@ export -f v
     if [ "$start" = 1 ]; then
       exec bash
     else
-      exec bash -c -- '"$@"' -- $(echo $start | openssl enc -d -a -A)
+      exec bash -c -- "-ssh-deserialize-cmd $start"
     fi
   fi
 }
@@ -356,6 +392,19 @@ export -f v
   chmod 644 $tmpfile
   sudo -u $user bash $tmpfile
   rm -f $tmpfile
+}
+
+-ssh-serialize-cmd() {
+  local c=("$@")
+  declare -p c | openssl enc -a -A
+}
+
+-ssh-deserialize-cmd() {
+  # b64 is assumed to have been generated from -ssh-serialize-cmd
+  local b64="$1" c
+  eval "$(echo -n $b64 | openssl enc -d -a -A)"
+echo "${c[@]}" >> /tmp/log
+  "${c[@]}"
 }
 
 ssh() {
@@ -379,7 +428,8 @@ ssh() {
   if [ "$ssh_user_host" ]; then
     shift
     if [ $# -gt 0 ]; then
-      start=$(echo "$@" | openssl enc -a -A)
+      #start=$(c=("$@"); declare -p c | openssl enc -a -A)
+      start=$(-ssh-serialize-cmd "$@")
     else
       start=1
       cmd+=(-t)

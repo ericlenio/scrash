@@ -102,6 +102,7 @@
 #read result <$SCR_TEST_STY_TEST_RESULT || true
     if ! -assert-result "${result[@]}"; then
 echo "ans:$?:${result[@]}" >&2
+set >/tmp/s
 break
 fi
   done
@@ -129,10 +130,12 @@ fi
     'session_id=$(screen --generate-session-id)'
     '-ssh-localhost screen -S $session_id -d -m'
     't1=$SCR_TMPDIR/t1'
-    '-ssh-localhost screen -S $session_id -X screen bash -c -- "-ws-hello-world -o $t1"'
+# 'set > $t1' #WORKS
+#'-ssh-localhost screen -S $session_id -X screen bash -c -- "touch $t1 /tmp/t2"' #WORKS
+    '-ssh-localhost screen -u -S $session_id -X screen bash -c -- "set -x;-ws-hello-world -v -o $t1;tty;read -p wating"'
     '[ -e $t1 ]'
     'grep -q $session_id $t1'
-    'rm $t1'
+    #'rm $t1'
     'sleep 0.5'
     'screen -ls | grep -q $session_id'
   )

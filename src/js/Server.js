@@ -97,7 +97,6 @@ class Server extends http.Server {
         const start=url.searchParams.get('start');
         if (start) {
           gz.write(`export SCR_PORT=${url.port}\n`);
-          //gz.write(`eval "$(-shell-init -s ${start})"\n`);
           gz.write(`-shell-init -s ${start}\n`);
         }
         gz.end();
