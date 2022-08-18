@@ -93,14 +93,14 @@ export -f l
 }
 
 -pick-sty() {
-  local stys pick_sty pick_sty_line session_id
+  local stys pick_sty pick_sty_line session_id curr_sty=${STY:-no_such_sty_exists}
   # make a pick list of available session ids
   stys=$(
     while read l; do
       if [[ "$l" =~ ^[[:blank:]]*([0-9]+\.[^[:blank:]]+)[[:blank:]]+([[:print:]]+) ]]; then
         pick_sty=${BASH_REMATCH[1]}
         pick_sty_status=${BASH_REMATCH[2]}
-        echo "$pick_sty $pick_sty_status" >/dev/tty
+        echo "$pick_sty $pick_sty_status"
       fi
     done < <(env screen -ls | grep -v $curr_sty)
   )
@@ -123,131 +123,46 @@ export -f l
 
 # wrapper around gnu screen. Call with "-test" to run the test suite
 screen() {
-  local i i2 next_arg rcfile session_id_prefix="scr-" session_id file_prefix=scr-sty-fifo OPTIND opts=":S:r:u-:" opt OPTERR=1 run_tests=0 cmd=(env screen) esc=^Aa update=0 command=0
+  local i i2 next_arg rcfile session_id_prefix="scr-" session_id file_prefix=scr-sty-fifo opt run_tests=0 cmd=(env screen) esc=^Aa update=0 command=0
   export SCR_UPDATEABLE="SCR_PORT SSH_AUTH_SOCK"
-  while builtin getopts $opts opt; do
-    case $opt in
-      (-)
-        if [ "$OPTARG" = generate-session-id ]; then
-          printf "%s%s" $session_id_prefix $(-random-string 4)
-          return
-        fi
-        ;;
-      (r)
-        if [[ $OPTARG =~ ^- ]]; then
-          let OPTIND-=1
-        else
-          session_id=$OPTARG
-        fi
-        ;;
-      (u)
-        update=1
-        ;;
-      (S)
-        cmd+=(-$opt "$OPTARG")
-        ;;
-      (:)
-        # can get here if we have an arg that requires an option but that arg
-        # is missing; specifically we want to handle -r without an argument
-        case $OPTARG in
-          (r)
-            if ! session_id=$(-pick-sty); then
-              return 1
-            fi
-            ;;
-          (*)
-            echo "unknown arg: $OPTARG" >&2
-            cmd+=($OPTARG)
-            ;;
-        esac
-        ;;
-      (*)
-        cmd+=(-$OPTARG)
-        ;;
-    esac
-  done
-echo cmd to run :${#cmd[@]}:${cmd[@]}
-return
   for ((i=1;i<=$#;i++)); do
-    i2=$(($i+1))
+    i2=$((i+1))
     next_arg="${!i2}"
     opt="${!i}"
     case $opt in
       (--generate-session-id)
-        printf "%s%s" $session_id_prefix $(-random-string 6)
+        printf "%s%s" $session_id_prefix $(-random-string 4)
         return
         ;;
-      (-r)
-        # we override gnu screen's handling of -r, set up our own logic to pick
-        # a session to resume
-        local curr_sty=${STY:-some_value} pick_sty pick_sty_line esh_sty stys next_arg
-        # see if a session_id was provided in the next arg
-        if [[ "$next_arg" =~ ^[[:alnum:]] ]]; then
-          session_id=$next_arg
-        else
-          # make a pick list of available session ids
-          stys=$(
-            while read l; do
-              if [[ "$l" =~ ^[[:blank:]]*([0-9]+\.[^[:blank:]]+)[[:blank:]]+([[:print:]]+) ]]; then
-                pick_sty=${BASH_REMATCH[1]}
-                pick_sty_status=${BASH_REMATCH[2]}
-                echo "$pick_sty $pick_sty_status"
-              fi
-            done < <(env screen -ls | grep -v $curr_sty)
-          )
-          if [ -z "$stys" ]; then
-            echo "No screen sessions detected."
-            return 0
-          fi
-          if ! pick_sty_line=$(-pick-something "Resume which session?" "$stys"); then
-            return $?
-          fi
-          if [[ $pick_sty_line =~ ^([0-9]+\.([-[:alnum:]]+)) ]]; then
-            pick_sty=${BASH_REMATCH[1]}
-            session_id=${BASH_REMATCH[2]}
-          else
-            echo "$FUNCNAME: no match for pick_sty_line: $pick_sty_line" >&2
-            return 1
-          fi
-        fi
-        if [[ "$session_id" =~ ^$session_id_prefix ]]; then
-          if ! -screen-env -S $session_id -u; then
-            return 1
-          fi
-        else
-          echo "warning: \"$session_id\" is not a scrash-controlled screen session"
-          read -p "press RETURN to continue, ctrl-c to cancel"
-        fi
-        env screen -d -r $session_id
-        return $?
-        ;;
-      (-D|-ls|-list|-Q|-v|-x|-wipe|-R|-RR)
+      (-ls|-list|-wipe|-X|-Q|-D)
         env screen "$@"
         return $?
         ;;
-      (X)
-        command=1
-        ;;
-      (-test)
-        run_tests=1
-        shift
-        ;;
-      (-S)
-        session_id=$next_arg
-        ;;
-      (-c)
-        rcfile=$next_arg
-        ;;
+      (-r)
+        if [[ "$next_arg" =~ ^[[:alnum:]] ]]; then
+          session_id=$next_arg
+        else
+          if ! session_id=$(-pick-sty); then
+            return $?
+          fi
+        fi
+        if [[ $session_id =~ ^$session_id_prefix ]]; then
+          if ! -screen-env -S $session_id -u; then
+            return $?
+          fi
+        fi
+        set -- "${@:0:i-1}" -r $session_id "${@:i+1}"
+        cmd+=("$@")
+        "${cmd[@]}"
+        return $?
       (-u)
-        update=1
-        shift
+        -screen-env "$@"
+        return $?
         ;;
     esac
+    cmd+=("$opt")
   done
-  if [ $update = 1 ]; then
-    -screen-env -S ${session_id:-${STY:-no-such-STY}} -u
-  fi
-  if [ ! "$session_id" ]; then
+  if ! [[ "${cmd[@]}" =~ -S\ [[:alnum:]] ]]; then
     session_id=$($FUNCNAME --generate-session-id)
     cmd+=(-S $session_id)
   fi
