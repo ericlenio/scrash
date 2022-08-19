@@ -102,7 +102,6 @@
 #read result <$SCR_TEST_STY_TEST_RESULT || true
     if ! -assert-result "${result[@]}"; then
 echo "ans:$?:${result[@]}" >&2
-set >/tmp/s
 break
 fi
   done
@@ -132,7 +131,8 @@ fi
     't1=$SCR_TMPDIR/t1'
 # 'set > $t1' #WORKS
 #'-ssh-localhost screen -S $session_id -X screen bash -c -- "touch $t1 /tmp/t2"' #WORKS
-    '-ssh-localhost screen -u -S $session_id -X screen bash -c -- "set -x;-ws-hello-world -v -o $t1;tty;read -p wating"'
+    '-ssh-localhost screen --generate-session-id'
+    '-ssh-localhost screen -u -S $session_id -X screen bash -c -- "-ws-hello-world -v -o $t1"'
     '[ -e $t1 ]'
     'grep -q $session_id $t1'
     #'rm $t1'
@@ -202,7 +202,7 @@ fi
     'h=$(-ssh-localhost hostname)'
     '[ $h = $(hostname) ]'
     # remote SCR_PORT from ssh session should always be different from parent shell
-    'remote_port=$(-ssh-localhost echo \$SCR_PORT)'
+    'remote_port=$(eval $(-ssh-localhost declare -p SCR_PORT); echo $SCR_PORT)'
     '[ $remote_port != $SCR_PORT ]'
     '[[ $remote_port =~ ^[0-9]+$ ]]'
 
