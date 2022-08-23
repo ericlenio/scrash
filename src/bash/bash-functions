@@ -20,7 +20,7 @@ export -f l
 # call within gnu screen to update important environment variables; in
 # particular, this must be called prior to any call to -ws or -ssh
 -screen-env() {
-  local opts="uS:" opt OPTIND update=0 v SCR_UPDATEABLE="SCR_PORT SSH_AUTH_SOCK"
+  local opts="uS:" opt OPTIND update=0 v SCR_UPDATEABLE="SCR_PORT SSH_AUTH_SOCK" file_prefix=scr-sty-fifo
   # keep STY local so we don't pollute parent shell when reconnecting to a gnu
   # screen session
   local STY=$STY
@@ -36,6 +36,20 @@ export -f l
     echo "$FUNCNAME: no value for STY" >&2
     return 1
   fi
+  local session_id=${STY##*.}
+  local SCR_STY_FIFO=$SCR_TMPDIR/$file_prefix-$session_id
+  local old_fifo old_fifo_id
+  for old_fifo in $(ls $SCR_TMPDIR/$file_prefix-* 2>/dev/null); do
+    if [[ $old_fifo =~ $file_prefix-(.*) ]]; then
+      old_fifo_id=${BASH_REMATCH[1]}
+      if ! screen -ls | grep -q $old_fifo_id; then
+        rm -f $old_fifo
+        if [ /dev/tty ]; then
+          echo "removed old fifo: $old_fifo" >/dev/tty
+        fi
+      fi
+    fi
+  done
   if [ $update = 1 ]; then
     # update critical environment variables
     local buf=$(
@@ -46,38 +60,21 @@ export -f l
       done
     )
     # set buf to ":" if it is unset: want to avoid an empty register
-    if ! env screen -S $STY -X register p "${buf:-:}"; then
-      echo "$FUNCNAME: failed to update environment for $STY: $buf" >&2
+    if ! env screen -S $session_id -X register . "${buf:-:}"; then
+      echo "$FUNCNAME: failed to update environment for $session_id: $buf" >&2
       return 1
     fi
-    echo "$FUNCNAME: successful update: $buf"
+    echo "$FUNCNAME: successful update on $session_id: $buf"
     return
   fi
   if [ ! -e $SCR_STY_FIFO ]; then
     mkfifo -m 0600 $SCR_STY_FIFO
   fi
-  #if [ -s $SCR_STY_FIFO_UPDATE ]; then
-  #  local updates=$(<$SCR_STY_FIFO_UPDATE)
-  #  # merge updates
-  #  if rm -f $SCR_STY_FIFO_UPDATE; then
-  #    local buf=$(
-  #      $FUNCNAME
-  #      eval "$updates"
-  #      for v in $SCR_UPDATEABLE; do
-  #        printf "%s='%s';" $v ${!v}
-  #      done
-  #    )
-  #    # set buf to ":" if it is unset: want to avoid an empty register
-  #    env screen -X register p "${buf:-:}"
-  #    echo "$FUNCNAME: info was updated: $updates" >/dev/tty
-  #  else
-  #    echo "$FUNCNAME: could not delete $SCR_STY_FIFO_UPDATE" >&2
-  #    return 1
-  #  fi
-  #fi
-  # paste the contents of register "p" into the named pipe, then
-  # source it's contents into the current shell
-  if env screen -X eval "paste p ." "writebuf $SCR_STY_FIFO"; then
+  # paste the contents of register "p" into the named pipe, then source it's
+  # contents into the current shell. UPDATE: not using "p", just the direct
+  # paste buffer because there is a bug that the first paste of a register to
+  # the paste buffer from an initially detached screen will not work
+  if env screen -S $session_id -X writebuf $SCR_STY_FIFO; then
     # note: cannot do "source $SCR_STY_FIFO" here, at least not with bash 3.2
     # on Mac
     eval "$(<$SCR_STY_FIFO)"
@@ -85,6 +82,10 @@ export -f l
     echo "$FUNCNAME: failed to load data from paste buffer" >&2
     return 1
   fi
+}
+
+-debug-ts() {
+  echo "${FUNCNAME[*]}:$@:$(date +%s)" >> $SCR_TMPDIR/a
 }
 
 -random-string() {
@@ -127,7 +128,7 @@ export -f l
 
 # wrapper around gnu screen. Call with "-test" to run the test suite
 screen() {
-  local i i2 next_arg rcfile session_id_prefix="scr-" session_id file_prefix=scr-sty-fifo opt run_tests=0 cmd=(env screen) esc=^Aa update=0 command=0 skip=0
+  local i i2 next_arg rcfile session_id_prefix="scr-" session_id opt run_tests=0 cmd=() env=() esc=^Aa update=0 command=0 skip=0
   for ((i=1;i<=$#;i++)); do
     i2=$((i+1))
     next_arg="${!i2}"
@@ -138,7 +139,16 @@ screen() {
         printf "%s%s" $session_id_prefix $(-random-string 4)
         return
         ;;
-      (-ls|-list|-wipe|-X|-Q|-D|-d|-R)
+      (-ls|-list|-wipe|-Q|-D|-R)
+        env screen "$@"
+        return $?
+        ;;
+      (-X)
+        if [ $update = 1 ]; then
+          if ! -screen-env -S $session_id -u; then
+            return $?
+          fi
+        fi
         env screen "$@"
         return $?
         ;;
@@ -157,16 +167,20 @@ screen() {
         fi
         set -- "${@:1:i-1}" -r $session_id "${@:i+1}"
         cmd+=("$@")
-        "${cmd[@]}"
+        env screen "${cmd[@]}"
         return $?
         ;;
       (-u)
-        -screen-env "$@"
         set -- "${@:1:i-1}" "${@:i+1}"
+        let i-=1
         skip=1
+        update=1
         ;;
       (-S)
         session_id=$next_arg
+        ;;
+      (-c)
+        rcfile=$next_arg
         ;;
     esac
     [ $skip = 0 ] && cmd+=("$opt")
@@ -176,23 +190,14 @@ screen() {
     session_id=$($FUNCNAME --generate-session-id)
     cmd+=(-S $session_id)
   fi
-  local old_fifo old_fifo_id
-  for old_fifo in $(ls $SCR_TMPDIR/$file_prefix-* 2>/dev/null); do
-    if [[ $old_fifo =~ $file_prefix-(.*) ]]; then
-      old_fifo_id=${BASH_REMATCH[1]}
-      if ! screen -ls | grep -q $old_fifo_id; then
-        rm -f $old_fifo
-        echo "removed old fifo: $old_fifo"
-      fi
-    fi
-  done
   if [ -z "$rcfile" -a "$session_id" ]; then
     rcfile=$SCR_TMPDIR/screenrc
+    env+=(
+      SCR_STY_LAST_UPDATE="$(date)"
+    )
     cmd+=(-c $rcfile)
     cat << EOF >$rcfile
-setenv SCR_STY_FIFO $SCR_TMPDIR/$file_prefix-$session_id
-setenv SCR_STY_LAST_UPDATE "$(date)"
-register p ":"
+register . ":"
 #screen bash -c "bootfunc 1 < <(echo $SCR_TERM_AUTH_TOKEN; tty)"
 #bind c screen bash -c "bootfunc 0 < <(echo $SCR_TERM_AUTH_TOKEN; tty)"
 $(
@@ -221,7 +226,7 @@ EOF
   fi
   # strip off "screen." prefix from $TERM to avoid "$TERM too long" issue
   cmd+=(-T ${TERM#screen.} -ln -e$esc "$@")
-  "${cmd[@]}"
+  env "${env[@]}" screen "${cmd[@]}"
 }
 export -f screen
 
@@ -242,6 +247,56 @@ export -f screen
 
 -ws-hello-world() {
   -ws /scr-hello-world -f -S "$@"
+}
+
+# runs a bash command in gnu screen, waiting for the command to finish
+-screen-pipe() {
+  local stdin stdout stderr rcfifo fifo eof_stdout=0 eof_stderr=0 opts="uS:c:" opt OPTIND cmd=()
+  printf -v stdin "%s/sty-stdin-fifo" $SCR_TMPDIR
+  printf -v stdout "%s/sty-stdout-fifo" $SCR_TMPDIR
+  printf -v stderr "%s/sty-stderr-fifo" $SCR_TMPDIR
+  printf -v rcfifo "%s/sty-rc-fifo" $SCR_TMPDIR
+  while builtin getopts $opts opt; do
+    case $opt in
+      (u)
+        cmd+=(-u)
+        ;;
+      (S)
+        cmd+=(-S $OPTARG)
+        ;;
+    esac
+  done
+  # remaining args are the command to be run in the new screen window we are
+  # about to create
+  shift $(($OPTIND-1))
+  cmd+=(-X screen bash -c -- "exec 0<$stdin 1>$stdout 2>$stderr 3>$rcfifo bash")
+  for fifo in $stdin $stdout $stderr $rcfifo; do
+    if [ ! -e $fifo ]; then
+      mkfifo $fifo
+    fi
+  done
+  {
+    c=("$@")
+    declare -p c
+    echo '"${c[@]}"'
+    echo 'rc=$?'
+    echo 'echo $rc >&3'
+    echo 'exit'
+  } >$stdin &
+  while :; do
+    read -d '' <$stdout || eof_stdout=1
+    [ "$REPLY" ] && echo "$REPLY"
+    [ $eof_stdout = 1 ] && break
+  done &
+  stdout_pid=$!
+  while :; do
+    read -d '' <$stderr || eof_stderr=1
+    [ "$REPLY" ] && echo "$REPLY" >&2
+    [ $eof_stderr = 1 ] && break
+  done &
+  screen "${cmd[@]}"
+  read -d '' rc <$rcfifo
+  return $rc
 }
 
 v() {

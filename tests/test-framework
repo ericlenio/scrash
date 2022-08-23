@@ -35,32 +35,13 @@
 -assert-result() {
   local status=$1 assertion="$2"
   let assertion_counter+=1
-  printf "%s. %s: %s\n" $assertion_counter $status "$assertion"
+  printf "%s%s. %s: %s\n" "$s" $assertion_counter $status "$assertion"
   if [ $status = PASS ]; then
     let assertion_successes+=1
   else
     let assertion_fails+=1
     return 1
   fi
-}
-
--assert-sty() {
-  local assertion="$1" STY="$2" eof
-  assertion64=$(echo "$assertion" | openssl enc -a -A)
-  screen -X screen bash -c -- "-assert -b $assertion64"
-  eof=0
-  while :; do
-    unset REPLY
-    if ! read; then
-      eof=1
-    fi
-    if [ "$REPLY" ]; then
-      echo "$REPLY"
-    fi
-    if [ $eof = 1 ]; then
-      break
-    fi
-  done
 }
 
 -test-sty-launch() {
@@ -100,10 +81,8 @@
   for ((i=0;i<$n;i++)); do
     IFS=$'\t' read -t 1 -ra result <$SCR_TEST_STY_TEST_RESULT || true
 #read result <$SCR_TEST_STY_TEST_RESULT || true
-    if ! -assert-result "${result[@]}"; then
-echo "ans:$?:${result[@]}" >&2
-break
-fi
+    printf "sty:"
+    -assert-result "${result[@]}"
   done
 
   wait
@@ -114,9 +93,7 @@ fi
   # function to do it
   SCR_TEST_STY_ASSERTIONS=(
     '[ ${#STY} -gt 0 ]'
-    '! [ -e $SCR_STY_FIFO ]'
     '-screen-env'
-    '[ -e $SCR_STY_FIFO ]'
     '-ws-hello-world >/dev/null'
 
     # start a gnu screen in ssh session
@@ -129,15 +106,13 @@ fi
     'session_id=$(screen --generate-session-id)'
     '-ssh-localhost screen -S $session_id -d -m'
     't1=$SCR_TMPDIR/t1'
-# 'set > $t1' #WORKS
-#'-ssh-localhost screen -S $session_id -X screen bash -c -- "touch $t1 /tmp/t2"' #WORKS
     '-ssh-localhost screen --generate-session-id'
-    '-ssh-localhost screen -u -S $session_id -X screen bash -c -- "-ws-hello-world -v -o $t1"'
+    '-ssh-localhost -screen-pipe -u -S $session_id -- -ws-hello-world -v -o $t1'
     '[ -e $t1 ]'
-    'grep -q $session_id $t1'
-    #'rm $t1'
-    'sleep 0.5'
+    'grep -q hello $t1'
+    'rm $t1'
     'screen -ls | grep -q $session_id'
+    'screen -S $session_id -X quit'
   )
 }
 
