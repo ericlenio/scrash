@@ -1,4 +1,4 @@
-let f=$ESH_HOME."/core/gpg.vimrc"
+let f=$HOME."/core/gpg.vimrc"
 " note: @% is the current file
 if filereadable(f) && @% != ""
   exe 'source '.f
@@ -16,26 +16,10 @@ fu Mktmpdir()
   endif
 endf
 
-" use bash's BASH_ENV variable to source a temp file when any "system" function
-" is called to set ESH_TERM_AUTH_TOKEN in the shell
-fu Mkbashenv()
-  let @a=tempname()
-  if len(g:ESH_TERM_AUTH_TOKEN) == 0
-    echohl WarningMsg
-    echon "WARNING: ESH_TERM_AUTH_TOKEN is unset\n"
-    echohl None
-  endif
-  call writefile([
-    \"ESH_TERM_AUTH_TOKEN=".g:ESH_TERM_AUTH_TOKEN
-    \],@a)
-  let $BASH_ENV=@a
-  return @a
-endf
-
 fu PasteCb()
   " paste contents of OS clipboard
   try
-    let [@",l:stderr,l:rc]=Systemcaller("_esh_b zGetCb")
+    let [@",l:stderr,l:rc]=Systemcaller("-clipboard")
     if len(l:stderr) > 0
       echohl WarningMsg
       echon join(l:stderr," ")
@@ -53,23 +37,16 @@ fu PasteCb()
 endf
 map <c-v> :call PasteCb()<cr>
 
-" wraps a system call so that BASH_ENV
-" can pass ESH_TERM_AUTH_TOKEN
 "
 " returns a list of: stdout, stderr, and shell return code
 fu Systemcaller(cmd,...)
   call Mktmpdir()
-  let l:bash_env=Mkbashenv()
   " have stderr lines get prefixed with "stderr:" - also see shellredir
   let cmd=a:cmd." 2> >(while true; do read -r l; rc=$?; [ ${#l} -gt 0 ] && echo \"stderr:$l\"; [ $rc -gt 0 ] && break; done)"
   if a:0 == 1
     let l:result=system(cmd,a:1)
   else
     let l:result=system(cmd)
-  endif
-  call delete(l:bash_env)
-  if has("patch-8.0.1832")
-    call Unletbashenv()
   endif
   let l:stdout=""
   let l:stderr=[]
@@ -86,18 +63,12 @@ fu Systemcaller(cmd,...)
   return [l:stdout,l:stderr,v:shell_error]
 endf
 
-fu Unletbashenv()
-  " this unlet does not work on Ubuntu 8, reference:
-  " https://github.com/vim/vim/issues/1116
-  unlet $BASH_ENV
-endf
-
 fu Cp2cb()
   " copies the contents of the unnamed register to OS clipboard;
   " NOTE: the system command will write out to a temp file
   " which is vim's tempname() function
   try
-    let [l:stdout,l:stderr,l:rc]=Systemcaller("cp2cb",@")
+    let [l:stdout,l:stderr,l:rc]=Systemcaller("-copy-to-clipboard",@")
     if len(l:stderr) > 0
       echohl WarningMsg
       echon join(l:stderr," ")
@@ -121,16 +92,10 @@ if @% =~ "passwords.gpg$"
   " nmap: "n" means we are mapping a key in vim's normal mode
   nmap <buffer> * :let @/=expand("<cword>")<cr>:let @"=@/<cr>:call Cp2cb()<cr>
 endif
-" colorscheme elflord
+colorscheme elflord
 syntax enable
 set cursorline noswapfile number hlsearch incsearch sw=2 ignorecase wrap nocompatible
 set ruler ai nocindent indentexpr= showmatch modeline modelines=5 nobackup nowritebackup textwidth=0
 set expandtab formatoptions=croql nojoinspaces scrolloff=0
 set wildmenu wildignore=*.o,*.class,*.jar,*.png,*.pdf,$PWD/**node_modules/**,build/**,.git/**,.svn/**,dist/**,tmp/** path=.,,**
 filetype indent off
-"nnoremap K :execute " grep -srnw --binary-files=without-match --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.svn . -e " . expand("<cword>") . " " <bar> cwindow<CR>
-" note: vimgrep respects wildignore
-"nnoremap K :let @/=expand("<cword>")<bar>exe "vimgrep /" . @/ . "/g **" <bar> cwindow<CR>
-if exists("my_find")
-  call feedkeys(":find ".my_find."\<tab>","t")
-endif

@@ -2,7 +2,8 @@
 
 export SCR_PORT=$((50000+$RANDOM % 10000))
 
-trap 'kill %%' INT QUIT EXIT TERM
 npm start -- -p $SCR_PORT &
+pid=$!
+trap "kill $pid" INT QUIT EXIT TERM
 sleep 2
 ./client -p $SCR_PORT -t
