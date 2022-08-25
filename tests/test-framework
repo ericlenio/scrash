@@ -62,7 +62,8 @@
     fi
   done &
 
-  # noting that stderr is properly closed, but stdout still listening for output; "echo -n '' > stdout" seems to close it
+  # noting that stderr is properly closed, but stdout still listening for
+  # output; "echo -n '' > stdout" seems to close it
   while :; do
     unset REPLY
     if ! read -d '' <$SCR_TEST_STY_STDERR; then
@@ -79,8 +80,6 @@
   n=${#SCR_TEST_STY_ASSERTIONS[@]}
   for ((i=0;i<$n;i++)); do
     IFS=$'\t' read -t 1 -ra result <$SCR_TEST_STY_TEST_RESULT || true
-#read result <$SCR_TEST_STY_TEST_RESULT || true
-    printf "sty:"
     -assert-result "${result[@]}"
   done
 
@@ -104,10 +103,12 @@
    ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oLogLevel=error localhost "$@"
 }
 
+# SCR_TEST_GROUP is just a label for a group of tests
 -test-group() {
   SCR_TEST_GROUP=$1
 }
 
+# check that we only run assertions for the current test groups
 -test-group-check() {
   local test_group
   if [ ${#SCR_TEST_GROUPS[*]} -eq 0 -o ${#SCR_TEST_GROUP} -eq 0 ]; then
@@ -130,7 +131,7 @@
   while builtin getopts "$opts" opt; do
     case $opt in
       (g)
-        SCR_TEST_GROUPS=$(echo "$OPTARG" | tr "[:lower:]" "[:upper:]")
+        SCR_TEST_GROUPS=($(echo "$OPTARG" | tr "[:lower:]" "[:upper:]"))
         ;;
     esac
   done

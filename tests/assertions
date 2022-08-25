@@ -31,6 +31,26 @@ SCR_TEST_ASSERTIONS=(
   'rm $t1'
   '[ root = $(-clipboard) ]'
 
+  # vim inside gnu screen
+  '-test-group VIM_SCREEN'
+  'v --version >/dev/null'
+  'session_id=$(screen --generate-session-id)'
+  'screen -S $session_id -d -m'
+  'r=$(-random-string)'
+  'echo $r | -copy-to-clipboard'
+  '[ $r = $(-clipboard) ]'
+  't1=$SCR_TMPDIR/t1'
+  'f1=$SCR_TMPDIR/f1'
+  'mkfifo $f1'
+  # create a vim script file to select/copy the word "root"
+  'printf "/^root\015ve\003:!echo $r > $f1\015:q\015" > $t1'
+  'screen -S $session_id -X screen bash -c "v -s $t1 /etc/passwd"'
+  'read ans < $f1'
+  '[ "$ans" = $r ]'
+  'rm $t1 $f1'
+  '[ root = $(-clipboard) ]'
+  'screen -S $session_id -X quit'
+
   # start/stop gnu screen
   '-test-group SCREEN'
   'screen -S $session_id -d -m'

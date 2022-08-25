@@ -254,7 +254,7 @@ EOF
 
 # runs a bash command in gnu screen, waiting for the command to finish
 -screen-pipe() (
-  local stdin stdout stderr rcfifo fifo eof_stdout=0 eof_stderr=0 opts="uS:c:" opt OPTIND cmd=() pids=()
+  local stdin stdout stderr rcfifo fifo eof_stdout=0 eof_stderr=0 opts="uS:" opt OPTIND cmd=() pids=()
   printf -v stdin "%s/sty-stdin-fifo" $SCR_TMPDIR
   printf -v stdout "%s/sty-stdout-fifo" $SCR_TMPDIR
   printf -v stderr "%s/sty-stderr-fifo" $SCR_TMPDIR
