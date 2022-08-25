@@ -329,7 +329,7 @@ exec vim "$@"
   if [ ! -e $SCR_VIMRC ]; then
     -ws /scr-get-vimrc --compressed > $SCR_VIMRC
   fi
-  $EDITOR -S $SCR_VIMRC "$@"
+  $EDITOR -u $SCR_VIMRC "$@"
 }
 
 -shell-init() {

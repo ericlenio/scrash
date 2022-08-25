@@ -1,10 +1,32 @@
-let f=$HOME."/core/gpg.vimrc"
-" note: @% is the current file
-if filereadable(f) && @% != ""
-  exe 'source '.f
-  " vim 7.x seems to require re-loading the buffer, thus edit command here
-  edit
-endif
+" Transparent editing of gpg encrypted files.
+" By Wouter Hanegraaff
+augroup encrypted
+  au!
+
+  " First make sure nothing is written to ~/.viminfo while editing
+  " an encrypted file.
+  autocmd BufReadPre,FileReadPre *.gpg set viminfo=
+  " We don't want a swap file, as it writes unencrypted data to disk
+  autocmd BufReadPre,FileReadPre *.gpg set noswapfile
+
+  " Switch to binary mode to read the encrypted file
+  autocmd BufReadPre,FileReadPre *.gpg set bin
+  autocmd BufReadPre,FileReadPre *.gpg let ch_save = &ch|set ch=2
+  " (If you use tcsh, you may need to alter this line.)
+  autocmd BufReadPost,FileReadPost *.gpg '[,']!gpg -d 2>/dev/null
+
+  " Switch to normal mode for editing
+  autocmd BufReadPost,FileReadPost *.gpg set nobin
+  autocmd BufReadPost,FileReadPost *.gpg let &ch = ch_save|unlet ch_save
+  autocmd BufReadPost,FileReadPost *.gpg execute ":doautocmd BufReadPost " . expand("%:r")
+
+  " Convert all text to encrypted text before writing
+  " (If you use tcsh, you may need to alter this line.)
+  autocmd BufWritePre,FileWritePre *.gpg '[,']!gpg --default-recipient-self -ae 2>/dev/null
+  " Undo the encryption so we are back in the normal text, directly
+  " after the file has been written.
+  autocmd BufWritePost,FileWritePost *.gpg u
+augroup END
 
 fu Mktmpdir()
   " make sure the temp directory exists (for long running vim sessions,
@@ -35,7 +57,7 @@ fu PasteCb()
     echo v:exception
   endtry
 endf
-map <c-v> :call PasteCb()<cr>
+autocmd BufReadPre,FileReadPre * map <c-v> :call PasteCb()<cr>
 
 "
 " returns a list of: stdout, stderr, and shell return code
@@ -82,9 +104,10 @@ fu Cp2cb()
     echo v:exception
   endtry
 endf
+
 " vnoremap: "v" visual mode, "nore" no recurse, "map" map
 " here we remap control-c to copy the current visual selection to the OS clipboard
-vnoremap <c-c> y:call Cp2cb()<cr>
+autocmd BufReadPre,FileReadPre * vnoremap <c-c> y:call Cp2cb()<cr>
 
 if @% =~ "passwords.gpg$"
   " when editing the passwords file, remap * to copy the current word to OS clipboard

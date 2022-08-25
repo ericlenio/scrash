@@ -28,7 +28,7 @@ SCR_TEST_ASSERTIONS=(
   't1=$SCR_TMPDIR/t1'
   'printf "/^root\015ve\003:q\015" > $t1'
   'v -s $t1 /etc/passwd'
-  'rm $t1'
+  #'rm $t1'
   '[ root = $(-clipboard) ]'
 
   # vim inside gnu screen
@@ -66,7 +66,7 @@ SCR_TEST_ASSERTIONS=(
   '[ nobody = $(-clipboard) ]'
   # clean up
   '-ssh-not-strict -N -S $cpfile -O stop localhost'
-  'rm $t1 $f1'
+  'rm $t1 $f1 $cpfile'
   'screen -S $session_id -X quit'
 
   # start/stop gnu screen
