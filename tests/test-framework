@@ -98,9 +98,12 @@
   #osascript -e 'tell application (path to frontmost application as text) to display dialog "Hello from osxdaily.com" buttons {"OK"} with icon stop'
 }
 
--ssh-localhost() {
+-ssh-not-strict() {
    # disable "Warning: Permanently added ..." by using error log level
-   ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oLogLevel=error localhost "$@"
+   ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oLogLevel=error "$@"
+}
+-ssh-localhost() {
+   -ssh-not-strict localhost "$@"
 }
 
 # SCR_TEST_GROUP is just a label for a group of tests

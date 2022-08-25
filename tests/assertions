@@ -47,8 +47,26 @@ SCR_TEST_ASSERTIONS=(
   'screen -S $session_id -X screen bash -c "v -s $t1 /etc/passwd"'
   'read ans < $f1'
   '[ "$ans" = $r ]'
-  'rm $t1 $f1'
   '[ root = $(-clipboard) ]'
+  # flush clipboard
+  'echo $r | -copy-to-clipboard'
+  '[ $r = $(-clipboard) ]'
+  # create a vim script file to select/copy the word "nobody"
+  'printf "/^nobody\015ve\003:!echo $r > $f1\015:q\015" > $t1'
+  'cpfile=$SCR_TMPDIR/ssh-cp'
+  # start a control master: check that vim inside gnu screen can handle a
+  # change in SCR_PORT
+  '-ssh-not-strict -f -N -M -S $cpfile -oBatchMode=yes localhost'
+  # update SCR_PORT
+  '-ssh-not-strict -S $cpfile localhost screen -u -S $session_id -X select -'
+  # try copying a word inside vim to the clipboard over the new SCR_PORT
+  'screen -S $session_id -X screen bash -c "v -s $t1 /etc/passwd"'
+  'read ans < $f1'
+  '[ "$ans" = $r ]'
+  '[ nobody = $(-clipboard) ]'
+  # clean up
+  '-ssh-not-strict -N -S $cpfile -O stop localhost'
+  'rm $t1 $f1'
   'screen -S $session_id -X quit'
 
   # start/stop gnu screen
