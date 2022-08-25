@@ -2,20 +2,20 @@
 
 export SCR_PORT=4553
 export SCR_ENV=dev
-test_mode=''
-clear_cache=''
+shell_init_args=(-s 1)
 
 usage() {
-  echo "Usage: $0 [-h][-Ct][-p port]
+  echo "Usage: $0 [-h][-Ct][-p port][-g \"test_group1 ...\"]
 Options:
 -h       this help
 -C       clear the cache
--t       test mode (for developers only)
 -p port  port number of the Server.js process
+-t       test mode (for developers only)
+-g       specify test groups (limit tests to only these groups)
 "
 }
 
-while builtin getopts "hCp:t" opt; do
+while builtin getopts "hCp:tg:" opt; do
   case $opt in
     (h)
       usage
@@ -25,15 +25,18 @@ while builtin getopts "hCp:t" opt; do
       SCR_PORT=$OPTARG
       ;;
     (t)
-      test_mode="-t"
+      shell_init_args+=(-t)
       SCR_ENV=test
       ;;
     (C)
-      clear_cache="-C"
+      shell_init_args+=(-C)
+      ;;
+    (g)
+      shell_init_args+=(-g "$OPTARG")
       ;;
   esac
 done
 
 url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
 eval "$(curl -S -f -s --compressed $url)"
--shell-init -v -s 1 $test_mode $clear_cache
+-shell-init "${shell_init_args[@]}"

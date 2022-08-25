@@ -333,7 +333,7 @@ exec vim "$@"
 }
 
 -shell-init() {
-  local opts="CDvts:" opt OPTIND log_tty verbose=0 i fcns num_fcns test_mode=0 start clear_cache=0 declare_mode=0
+  local opts="CDvts:g:" opt OPTIND log_tty verbose=0 i fcns num_fcns test_mode=0 test_groups start clear_cache=0 declare_mode=0
   while builtin getopts $opts opt; do
     case $opt in
       (v) verbose=1
@@ -341,6 +341,9 @@ exec vim "$@"
       (t) test_mode=1
         eval "$(-ws /scr-get-test-framework --compressed)"
         SCR_ENV=test
+        ;;
+      (g)
+        test_groups="$OPTARG"
         ;;
       (s)
         # pass start=1 to start an interactive shell, any other value is
@@ -374,7 +377,8 @@ exec vim "$@"
   [ ! -d $SCR_TMPDIR ] && mkdir -p $SCR_TMPDIR
   [ $clear_cache = 1 ] && -clear-cache
   if [ $test_mode = 1 ]; then
-    exec bash -c -- -test
+    cmd=('"$@"' -- -test -g "$test_groups")
+    exec bash -c -- "${cmd[@]}"
   elif [ "$start" ]; then
     if [ "$start" = 1 ]; then
       exec bash

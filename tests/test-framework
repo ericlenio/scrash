@@ -35,7 +35,7 @@
 -assert-result() {
   local status=$1 assertion="$2"
   let assertion_counter+=1
-  printf "%s. %s: %s\n" $assertion_counter $status "$assertion"
+  printf "%s %s. %s: %s\n" $SCR_TEST_GROUP $assertion_counter $status "$assertion"
   if [ $status = PASS ]; then
     let assertion_successes+=1
   else
@@ -141,13 +141,40 @@
    ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oLogLevel=error localhost "$@"
 }
 
+-test-group() {
+  SCR_TEST_GROUP=$1
+}
+
+-test-group-check() {
+  local test_group
+  if [ ${#SCR_TEST_GROUPS[*]} -eq 0 -o ${#SCR_TEST_GROUP} -eq 0 ]; then
+    return
+  fi
+  for test_group in ${SCR_TEST_GROUPS[*]}; do
+    if [ $test_group = $SCR_TEST_GROUP ]; then
+      return
+    fi
+  done
+  return 1
+}
+
 -test() (
-  local num_assertions=${1:-1} len=8 env_file=$SCR_TMPDIR/esh-test-log opts="r" opt OPTIND
+  local num_assertions=-1 len=8 env_file=$SCR_TMPDIR/esh-test-log opts="g:" opt OPTIND
   assertion_counter=0
   assertion_successes=0
   assertion_fails=0
+  SCR_TEST_GROUPS=()
+  while builtin getopts "$opts" opt; do
+    case $opt in
+      (g)
+        SCR_TEST_GROUPS=($OPTARG)
+        ;;
+    esac
+  done
   declare -x SCR_TEST_ASSERTIONS=(
     # basic
+    '-test-group BASIC'
+    '[ $SCR_TEST_GROUP = BASIC ]'
     '[[ $SCR_PORT =~ ^[0-9]+$ ]]'
     'v=$(-random-string $len)'
     '[ $len = ${#v} ]'
@@ -160,6 +187,7 @@
     '[ $SCR_ENV = test ]'
 
     # vim
+    '-test-group VIM'
     '[ ${#EDITOR} -gt 0 ]'
     'v --version >/dev/null'
     '[ -e $EDITOR ]'
@@ -175,6 +203,7 @@
     '[ root = $(-clipboard) ]'
 
     # start/stop gnu screen
+    '-test-group SCREEN'
     'screen -S $session_id -d -m'
     'screen -ls | grep -q $session_id'
     'screen -S $session_id -X quit'
@@ -257,6 +286,12 @@
   printf "START TEST SPECS on $(tty)\n"
   printf "************************************************\n"
   for assertion in "${SCR_TEST_ASSERTIONS[@]}"; do
+    if [[ "$assertion" =~ ^-test-group ]]; then
+      eval -- "$assertion"
+    fi
+    if ! -test-group-check; then
+      continue
+    fi
     -assert -- "$assertion"
   done
 
