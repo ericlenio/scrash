@@ -35,7 +35,7 @@
 -assert-result() {
   local status=$1 assertion="$2"
   let assertion_counter+=1
-  printf "%s%s. %s: %s\n" "$s" $assertion_counter $status "$assertion"
+  printf "%s. %s: %s\n" $assertion_counter $status "$assertion"
   if [ $status = PASS ]; then
     let assertion_successes+=1
   else
@@ -166,6 +166,13 @@
     'rm $EDITOR'
     'v --version >/dev/null'
     '[ -e $EDITOR ]'
+    'echo ok | -copy-to-clipboard'
+    '[ ok = $(-clipboard) ]'
+    't1=$SCR_TMPDIR/t1'
+    'printf "/^root\015ve\003:q\015" > $t1'
+    'v -s $t1 /etc/passwd'
+    'rm $t1'
+    '[ root = $(-clipboard) ]'
 
     # start/stop gnu screen
     'screen -S $session_id -d -m'
