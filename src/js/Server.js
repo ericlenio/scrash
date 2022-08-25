@@ -59,18 +59,24 @@ class Server extends http.Server {
   }
 
   getTestFramework(url,res) {
-    fsPromises.readFile("./tests/test-framework",'utf8')
-      .then(shellScript=>{
-        res.writeHead(200,{'Content-Encoding':'gzip'});
-        const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
-        gz.write(`export SCR_PORT=${url.port}\n`);
-        gz.pipe(res);
-        gz.end(shellScript);
-      })
-      .catch(e=>{
-        res.statusCode=500;
-        res.end(e.toString());
-      });
+    const files=[
+      "./tests/test-framework",
+      "./tests/assertions",
+      "./tests/gnu-screen-assertions",
+    ];
+    let shellScript='';
+    Promise.all(files.map(file=>fsPromises.readFile(file,'utf8')
+      .then(text=>shellScript+=text))).then(()=>{
+      res.writeHead(200,{'Content-Encoding':'gzip'});
+      const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
+      gz.write(`export SCR_PORT=${url.port}\n`);
+      gz.pipe(res);
+      gz.end(shellScript);
+    }).catch(e=>{
+      res.statusCode=500;
+      res.statusMessage=e.toString();
+      res.end();
+    });
   }
 
   getVimrc(url,res) {

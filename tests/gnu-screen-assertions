@@ -1,0 +1,31 @@
+# vim:filetype=bash
+SCR_TEST_STY_ASSERTIONS=(
+  '[ ${#STY} -gt 0 ]'
+  '-screen-env'
+  '-ws-hello-world >/dev/null'
+
+  # start a gnu screen in ssh session
+  'session_id=$(screen --generate-session-id)'
+  '-ssh-localhost screen -S $session_id -d -m'
+  'screen -ls | grep -q $session_id'
+  'screen -S $session_id -X quit'
+
+  # disconnect/reconnect screen over ssh
+  'session_id=$(screen --generate-session-id)'
+  '-ssh-localhost screen -S $session_id -d -m'
+  't1=$SCR_TMPDIR/t1'
+  '-ssh-localhost screen --generate-session-id'
+  '-ssh-localhost -screen-pipe -u -S $session_id -- uname | grep $(uname)'
+  '! -ssh-localhost -screen-pipe -u -S $session_id -- false'
+  '-ssh-localhost -screen-pipe -u -S $session_id -- -ws-hello-world -o $t1'
+  '[ -e $t1 ]'
+  'grep -q hello $t1'
+  'rm $t1'
+  # repeat last 4
+  '-ssh-localhost -screen-pipe -u -S $session_id -- -ws-hello-world -o $t1'
+  '[ -e $t1 ]'
+  'grep -q hello $t1'
+  'rm $t1'
+  'screen -ls | grep -q $session_id'
+  'screen -S $session_id -X quit'
+)

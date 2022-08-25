@@ -377,8 +377,7 @@ exec vim "$@"
   [ ! -d $SCR_TMPDIR ] && mkdir -p $SCR_TMPDIR
   [ $clear_cache = 1 ] && -clear-cache
   if [ $test_mode = 1 ]; then
-    cmd=('"$@"' -- -test -g "$test_groups")
-    exec bash -c -- "${cmd[@]}"
+    -test -g "$test_groups"
   elif [ "$start" ]; then
     if [ "$start" = 1 ]; then
       exec bash

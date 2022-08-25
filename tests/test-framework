@@ -48,7 +48,7 @@
   local STY_ID="$1" i n eof_stdout=0 eof_stderr=0 result
   set -e
 
-  screen -S $STY_ID -X screen bash -c -- -test-sty
+  screen -S $STY_ID -X screen bash -c -- '"$@"' -- -test-sty "${SCR_TEST_STY_ASSERTIONS[@]}"
   while :; do
     unset REPLY
     if ! read -d '' <$SCR_TEST_STY_STDOUT; then
@@ -76,7 +76,6 @@
     fi
   done &
 
-  -test-sty-assertions
   n=${#SCR_TEST_STY_ASSERTIONS[@]}
   for ((i=0;i<$n;i++)); do
     IFS=$'\t' read -t 1 -ra result <$SCR_TEST_STY_TEST_RESULT || true
@@ -88,48 +87,12 @@
   wait
 }
 
--test-sty-assertions() {
-  # grrrrrrr bash arrays are not exportable so dedicating an exportable
-  # function to do it
-  SCR_TEST_STY_ASSERTIONS=(
-    '[ ${#STY} -gt 0 ]'
-    '-screen-env'
-    '-ws-hello-world >/dev/null'
-
-    # start a gnu screen in ssh session
-    'session_id=$(screen --generate-session-id)'
-    '-ssh-localhost screen -S $session_id -d -m'
-    'screen -ls | grep -q $session_id'
-    'screen -S $session_id -X quit'
-
-    # disconnect/reconnect screen over ssh
-    'session_id=$(screen --generate-session-id)'
-    '-ssh-localhost screen -S $session_id -d -m'
-    't1=$SCR_TMPDIR/t1'
-    '-ssh-localhost screen --generate-session-id'
-    '-ssh-localhost -screen-pipe -u -S $session_id -- uname | grep $(uname)'
-    '! -ssh-localhost -screen-pipe -u -S $session_id -- false'
-    '-ssh-localhost -screen-pipe -u -S $session_id -- -ws-hello-world -o $t1'
-    '[ -e $t1 ]'
-    'grep -q hello $t1'
-    'rm $t1'
-    # repeat last 4
-    '-ssh-localhost -screen-pipe -u -S $session_id -- -ws-hello-world -o $t1'
-    '[ -e $t1 ]'
-    'grep -q hello $t1'
-    'rm $t1'
-    'screen -ls | grep -q $session_id'
-    'screen -S $session_id -X quit'
-  )
-}
-
 # this runs the test cases for gnu screen
 -test-sty() {
   local assertion
   set -e
   exec 1>$SCR_TEST_STY_STDOUT 2>$SCR_TEST_STY_STDERR
-  -test-sty-assertions
-  for assertion in "${SCR_TEST_STY_ASSERTIONS[@]}"; do
+  for assertion in "$@"; do
     -assert -r $SCR_TEST_STY_TEST_RESULT -- "$assertion"
 #echo "assertion=$assertion" >$SCR_TEST_STY_TEST_RESULT
   done
@@ -159,7 +122,7 @@
 }
 
 -test() (
-  local num_assertions=-1 len=8 env_file=$SCR_TMPDIR/esh-test-log opts="g:" opt OPTIND
+  local num_assertions=-1 env_file=$SCR_TMPDIR/esh-test-log opts="g:" opt OPTIND
   assertion_counter=0
   assertion_successes=0
   assertion_fails=0
@@ -167,86 +130,10 @@
   while builtin getopts "$opts" opt; do
     case $opt in
       (g)
-        SCR_TEST_GROUPS=($OPTARG)
+        SCR_TEST_GROUPS=$(echo "$OPTARG" | tr "[:lower:]" "[:upper:]")
         ;;
     esac
   done
-  declare -x SCR_TEST_ASSERTIONS=(
-    # basic
-    '-test-group BASIC'
-    '[ $SCR_TEST_GROUP = BASIC ]'
-    '[[ $SCR_PORT =~ ^[0-9]+$ ]]'
-    'v=$(-random-string $len)'
-    '[ $len = ${#v} ]'
-    '-ws-hello-world >/dev/null'
-    '-ws-hello-world | grep -q "hello world"'
-    'session_id=$(screen --generate-session-id)'
-    '[ ${#session_id} -gt 0 ]'
-    '[[ $session_id =~ ^[-[:alnum:]]+$ ]]'
-    '[ -d $SCR_TMPDIR ]'
-    '[ $SCR_ENV = test ]'
-
-    # vim
-    '-test-group VIM'
-    '[ ${#EDITOR} -gt 0 ]'
-    'v --version >/dev/null'
-    '[ -e $EDITOR ]'
-    'rm $EDITOR'
-    'v --version >/dev/null'
-    '[ -e $EDITOR ]'
-    'echo ok | -copy-to-clipboard'
-    '[ ok = $(-clipboard) ]'
-    't1=$SCR_TMPDIR/t1'
-    'printf "/^root\015ve\003:q\015" > $t1'
-    'v -s $t1 /etc/passwd'
-    'rm $t1'
-    '[ root = $(-clipboard) ]'
-
-    # start/stop gnu screen
-    '-test-group SCREEN'
-    'screen -S $session_id -d -m'
-    'screen -ls | grep -q $session_id'
-    'screen -S $session_id -X quit'
-    '! screen -ls | grep -q $session_id'
-
-    'SCR_TEST_STY=$(screen --generate-session-id)'
-    'screen -S $SCR_TEST_STY -d -m'
-    'screen -ls | grep -q $SCR_TEST_STY'
-    '-test-sty-launch $SCR_TEST_STY'
-    'screen -S $SCR_TEST_STY -X quit'
-    '! screen -ls | grep -q $SCR_TEST_STY'
-
-    # ssh
-    'h=$(-ssh-localhost hostname)'
-    '[ $h = $(hostname) ]'
-    # remote SCR_PORT from ssh session should always be different from parent shell
-    'remote_port=$(eval $(-ssh-localhost declare -p SCR_PORT); echo $SCR_PORT)'
-    '[ $remote_port != $SCR_PORT ]'
-    '[[ $remote_port =~ ^[0-9]+$ ]]'
-
-    # md5
-    's="hello world"'
-    't=$(mktemp) && echo "$s" > $t'
-    '[ $(-md5 $t) = 6f5902ac237024bdd0c176cb93063dc4 ]'
-    '[ $(echo "$s" | -md5) = 6f5902ac237024bdd0c176cb93063dc4 ]'
-    '! -md5 /no-such-file'
-    'rm $t'
-
-    # clipboard
-    'r=$(-random-string $len)'
-    '[ $len = ${#r} ]'
-    'echo -n $r | -copy-to-clipboard'
-    'r2=$(-clipboard)'
-    '[ $r = $r2 ]'
-    '-copy-to-clipboard /etc/passwd'
-    '[ $(-clipboard | -md5) = $(-md5 /etc/passwd) ]'
-
-    # clipboard over ssh
-    't=$(mktemp) && uname -a > $t'
-    '-ssh-localhost -copy-to-clipboard $t'
-    '[ $(-md5 $t) = $(-clipboard | -md5) ]'
-    'rm $t'
-  )
 
   -clear-cache
 
@@ -261,7 +148,7 @@
   done
 
   set -e
-  trap -- '-cleanup;exit' INT QUIT HUP EXIT
+  trap -- 'trap - INT QUIT HUP EXIT;-cleanup;exit' INT QUIT HUP EXIT
 
   -cleanup() {
     echo "inside $FUNCNAME"
