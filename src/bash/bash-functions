@@ -376,6 +376,9 @@ exec vim "$@"
   export SCR_TMPDIR=/tmp/scr-$SCR_ENV
   export EDITOR=$SCR_TMPDIR/scr-editor
   export SCR_VIMRC=$SCR_TMPDIR/scr-vimrc
+  # for sudo users, if they use vim and SHELL is /bin/false (or similar) then
+  # rvim is used (at least on macos)
+  export SHELL=$BASH
   #[ -z "$SUDO_USER" ] && rm -f $EDITOR $SCR_VIMRC
   [ ! -d $SCR_TMPDIR ] && mkdir -p $SCR_TMPDIR
   [ $clear_cache = 1 ] && -clear-cache
@@ -390,12 +393,22 @@ exec vim "$@"
   fi
 }
 
+# sudo shortcut
+# usage: arg1 is the user we want to become (default=root), remaining args are
+# the command we want to run as that user
+# -s
+# -s nobody
+# -s nobody whoami
 -s() {
-  local user=$1 tmpfile=$(mktemp)
-  -shell-init > $tmpfile
-  chmod 644 $tmpfile
-  sudo -u $user bash $tmpfile
-  rm -f $tmpfile
+  local user=${1:-root} bootstr
+  [ $# -gt 0 ] && shift
+  bootstr=$(-shell-boot-string $SCR_PORT "$@")
+  if [ ! -e $EDITOR ]; then
+    # create the editor, might need it under sudo and sudo user will not be
+    # able to create it
+    v --version >/dev/null
+  fi
+  sudo -H -u $user bash -c "$bootstr"
 }
 
 -ssh-serialize-cmd() {
@@ -408,6 +421,18 @@ exec vim "$@"
   local b64="$1" c
   eval "$(echo -n $b64 | openssl enc -d -a -A)"
   "${c[@]}"
+}
+
+-shell-boot-string() {
+  local remote_port=$1 start
+  shift
+  if [ $# -gt 0 ]; then
+    start=$(-ssh-serialize-cmd "$@")
+  else
+    start=1
+  fi
+  #printf "'eval \"\$(curl -S -f -s --compressed http://127.0.0.1:%s/scr-get-bash-functions?start=%s)\"'" $remote_port $start
+  printf 'eval "$(curl -S -f -s --compressed http://127.0.0.1:%s/scr-get-bash-functions?start=%s)"' $remote_port $start
 }
 
 ssh() {
@@ -430,21 +455,17 @@ ssh() {
   ssh_user_host="$1"
   if [ "$ssh_user_host" ]; then
     shift
-    if [ $# -gt 0 ]; then
-      #start=$(c=("$@"); declare -p c | openssl enc -a -A)
-      start=$(-ssh-serialize-cmd "$@")
-    else
-      start=1
+    if [ $# -eq 0 ]; then
       cmd+=(-t)
     fi
     remote_port=$(( $RANDOM % 5000 + 56100 ))
-    printf -v bootstr "'eval \"\$(curl -S -f -s --compressed http://127.0.0.1:%s/scr-get-bash-functions?start=%s)\"'" $remote_port $start
+    bootstr=$(-shell-boot-string $remote_port "$@")
     [ "$STY" ] && -screen-env
     cmd+=(
       -oExitOnForwardFailure=yes
       -R$remote_port:127.0.0.1:$SCR_PORT
       "$ssh_user_host"
-      exec bash -c $bootstr
+      exec bash -c "'"$bootstr"'"
     )
   fi
   "${cmd[@]}"

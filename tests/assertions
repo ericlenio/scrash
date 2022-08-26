@@ -15,6 +15,17 @@ SCR_TEST_ASSERTIONS=(
   '[ -d $SCR_TMPDIR ]'
   '[ $SCR_ENV = test ]'
 
+  # sudo
+  '-test-group SUDO'
+  '-s nobody -ws-hello-world | grep -q hello'
+  '[ $(-s nobody whoami) = nobody ]'
+  'echo ok | -copy-to-clipboard'
+  '[ ok = $(-clipboard) ]'
+  't1=$SCR_TMPDIR/t1'
+  'printf "/^root\015ve\003:q\015" > $t1'
+  'v -s $t1 /etc/passwd'
+  '[ root = $(-clipboard) ]'
+
   # vim
   '-test-group VIM'
   '[ ${#EDITOR} -gt 0 ]'
