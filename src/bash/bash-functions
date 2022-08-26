@@ -333,7 +333,7 @@ exec vim "$@"
 }
 
 -shell-init() {
-  local opts="CDvts:g:" opt OPTIND log_tty verbose=0 i fcns num_fcns test_mode=0 test_groups start clear_cache=0 declare_mode=0
+  local opts="CDvts:g:G" opt OPTIND log_tty verbose=0 i fcns num_fcns test_mode=0 test_groups start clear_cache=0 declare_mode=0 show_test_groups
   while builtin getopts $opts opt; do
     case $opt in
       (v) verbose=1
@@ -344,6 +344,9 @@ exec vim "$@"
         ;;
       (g)
         test_groups="$OPTARG"
+        ;;
+      (G)
+        show_test_groups="-G"
         ;;
       (s)
         # pass start=1 to start an interactive shell, any other value is
@@ -377,7 +380,7 @@ exec vim "$@"
   [ ! -d $SCR_TMPDIR ] && mkdir -p $SCR_TMPDIR
   [ $clear_cache = 1 ] && -clear-cache
   if [ $test_mode = 1 ]; then
-    -test -g "$test_groups"
+    -test -g "$test_groups" $show_test_groups
   elif [ "$start" ]; then
     if [ "$start" = 1 ]; then
       exec bash

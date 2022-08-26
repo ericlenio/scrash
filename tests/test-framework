@@ -102,13 +102,18 @@
    # disable "Warning: Permanently added ..." by using error log level
    ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oLogLevel=error "$@"
 }
+
 -ssh-localhost() {
    -ssh-not-strict localhost "$@"
 }
 
 # SCR_TEST_GROUP is just a label for a group of tests
 -test-group() {
-  SCR_TEST_GROUP=$1
+  local new_group=$1
+  if [ "$new_group" != ${SCR_TEST_GROUP:-.} ]; then
+    SCR_TEST_GROUP_ASSERTIONS=()
+  fi
+  SCR_TEST_GROUP=$new_group
 }
 
 # check that we only run assertions for the current test groups
@@ -121,12 +126,56 @@
     if [ $test_group = $SCR_TEST_GROUP ]; then
       return
     fi
+    if [[ $SCR_TEST_GROUP =~ ^$test_group ]]; then
+      return
+    fi
   done
   return 1
 }
 
+-show-test-groups() {
+  local assertion
+  for assertion in "${SCR_TEST_ASSERTIONS[@]}"; do
+    if [[ "$assertion" =~ ^-test-group ]]; then
+      eval -- "$assertion"
+      echo $SCR_TEST_GROUP
+    fi
+  done
+}
+
+-run-assertions() {
+  local assertion funcdef opts="n" opt OPTIND n_flag=0
+  while builtin getopts "$opts" opt; do
+    case $opt in
+      (n)
+        # pause the collection of assertions into SCR_TEST_GROUP_ASSERTIONS
+        n_flag=1
+        ;;
+    esac
+  done
+  shift $(($OPTIND-1))
+  for assertion in "$@"; do
+    if [[ "$assertion" =~ ^-test-group ]]; then
+      eval -- "$assertion"
+      continue
+    fi
+    if ! -test-group-check; then
+      continue
+    fi
+    if [ $n_flag = 0 ]; then
+      if ! [[ "$assertion" =~ ^$SCR_TEST_GROUP ]]; then
+        SCR_TEST_GROUP_ASSERTIONS+=("$assertion")
+      fi
+      local assertions=("${SCR_TEST_GROUP_ASSERTIONS[@]}")
+      printf -v funcdef '%s() { %s; -run-assertions -n -- "${assertions[@]}"; }' $SCR_TEST_GROUP "$(declare -p assertions)"
+      eval "$funcdef"
+    fi
+    -assert -- "$assertion"
+  done
+}
+
 -test() (
-  local num_assertions=-1 env_file=$SCR_TMPDIR/esh-test-log opts="g:" opt OPTIND
+  local num_assertions=-1 env_file=$SCR_TMPDIR/esh-test-log opts="g:G" opt OPTIND
   assertion_counter=0
   assertion_successes=0
   assertion_fails=0
@@ -135,6 +184,10 @@
     case $opt in
       (g)
         SCR_TEST_GROUPS=($(echo "$OPTARG" | tr "[:lower:]" "[:upper:]"))
+        ;;
+      (G)
+        -show-test-groups
+        return
         ;;
     esac
   done
@@ -176,24 +229,15 @@
   printf "************************************************\n"
   printf "START TEST SPECS on $(tty)\n"
   printf "************************************************\n"
-  for assertion in "${SCR_TEST_ASSERTIONS[@]}"; do
-    if [[ "$assertion" =~ ^-test-group ]]; then
-      eval -- "$assertion"
-    fi
-    if ! -test-group-check; then
-      continue
-    fi
-    -assert -- "$assertion"
-  done
-
+  -run-assertions -- "${SCR_TEST_ASSERTIONS[@]}"
+  printf "************************************************\n"
   if [ $assertion_fails -gt 0 ]; then
     status=FAIL
     printf "final status: FAIL (%s/%s failed assertions), see %s for current environment\n" $assertion_fails $assertion_counter $env_file
     set > $env_file
   else
-    printf "************************************************\n"
     printf "final status: PASS (%s/%s successful assertions)\n" $assertion_successes $assertion_counter
-    printf "************************************************\n"
   fi
+  printf "************************************************\n"
   return $assertion_fails
 )

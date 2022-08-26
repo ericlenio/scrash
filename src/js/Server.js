@@ -24,8 +24,11 @@ const E_OS_PROG_ENUM={
 };
 
 class Server extends http.Server {
-  init() {
-    this.on('listening',()=>console.log("listening on port:",this.address().port));
+  init({notify}) {
+    this.once('listening',()=>console.log("listening on port:",this.address().port));
+    if (notify) {
+      this.once('listening',()=>fsPromises.appendFile(notify,this.address().port+"\n").catch(e=>console.error(e)))
+    }
     this.on('request',(req,res)=>this.onRequest(req,res));
     return Promise.resolve();
   }

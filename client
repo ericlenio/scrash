@@ -5,17 +5,18 @@ export SCR_ENV=dev
 shell_init_args=(-s 1)
 
 usage() {
-  echo "Usage: $0 [-h][-Ct][-p port][-g \"test_group1 ...\"]
+  echo "Usage: $0 [-h][-Ct][-p port][-g \"test_group1 ...\"][-G]
 Options:
 -h       this help
 -C       clear the cache
 -p port  port number of the Server.js process
 -t       test mode (for developers only)
 -g       specify test groups (limit tests to only these groups)
+-G       show all available test groups
 "
 }
 
-while builtin getopts "hCp:tg:" opt; do
+while builtin getopts "hCp:tg:G" opt; do
   case $opt in
     (h)
       usage
@@ -33,6 +34,9 @@ while builtin getopts "hCp:tg:" opt; do
       ;;
     (g)
       shell_init_args+=(-g "$OPTARG")
+      ;;
+    (G)
+      shell_init_args+=(-G)
       ;;
   esac
 done
