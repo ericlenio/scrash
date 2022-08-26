@@ -1,3 +1,15 @@
+" vnoremap: 'v' visual mode, 'nore' no recurse, 'map' map
+" here we remap control-c to copy the current visual selection to the OS clipboard
+autocmd BufReadPre,FileReadPre * {
+  vnoremap <c-c> y:call Cp2cb()<cr>
+  map <c-v> :call PasteCb()<cr>
+}
+
+" when editing the passwords file, remap * to copy the current word to OS clipboard
+" use the expand() function to highlight the current word (cword)
+" nmap: "n" means we are mapping a key in vim's normal mode
+autocmd BufReadPre,FileReadPre *.gpg nmap <buffer> * :let @/=expand("<cword>")<cr>:let @"=@/<cr>:call Cp2cb()<cr>
+
 " Transparent editing of gpg encrypted files.
 " By Wouter Hanegraaff
 augroup encrypted
@@ -57,9 +69,7 @@ fu PasteCb()
     echo v:exception
   endtry
 endf
-autocmd BufReadPre,FileReadPre * map <c-v> :call PasteCb()<cr>
 
-"
 " returns a list of: stdout, stderr, and shell return code
 fu Systemcaller(cmd,...)
   call Mktmpdir()
@@ -105,16 +115,6 @@ fu Cp2cb()
   endtry
 endf
 
-" vnoremap: "v" visual mode, "nore" no recurse, "map" map
-" here we remap control-c to copy the current visual selection to the OS clipboard
-autocmd BufReadPre,FileReadPre * vnoremap <c-c> y:call Cp2cb()<cr>
-
-if @% =~ "passwords.gpg$"
-  " when editing the passwords file, remap * to copy the current word to OS clipboard
-  " use the expand() function to highlight the current word (cword)
-  " nmap: "n" means we are mapping a key in vim's normal mode
-  nmap <buffer> * :let @/=expand("<cword>")<cr>:let @"=@/<cr>:call Cp2cb()<cr>
-endif
 colorscheme elflord
 syntax enable
 set cursorline noswapfile number hlsearch incsearch sw=2 ignorecase wrap nocompatible
