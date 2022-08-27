@@ -97,7 +97,7 @@ l() {
   while [ ${#r} -lt $length ]; do
     read -n 1 c
     r+=$c
-  done < <(LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom)
+  done < <(LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom || true)
   echo $r
 }
 
@@ -384,7 +384,8 @@ exec vim "$@"
   [ ! -d $SCR_TMPDIR ] && mkdir -p $SCR_TMPDIR
   [ $clear_cache = 1 ] && -clear-cache
   if [ $test_mode = 1 ]; then
-    -test -g "$test_groups" $show_test_groups
+    #-test -g "$test_groups" $show_test_groups
+    exec ./tests/test
   elif [ "$start" ]; then
     if [ "$start" = 1 ]; then
       exec bash

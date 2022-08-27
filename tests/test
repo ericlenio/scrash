@@ -1,0 +1,50 @@
+#! /usr/bin/env bash
+
+-init() {
+  set -e
+  TEST_STATUS=SUCCESS
+  # TEST_ERROR_FILE is a semaphore to stop -on-error from running more than
+  # once; necessary due to "set -E"
+  TEST_ERROR_FILE=$SCR_TMPDIR/err
+  TEST_SOURCE_FILE=''
+  trap -- -on-error ERR
+  trap -- -on-exit EXIT
+  rm -f $TEST_ERROR_FILE
+}
+
+-on-error() {
+  local i
+  if [ -e $TEST_ERROR_FILE ]; then
+    return
+  fi
+  touch $TEST_ERROR_FILE
+  TEST_STATUS=FAIL
+  echo "ERROR with command: $BASH_COMMAND" >&2
+  echo "BASH_ARGV[${#BASH_ARGV[*]}]: ${BASH_ARGV[*]}" >&2
+  echo "in file: $TEST_SOURCE_FILE" >&2
+  for ((i=0;i<${#BASH_LINENO[*]};i++)); do
+    echo "  at line: ${FUNCNAME[$i]} ${BASH_LINENO[$i]}" >&2
+  done
+}
+
+-on-exit() {
+  local rc=$?
+  if [ $rc -gt 0 ]; then
+    -on-error
+  fi
+  -cleanup
+  echo $TEST_STATUS
+}
+
+-cleanup() {
+  echo "$FUNCNAME"
+}
+
+-run-tests() {
+  for TEST_SOURCE_FILE in $(find $(dirname $0) -name *.test | sort); do
+    source $TEST_SOURCE_FILE
+  done
+}
+
+-init "$@"
+-run-tests

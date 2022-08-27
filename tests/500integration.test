@@ -1,0 +1,45 @@
+# vim:filetype=bash
+# vim/screen/ssh/sudo integration tests
+-test-group VIM.SCREEN.SSH.SUDO
+session_id=$(screen --generate-session-id)
+screen -S $session_id -d -m
+t1=$SCR_TMPDIR/t1
+f2=$SCR_TMPDIR/f2
+mkfifo -m 0666 $f2
+r=$(-random-string)
+# flush clipboard
+echo $r | -copy-to-clipboard
+[ $r = $(-clipboard) ]
+# create a vim script file to select/copy the word "nobody", write to fifo,
+# read fifo, copy "root", write to fifo, quit vim
+# the editor
+printf "/^nobody\015ve\003:!echo $r > $f2\015:!read < $f2\015/^root\015ve\003:!echo > $f2\015:q\015" > $t1
+cpfile=$SCR_TMPDIR/ssh-cp
+# start a control master: check that vim inside gnu screen can handle a
+# change in SCR_PORT
+-ssh-not-strict -f -N -M -S $cpfile -oBatchMode=yes localhost
+# update SCR_PORT
+-ssh-not-strict -S $cpfile localhost screen -u -S $session_id -X select -
+# try copying a word inside vim to the clipboard over the new SCR_PORT
+screen -S $session_id -X screen bash -c -- "-s nobody v -s $t1 /etc/passwd"
+read ans < $f2
+[ "$ans" = $r ]
+[ nobody = $(-clipboard) ]
+# flush clipboard
+echo $r | -copy-to-clipboard
+[ $r = $(-clipboard) ]
+# update SCR_PORT
+-ssh-not-strict -S $cpfile localhost screen -u -S $session_id -X select -
+echo > $f2
+read ans < $f2
+[ root = $(-clipboard) ]
+# clean up
+-ssh-not-strict -N -S $cpfile -O stop localhost
+rm $t1 $f2
+-ssh-localhost -screen-pipe -u -S $session_id -- -ws-hello-world -o $t1
+-ssh-localhost -screen-pipe -u -S $session_id -- uname | grep $(uname)
+! -ssh-localhost -screen-pipe -u -S $session_id -- false
+screen -S $session_id -X quit
+[ -e $t1 ]
+grep -q hello $t1
+rm $t1

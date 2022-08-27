@@ -1,0 +1,15 @@
+# vim:filetype=bash
+-test-group CLIPBOARD
+len=8
+r=$(-random-string $len)
+[ $len = ${#r} ]
+echo -n $r | -copy-to-clipboard
+r2=$(-clipboard)
+[ $r = $r2 ]
+-copy-to-clipboard /etc/passwd
+[ $(-clipboard | -md5) = $(-md5 /etc/passwd) ]
+# clipboard over ssh
+t=$(mktemp) && uname -a > $t
+-ssh-localhost -copy-to-clipboard $t
+[ $(-md5 $t) = $(-clipboard | -md5) ]
+rm $t
