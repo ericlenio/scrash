@@ -329,7 +329,7 @@ exec vim "$@"
   if [ ! -e $SCR_VIMRC ]; then
     -ws /scr-get-vimrc --compressed > $SCR_VIMRC
   fi
-  $EDITOR -u $SCR_VIMRC "$@"
+  $EDITOR "$@"
 }
 
 -shell-init() {
@@ -376,6 +376,7 @@ exec vim "$@"
   export SCR_TMPDIR=/tmp/scr-$SCR_ENV
   export EDITOR=$SCR_TMPDIR/scr-editor
   export SCR_VIMRC=$SCR_TMPDIR/scr-vimrc
+  export VIMINIT='source $SCR_VIMRC'
   # for sudo users, if they use vim and SHELL is /bin/false (or similar) then
   # rvim is used (at least on macos)
   export SHELL=$BASH
