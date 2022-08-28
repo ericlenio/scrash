@@ -48,6 +48,8 @@ class Server extends http.Server {
         return this.getVimrc(req,res);
       case "/scr-hello-world":
         return res.end("hello world\n");
+      case "/scr-shutdown":
+        return this.shutdown(res);
     }
     res.end();
   }
@@ -64,8 +66,8 @@ class Server extends http.Server {
   getTestFramework(url,res) {
     const files=[
       "./tests/test-framework",
-      "./tests/assertions",
-      "./tests/gnu-screen-assertions",
+      //"./tests/assertions",
+      //"./tests/gnu-screen-assertions",
     ];
     let shellScript='';
     Promise.all(files.map(file=>fsPromises.readFile(file,'utf8')
@@ -162,6 +164,15 @@ class Server extends http.Server {
     res.setHeader('Content-Type','text/plain');
     res.setHeader('Content-Encoding','gzip');
     p.stdout.pipe(gz).pipe(res);
+  }
+
+  shutdown(res) {
+    if (process.env.SCR_ENV==='test') {
+      res.end();
+      process.nextTick(()=>process.exit(0));
+    }
+    res.statusCode=401;
+    res.end();
   }
 }
 

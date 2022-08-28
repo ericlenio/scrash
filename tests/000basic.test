@@ -1,7 +1,5 @@
 # vim:filetype=bash
--test-group BASIC
 -clear-cache
-[ $SCR_TEST_GROUP = BASIC ]
 [[ $SCR_PORT =~ ^[0-9]+$ ]]
 len=8
 v=$(-random-string $len)

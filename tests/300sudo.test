@@ -1,5 +1,4 @@
 # vim:filetype=bash
--test-group SUDO
 -s nobody -ws-hello-world | grep -q hello
 [ $(-s nobody whoami) = nobody ]
 echo ok | -copy-to-clipboard

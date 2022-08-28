@@ -3,12 +3,37 @@
 -init() {
   set -e
   TEST_STATUS=SUCCESS
+  TEST_SOURCE_FILE=''
+  export SCR_PORT=$((50000+$RANDOM % 10000))
+  export SCR_ENV=test
+  trap -- -on-error ERR
+  trap -- -on-exit EXIT
+
+  for opt in "$@"; do
+    case "$opt" in
+      (-h)
+        no_server=1
+        ;;
+    esac
+  done
+
+  if [ ${no_server:-0} = 0 ]; then
+    fifo=/tmp/scr-test-fifo
+    if [ ! -e $fifo ]; then
+      mkfifo $fifo
+    fi
+    npm start -- -p $SCR_PORT -n $fifo &
+    # once this read is done, we know the server is up and listening
+    read port<$fifo
+    rm $fifo
+  fi
+
+  url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
+  eval "$(curl -S -f -s --compressed $url)"
+  -shell-init
   # TEST_ERROR_FILE is a semaphore to stop -on-error from running more than
   # once; necessary due to "set -E"
   TEST_ERROR_FILE=$SCR_TMPDIR/err
-  TEST_SOURCE_FILE=''
-  trap -- -on-error ERR
-  trap -- -on-exit EXIT
   rm -f $TEST_ERROR_FILE
 }
 
@@ -29,6 +54,7 @@
 
 -on-exit() {
   local rc=$?
+  set +e
   if [ $rc -gt 0 ]; then
     -on-error
   fi
@@ -37,12 +63,23 @@
 }
 
 -cleanup() {
-  echo "$FUNCNAME"
+  curl http://127.0.0.1:$SCR_PORT/scr-shutdown
+}
+
+-ssh-not-strict() {
+   # disable "Warning: Permanently added ..." by using error log level
+   ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oLogLevel=error "$@"
+}
+
+-ssh-localhost() {
+   -ssh-not-strict localhost "$@"
 }
 
 -run-tests() {
   for TEST_SOURCE_FILE in $(find $(dirname $0) -name *.test | sort); do
+    echo "START $TEST_SOURCE_FILE"
     source $TEST_SOURCE_FILE
+    echo "END $TEST_SOURCE_FILE"
   done
 }
 

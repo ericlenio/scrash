@@ -1,5 +1,4 @@
 # vim:filetype=bash
--test-group VIM
 [ ${#EDITOR} -gt 0 ]
 v --version >/dev/null
 [ -e $EDITOR ]
@@ -15,7 +14,6 @@ v -s $t1 /etc/passwd
 [ root = $(-clipboard) ]
 
 # vim inside gnu screen
--test-group VIM.SCREEN
 v --version >/dev/null
 session_id=$(screen --generate-session-id)
 screen -S $session_id -d -m
@@ -31,7 +29,6 @@ screen -S $session_id -X screen bash -c "v -s $t1 /etc/passwd"
 read ans < $f1
 [ "$ans" = $r ]
 [ root = $(-clipboard) ]
--test-group VIM.SCREEN.SSH
 r=$(-random-string)
 # flush clipboard
 echo $r | -copy-to-clipboard
@@ -49,7 +46,6 @@ screen -S $session_id -X screen bash -c "v -s $t1 /etc/passwd"
 read ans < $f1
 [ "$ans" = $r ]
 [ nobody = $(-clipboard) ]
--test-group VIM.CLEANUP
 -ssh-not-strict -N -S $cpfile -O stop localhost
 rm $t1 $f1
 screen -S $session_id -X quit

@@ -1,5 +1,4 @@
 # vim:filetype=bash
--test-group CLIPBOARD
 len=8
 r=$(-random-string $len)
 [ $len = ${#r} ]

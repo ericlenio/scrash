@@ -1,3 +1,3 @@
 #! /usr/bin/env bash
 
-v package.json test client server.js src/js/*.js src/bash/* src/vim/* tests/*
+v package.json client server.js src/js/*.js src/bash/* src/vim/* tests/*

@@ -1,6 +1,5 @@
 # vim:filetype=bash
 # vim/screen/ssh/sudo integration tests
--test-group VIM.SCREEN.SSH.SUDO
 session_id=$(screen --generate-session-id)
 screen -S $session_id -d -m
 t1=$SCR_TMPDIR/t1

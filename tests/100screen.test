@@ -1,5 +1,4 @@
 # vim:filetype=bash
--test-group SCREEN
 session_id=$(screen --generate-session-id)
 screen -S $session_id -d -m
 screen -ls | grep -q $session_id

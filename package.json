@@ -1,11 +1,11 @@
 {
-  "name": "esh",
+  "name": "scrash",
   "version": "1.0.0",
   "description": "",
   "type":"module",
   "main": "index.js",
   "scripts": {
-    "test": "./test"
+    "test": "./tests/test"
   },
   "author": "",
   "license": "AGPL-3.0-only"
