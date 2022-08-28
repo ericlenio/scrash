@@ -211,8 +211,9 @@ $(
 )
 multiuser off
 autodetach on
+bind / screen bash -c "v $SCR_PASSWORD_FILE"
 # bind "%" to take a screenshot, and open a new window to edit it
-bind % exec bash -c 'f=\$(mktemp) t=\$RANDOM; env screen -X hardcopy \$f; env screen -t \$t sh -c "$SCR_EDITOR \$f; rm \$f"; env screen -X select \$t'
+bind % exec bash -c 'f=\$(mktemp) t=\$RANDOM; env screen -X hardcopy \$f; env screen -t \$t sh -c "$EDITOR -c \"set nonumber\" \$f; rm \$f"; env screen -X select \$t'
 bind \040 windowlist -b
 vbell on
 vbell_msg DING
@@ -366,6 +367,7 @@ exec vim "$@"
   export SCR_TMPDIR=/tmp/scr-$SCR_ENV
   export EDITOR=$SCR_TMPDIR/scr-editor
   export SCR_VIMRC=$SCR_TMPDIR/scr-vimrc
+  export SCR_PASSWORD_FILE=$SCR_HOME/private/el13/passwords.gpg
   export VIMINIT='source $SCR_VIMRC'
   # for sudo users, if they use vim and SHELL is /bin/false (or similar) then
   # rvim is used (at least on macos)

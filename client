@@ -2,6 +2,7 @@
 
 export SCR_PORT=4553
 export SCR_ENV=dev
+export SCR_HOME=$(node -r fs -r path -e "console.log(fs.realpathSync(path.join('$0','..')))")
 shell_init_args=(-s 1)
 
 usage() {
@@ -13,7 +14,7 @@ Options:
 "
 }
 
-while builtin getopts "hCp:tg:G" opt; do
+while builtin getopts "hCp:" opt; do
   case $opt in
     (h)
       usage
