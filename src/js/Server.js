@@ -3,7 +3,9 @@ import http from 'http';
 import os from 'os';
 //import querystring from 'querystring';
 import zlib from 'zlib';
-import {promises as fsPromises} from 'fs';
+import {default as fs,promises as fsPromises} from 'fs';
+import crypto from 'crypto';
+import path from 'path';
 
 const E_OS_PROG_ENUM={
   COPY:{
@@ -50,6 +52,8 @@ class Server extends http.Server {
         return res.end("hello world\n");
       case "/scr-shutdown":
         return this.shutdown(res);
+      case "/scr-upload-file":
+        return this.uploadFile(req,res);
     }
     res.end();
   }
@@ -173,6 +177,52 @@ class Server extends http.Server {
     }
     res.statusCode=401;
     res.end();
+  }
+
+  /**
+   * handles an uploaded file from the client (using the <code>-download</code>
+   * bash function)
+   */
+  uploadFile(req,res) {
+    const filename=req.headers['x-file-name'];
+    const md5=req.headers['x-file-md5'];
+    if (!filename || !md5) {
+      res.statusCode=400;
+      res.statusMessage="missing headers";
+      return res.end();
+    }
+    if (! /^[-\+\.\w\(\)%]+$/.test(filename)) {
+      res.statusCode=400;
+      res.statusMessage="illegal filename";
+      return res.end();
+    }
+    const endRequest=e=>{
+      res.statusCode=500;
+      res.end();
+    };
+    const localPath=`/tmp/${path.basename(filename)}`;
+    const hash=crypto.createHash('md5');
+    const stream=fs.createWriteStream(localPath);
+    let filesize=0;
+    stream.on('error',e=>console.log("uploadFile stream:",e));
+    stream.on('error',e=>endRequest(e));
+    req.on('error',e=>console.error("uploadFile req:",e));
+    req.on('error',e=>endRequest(e));
+    req.on('data',buf=>{
+      hash.update(buf,'utf8');
+      stream.write(buf,'utf8');
+      filesize+=buf.length;
+    });
+    req.on('end',()=>{
+      const localMd5=hash.digest('hex').toLowerCase();
+      if (md5===localMd5) {
+        console.log("wrote file:",localPath,`(${filesize} bytes)`);
+        return res.end();
+      }
+      res.statusCode=500;
+      res.statusMessage=`md5 check failed for ${filename}`;
+      res.end();
+    });
   }
 }
 

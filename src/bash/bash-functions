@@ -544,3 +544,14 @@ ssh() {
     return 2
   fi
 }
+
+-download() {
+  local f="$1" ext gzip=1 md5
+  if [ ! -e "$f" ]; then
+    echo "$FUNCNAME: no such file, or file is not readable: $f"
+    return 1
+  fi
+  ext="${f##*.}"
+  md5=$(-md5 $f)
+  -ws /scr-upload-file --data-binary @$f -H "x-file-name: $(basename $f)" -H "x-file-md5: $md5"
+}

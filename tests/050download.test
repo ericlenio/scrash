@@ -1,0 +1,9 @@
+# vim:filetype=bash
+t1=$SCR_TMPDIR/t1
+len=1000
+-random-string $len > $t1
+[ -s $t1 ]
+-download $t1
+[ -e /tmp/t1 ]
+[ $(-md5 $t1) = $(-md5 /tmp/t1) ]
+rm $t1
