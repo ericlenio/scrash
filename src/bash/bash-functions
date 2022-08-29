@@ -555,3 +555,80 @@ ssh() {
   md5=$(-md5 $f)
   -ws /scr-upload-file --data-binary @$f -H "x-file-name: $(basename $f)" -H "x-file-md5: $md5"
 }
+
+# upload a file from the system where Server.js is running (presumably to some
+# system you are currently ssh'd to); pass a filename as arg1, else an
+# interactive file picker is executed
+-upload() {
+  local c eot=$'\x04' upload_file="$1"
+  if [ "$STY" ]; then
+    -screen-env
+  fi
+  {
+    while :; do
+      # read and echo stdout from upload-file-picker script
+      IFS='' read -s -d '' -n 1 c
+      if [ "$c" = "$eot" ]; then
+        break
+      fi
+      printf %s "$c"
+    done
+    # read info about the file about to be uploaded
+    IFS=$'\r|' read status upload_file upload_file_md5 upload_file_size
+    upload_file=$(basename "$upload_file")
+    if [ "$status" != E_FILE_INFO ]; then
+      echo "$status" >&2
+      return 1
+    fi
+    #set -o pipefail
+    # the rest of the stream from nc is the gzip'd file, use perl to print out
+    # a progress indicator
+    if ! gzip -d -c | perl -pe '
+BEGIN {
+$n=0;
+$n2=0;
+$s=shift @ARGV;
+$freq=2**10*32;
+printf STDERR "%10d/%10d",$n,$s;
+}
+END {
+printf STDERR "\033[1G%10d",$n;
+printf STDERR "\n";
+}
+$n+=length($_);
+$n2+=length($_);
+if ($n2 > $freq ) {
+printf STDERR "\033[1G%10d",$n;
+$n2=0;
+}
+' $upload_file_size > "$upload_file"; then
+      echo "$FUNCNAME FAIL: $upload_file did not decompress through gzip" >&2
+      return 1
+    fi
+    upload_file_md5a=$(-md5 "$upload_file")
+    if [ $upload_file_md5 != $upload_file_md5a ]; then
+      echo >&2
+      echo "$FUNCNAME FAIL: md5 hash mismatch: expected $upload_file_md5, but got $upload_file_md5a" >&2
+      return 1
+    fi
+    echo SUCCESS
+    return 0
+  } < <(
+    {
+      # user can optionally pre-pick a file to upload, if they know the full
+      # path
+      printf "upload_file=%s\n" "$upload_file"
+      if [ -z "$upload_file" ]; then
+        # interact with upload-file-picker script, up to the user pressing
+        # return (\n)
+        while :; do
+          IFS='' read -s -d '' -n 1 c
+          printf %s "$c"
+          if [ "$c" = $'\n' ]; then
+            break
+          fi
+        done
+      fi
+    } | nc -X connect -x 127.0.0.1:$SCR_PORT localhost 1234
+  )
+}

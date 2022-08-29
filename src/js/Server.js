@@ -6,6 +6,7 @@ import zlib from 'zlib';
 import {default as fs,promises as fsPromises} from 'fs';
 import crypto from 'crypto';
 import path from 'path';
+import pty from 'node-pty';
 
 const E_OS_PROG_ENUM={
   COPY:{
@@ -32,6 +33,7 @@ class Server extends http.Server {
       this.once('listening',()=>fsPromises.appendFile(notify,this.address().port+"\n").catch(e=>console.error(e)))
     }
     this.on('request',(req,res)=>this.onRequest(req,res));
+    this.on('connect',(req,socket,head)=>this.onConnect(req,socket,head));
     return Promise.resolve();
   }
 
@@ -56,6 +58,59 @@ class Server extends http.Server {
         return this.uploadFile(req,res);
     }
     res.end();
+  }
+
+  onConnect(req,socket,head) {
+    const response={
+      statusLine:`HTTP/1.0 200 scrash Connection Established`,
+      headers:[],
+      toString:()=>response.statusLine+"\r\n"+response.headers.join("\r\n")+"\r\n",
+    };
+    socket.on('error',e=>console.error("onConnect socket:",e));
+    socket.write(response.toString(),()=>{
+      let p;
+      let stdout='';
+      let line1='';
+      let uploadFile;
+      socket.on('data',buf=>{
+        line1+=buf;
+        const m=/^upload_file=(.*?)\n/.exec(line1);
+        if (m) {
+          socket.removeAllListeners('data');
+          uploadFile=m[1];
+          p=pty.spawn("src/bash/upload-file-picker",[uploadFile]);
+          console.log("spawn:",p.pid);
+          p.on("error",e=>{
+            console.error("spawn:"+e);
+            socket.destroy();
+          });
+          p.on('data',buf=>{
+            stdout+=buf;
+            socket.write(buf);
+          });
+          p.on('exit',(code,signal)=>{
+            console.log("exit p:",p.pid,code,signal);
+            const eot="\x04";
+            const re=new RegExp(".*?"+eot+"(E_FILE_INFO.*?)\r\n","s");
+            const fileInfo=stdout.replace(re,"$1").split('|');
+            if (fileInfo==stdout) {
+              return socket.end();
+            }
+            console.log("upload fileInfo:"+JSON.stringify(fileInfo));
+            const uploadFile=fileInfo[1];
+            const gz=zlib.createGzip({level:zlib.Z_BEST_COMPRESSION});
+            const fsstream=fs.createReadStream(uploadFile);
+            fsstream.pipe(gz).pipe(socket);
+          });
+          socket.pipe(p);
+        }
+      });
+      socket.on('end',()=>{
+        if (p) {
+          p.destroy();
+        }
+      });
+    });
   }
 
   getOsProgram(progtype) {
@@ -191,7 +246,7 @@ class Server extends http.Server {
       res.statusMessage="missing headers";
       return res.end();
     }
-    if (! /^[-\+\.\w\(\)%]+$/.test(filename)) {
+    if (! /^[- \+\.\w\(\)%]+$/.test(filename)) {
       res.statusCode=400;
       res.statusMessage="illegal filename";
       return res.end();

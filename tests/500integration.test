@@ -22,8 +22,10 @@ cpfile=$SCR_TMPDIR/ssh-cp
 -ssh-not-strict -S $cpfile localhost screen -u -S $session_id -X select -
 # try copying a word inside vim to the clipboard over the new SCR_PORT
 screen -S $session_id -X screen bash -c -- "-s nobody v -s $t1 /etc/passwd"
+echo "about to do read on $f2"
+ps -jAwww|grep nobody
 read ans < $f2
-
+echo "GOOD read on $f2"
 [ "$ans" = $r ]
 [ nobody = $(-clipboard) ]
 # flush clipboard

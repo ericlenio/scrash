@@ -2,11 +2,14 @@
   "name": "scrash",
   "version": "1.0.0",
   "description": "",
-  "type":"module",
+  "type": "module",
   "main": "index.js",
   "scripts": {
     "test": "./tests/test"
   },
   "author": "",
-  "license": "AGPL-3.0-only"
+  "license": "AGPL-3.0-only",
+  "dependencies": {
+    "node-pty": "^0.10.1"
+  }
 }

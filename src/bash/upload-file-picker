@@ -1,0 +1,30 @@
+#! /usr/bin/env bash
+upload_file="$1"
+cd ~
+basedir=$PWD
+if [ ! "$HOME" ]; then
+  HOME=$PWD
+fi
+if [ -z "$upload_file" ]; then
+  echo "current directory: $PWD"
+  read -e -p "pick a file: " upload_file
+fi
+eot=$'\x04'
+printf %s $eot
+upload_file=${upload_file/#\~/$HOME}
+if [ -e "$upload_file" ]; then
+  if [ ${upload_file:0:1} != / ]; then
+    upload_file=$basedir/$upload_file
+  fi
+  md5=$(openssl md5 "$upload_file")
+  md5=${md5##*= }
+  size=$(wc -c <"$upload_file")
+  size=${size// /}
+  printf "E_FILE_INFO|%s|%s|%s\n" "$upload_file" $md5 $size
+  exit 0
+elif [ "$upload_file" ]; then
+  printf "E_NO_SUCH_FILE: %s\n" "$upload_file"
+else
+  echo "E_CANCELLED"
+fi
+exit 1

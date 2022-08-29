@@ -1,0 +1,6 @@
+# vim:filetype=bash
+cd $SCR_TMPDIR
+-upload /etc/passwd
+[ $(-md5 /etc/passwd) = $(-md5 passwd) ]
+! -upload /no-such-file-exists
+cd $OLDPWD
