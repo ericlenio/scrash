@@ -74,41 +74,45 @@ class Server extends http.Server {
       let uploadFile;
       socket.on('data',buf=>{
         line1+=buf;
+        // see if user specified the upload file directly (otherwise the file
+        // picker script will provide it)
         const m=/^upload_file=(.*?)\n/.exec(line1);
-        if (m) {
-          socket.removeAllListeners('data');
-          uploadFile=m[1];
-          p=pty.spawn("src/bash/upload-file-picker",[uploadFile]);
-          console.log("spawn:",p.pid);
-          p.on("error",e=>{
-            console.error("spawn:"+e);
-            socket.destroy();
-          });
-          p.on('data',buf=>{
-            stdout+=buf;
-            socket.write(buf);
-          });
-          p.on('exit',(code,signal)=>{
-            console.log("exit p:",p.pid,code,signal);
-            const eot="\x04";
-            const re=new RegExp(".*?"+eot+"(E_FILE_INFO.*?)\r\n","s");
-            const fileInfo=stdout.replace(re,"$1").split('|');
-            if (fileInfo==stdout) {
-              return socket.end();
-            }
-            console.log("upload fileInfo:"+JSON.stringify(fileInfo));
-            const uploadFile=fileInfo[1];
-            const gz=zlib.createGzip({level:zlib.Z_BEST_COMPRESSION});
-            const fsstream=fs.createReadStream(uploadFile);
-            fsstream.pipe(gz).pipe(socket);
-          });
-          socket.pipe(p);
+        if (!m) {
+          return;
         }
+        socket.on('data',buf=>p.write(buf));
+        line1='';
+        uploadFile=m[1];
+        p=pty.spawn("./src/bash/upload-file-picker",[uploadFile]);
+        console.log("spawn:",new Date().toLocaleString(),p.pid);
+        p.on("error",e=>{
+          console.error("spawn:"+e);
+          socket.destroy();
+        });
+        p.on('data',buf=>{
+          stdout+=buf;
+          socket.write(buf);
+        });
+        p.on('exit',(code,signal)=>{
+          console.log("exit p:",p.pid,code,signal);
+          const eot="\x04";
+          const re=new RegExp(".*?"+eot+"(E_FILE_INFO.*?)\r\n","s");
+          const fileInfo=stdout.replace(re,"$1").split('|');
+          if (fileInfo==stdout) {
+            return socket.end();
+          }
+          console.log("upload fileInfo:"+JSON.stringify(fileInfo));
+          const uploadFile=fileInfo[1];
+          const gz=zlib.createGzip({level:zlib.Z_BEST_COMPRESSION});
+          const fsstream=fs.createReadStream(uploadFile);
+          fsstream.pipe(gz).pipe(socket);
+        });
       });
       socket.on('end',()=>{
-        if (p) {
-          p.destroy();
-        }
+        console.log("socket end");
+        //if (p) {
+          //p.destroy();
+        //}
       });
     });
   }
