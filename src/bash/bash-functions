@@ -317,6 +317,7 @@ v() {
     local p='#!/usr/bin/env bash
 [ "$1" = "--version" ] && exec vim "$@"
 %s
+-shell-init
 exec vim "$@"
 '
     #local url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
