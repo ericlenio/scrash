@@ -429,7 +429,7 @@ exec vim "$@"
 ssh() {
   local remote_port bootstr OPTIND \
     ssh_legal_opts="1246ab:c:e:fgi:kl:m:no:p:qstvxACD:E:F:GI:J:KL:MNO:PQ:R:S:TVw:W:XYy" \
-    opt ssh_user_host cmd=(env ssh) start=1
+    opt ssh_user_host cmd=(env ssh) start=1 N_flag=0
   while builtin getopts $ssh_legal_opts opt; do
     #case $opt in
     #  f|N|M|V)
@@ -439,6 +439,9 @@ ssh() {
     #esac
     cmd+=("-$opt")
     [ "$OPTARG" ] && cmd+=("$OPTARG")
+    # if -N is given, still allow for forwarding SCR_PORT but skip bootstr
+    # (integration tests use this with a ssh control master)
+    [ $opt = N ] && N_flag=1
   done
   # after this shift, the ssh user@host should be left in $1 (assuming an
   # user@host was provided on the command line, which is most of the time)
@@ -456,8 +459,10 @@ ssh() {
       -oExitOnForwardFailure=yes
       -R$remote_port:127.0.0.1:$SCR_PORT
       "$ssh_user_host"
-      exec bash -c "'"$bootstr"'"
     )
+    if [ $N_flag = 0 ]; then
+      cmd+=(exec bash -c "'"$bootstr"'")
+    fi
   fi
   "${cmd[@]}"
 }
