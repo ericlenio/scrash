@@ -1,0 +1,51 @@
+#! /usr/bin/env bash
+
+#machdep.cpu.vendor: GenuineIntel
+#machdep.cpu.brand_string: Intel(R) Core(TM) i7-7Y75 CPU @ 1.30GHz
+#machdep.cpu.family: 6
+#machdep.cpu.model: 142
+#machdep.cpu.stepping: 9
+#machdep.cpu.feature_bits: 9221960262849657855
+#machdep.cpu.leaf7_feature_bits: 43806655 0
+#machdep.cpu.leaf7_feature_bits_edx: 2617254912
+#machdep.cpu.extfeature_bits: 1241984796928
+#machdep.cpu.signature: 526057
+#machdep.cpu.brand: 0
+#machdep.cpu.features: FPU VME DE PSE TSC MSR PAE MCE CX8 APIC SEP MTRR PGE MCA CMOV PAT PSE36 CLFSH DS ACPI MMX FXSR SSE SSE2 SS HTT TM PBE SSE3 PCLMULQDQ DTES64 MON DSCPL VMX SMX EST TM2 SSSE3 FMA CX16 TPR PDCM SSE4.1 SSE4.2 x2APIC MOVBE POPCNT AES PCID XSAVE OSXSAVE SEGLIM64 TSCTMR AVX1.0 RDRAND F16C
+#machdep.cpu.leaf7_features: RDWRFSGS TSC_THREAD_OFFSET SGX BMI1 HLE AVX2 SMEP BMI2 ERMS INVPCID RTM FPU_CSDS MPX RDSEED ADX SMAP CLFSOPT IPT MDCLEAR TSXFA IBRS STIBP L1DF SSBD
+
+VM_NAME=q-esxi
+VM_CPU=Westmere
+#VM_CPU=host
+#VM_CPU=max
+#VM_CPU=Haswell
+#VM_CPU=Nehalem
+#VM_CPU=Nehalem-IBRS
+#VM_CPU=Skylake-Server
+#VM_CPU=Skylake-Client
+#VM_CPU=Snowridge
+#VM_CPU=SandyBridge
+#VM_CPU_OPTS=+vme,+ss,+vmx,+f16c,+rdrand,+hypervisor,+arat,+tsc_adjust,+umip,+ssbd,+xsaveopt,+pdpe1gb,+abm,+acpi,+apic
+#VM_CPU_OPTS=+vmx,+pae,+nx,+vme,+ht,+x2apic,+invpcid,check
+# vbox has: +nonstop_tsc,+tsc_known_freq,+tpr_shadow,+flexpriority,+flush_l1d
+VM_DISK=$VM_NAME.qcow2
+VM_DISK_SIZE=12g
+VM_RAM_MB=8192
+VM_ACCELERATOR=hvf
+#VM_INSTALL_ISO=$HOME/Downloads/VMware-VMvisor-Installer-6.7.0.update03-14320388.x86_64.iso
+VM_INSTALL_ISO=$HOME/Downloads/VMware-VMvisor-Installer-7.0.0-15843807.x86_64.iso
+#VM_INSTALL_ISO=/Users/el13/Downloads/cd65.iso
+#VM_INSTALL_ISO=/Users/el13/Downloads/systemrescuecd-6.0.3.iso
+#/Users/el13/Downloads/ubuntu-rescue-remix-12-04.iso
+VM_MACHINE_TYPE=q35
+#VM_MACHINE_TYPE=pc
+VM_NIC=user,ipv6=off,model=e1000
+
+#qemu-img create -f qcow2 $VM_DISK $VM_DISK_SIZE
+#qemu-system-x86_64 -cpu $VM_CPU,$VM_CPU_OPTS -smp cpus=2 -accel $VM_ACCELERATOR -nic user,ipv6=off,model=e1000 -m size=$VM_RAM_MB -machine type=q35 -cdrom $VM_INSTALL_ISO $VM_DISK
+if [ $(sysctl -n kern.hv_support) != 1 ]; then
+  echo "This system does not support Hypervisor APIs"
+  exit 1
+fi
+set -x
+exec qemu-system-x86_64 -cpu $VM_CPU,$VM_CPU_OPTS -smp cpus=2,cores=2 -accel $VM_ACCELERATOR -nic $VM_NIC -m size=$VM_RAM_MB -machine type=$VM_MACHINE_TYPE -cdrom $VM_INSTALL_ISO $VM_DISK

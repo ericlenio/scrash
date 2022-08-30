@@ -1,0 +1,6 @@
+#!/bin/sh
+if [ $(uname) = OpenBSD ]; then
+  pkill openvpn
+  /usr/local/sbin/openvpn --daemon --config /usr/local/etc/openvpn/lincware.conf
+  #LDAPTLS_CACERT=/usr/local/etc/apache2/ssl/star.lincware.com.chain.crt /usr/local/sbin/openvpn --daemon --config /usr/local/etc/openvpn/lincware.conf
+fi

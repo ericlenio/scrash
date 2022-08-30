@@ -1,0 +1,180 @@
+#! /bin/sh
+cmd="ipfw -q add"
+primary_dns=10.9.0.83
+lan_if="em0"
+ks="keep-state"
+vpn_network=10.4.0.0/24
+lan_network=10.9.0.0/24
+ip_lan=10.9.0.57
+ip_tun0=10.4.0.1
+ip_lenio=10.4.0.201
+sslh_listen_port=443
+
+#
+# dynamically build our rules in variable RULES: rules get added to it via
+# add_rule
+RULES=""
+
+#
+# add a rule to the RULES variable; this function takes 2 args:
+# 1. an ipfw rule (to which we automatically prefix "ipfw -q add")
+# 2. an optional "skipto" label for this particular rule, and it can be
+# referenced by earlier rules which should specify "skipto <<LABEL>>" with the
+# actual label surrounded by double less than/greater than characters
+add_rule() {
+  local rule="$1" rule_num_placeholder="$2"
+  local rule_num=$(printf "%05d" $((10*(1+$(echo -e $RULES | wc -l)))))
+  if [ -z "$RULES" ]; then
+    rule_num="00010"
+    RULES="ipfw -q add $rule_num $rule"
+  else
+    RULES="$RULES;\nipfw -q add $rule_num $rule"
+  fi
+  if [ -n "$rule_num_placeholder" ]; then
+    eval "export $rule_num_placeholder=$rule_num"
+  fi
+}
+
+add_rule "allow all from any to any via lo0"
+
+# this next rule must be "from $ip_lan" and not "from me", because "me"
+# includes tun0, and tun0 DNS requests must be NAT
+add_rule "allow udp from $ip_lan to $primary_dns 53 via $lan_if $ks"
+
+
+#
+# Allow openvpn connections
+#
+add_rule "allow tcp from any to me 1194 in via $lan_if $ks"
+add_rule "allow tcp from me 1194 to any out via $lan_if"
+
+
+# drop upnp
+add_rule "reset udp from any to 239.255.255.250 1900"
+
+# drop scans by nodeware scanner
+#add_rule "deny all from 10.9.0.156 to any"
+
+# Allow openvpn to validate login credentials
+add_rule "allow tcp from $ip_lan to ldap.lincware.com 389 uid nobody via $lan_if setup $ks"
+
+# Allow NTP
+add_rule "allow udp from me to any 123 uid _ntp out via $lan_if keep-state"
+
+#
+# transparent proxying for sslh: needs to come before the PERM_SSH_RULE ssh
+# rule below; set transparent:true in /etc/local/etc/sslh.conf first
+#
+#add_rule "fwd $ip_lan,$sslh_listen_port tcp from $ip_lan 22 to $lan_network out via $lan_if"
+#add_rule "fwd $ip_lan,$sslh_listen_port tcp from $ip_lan 4443 to $lan_network out via $lan_if"
+
+# note how we use a rule comment for "PERM_SSH_RULE" to set up this ssh rule,
+# using set 31 as a safety net so we do not lose ssh access to a remote system
+if ! ipfw list|grep -q PERM_SSH_RULE; then
+  # rule set 31 is unique, "ipfw flush" will not drop these, see man ipfw
+  add_rule "set 31 allow tcp from any to me 22 in via $lan_if setup limit src-addr 10 // PERM_SSH_RULE"
+fi
+
+# Reset TCP 10.9.0.57:22 10.9.0.197:65336 out via em0
+#add_rule "allow tcp from $ip_lan 22 to $lan_network out via $lan_if"
+# Reset TCP 10.9.0.197:65393 10.9.0.57:22 in via em0
+#add_rule "allow tcp from $lan_network to $ip_lan in via $lan_if"
+
+# allow LAN clients to hit nginx running on this system
+add_rule "allow tcp from $lan_network to $ip_lan $sslh_listen_port in via $lan_if"
+add_rule "allow tcp from $ip_lan $sslh_listen_port to $lan_network out via $lan_if"
+
+
+#
+# Allow any VPN connection to access DNS
+#
+add_rule "skipto <<NAT_RULE>> udp from $vpn_network to $primary_dns 53 in via tun0"
+add_rule "skipto <<NAT_RULE>> icmp from $vpn_network to $lan_network in via tun0"
+
+#
+# root outbound http, https, ssh
+add_rule "allow tcp from any to any 22,80,443 out via $lan_if uid root setup keep-state"
+
+
+
+#
+#
+#
+# BEGIN USER RULES
+#
+#
+add_rule "// BEGIN USER RULES"
+# lenio
+add_rule "// RULES FOR: lenio"
+add_rule "skipto <<ALLOW_SSH_HTTP_HTTPS>> tcp from $ip_lenio to openbsd.lincware.com,gateway.lincware.com,svn.lincware.com,redmine.lincware.com,net.lincware.com,zarafa.lincware.com 22,80,443"
+
+# for lenio only: these next 2 allow traceroute:
+# https://www.phildev.net/ipf/IPFques.html#ques34 But note: traceroute can also
+# be run using a TCP port thus avoiding icmp and udp for it to work
+#
+# Sample output of "traceroute -n redmine":
+# traceroute to redmine (10.9.0.83), 30 hops max, 60 byte packets
+#  1  10.4.0.1  20.296 ms  52.419 ms  73.202 ms
+#  2  10.9.0.83  73.227 ms  73.230 ms  73.232 ms
+add_rule "skipto <<ALLOW_SSH_HTTP_HTTPS>> udp from $ip_lenio to $lan_network 3000-65535 in via tun0"
+add_rule "allow icmp from $ip_tun0 to $ip_lenio out via tun0"
+
+add_rule "// END USER RULES"
+#
+# Default block on all VPN connections if VPN address does not match above in the user rules
+#
+add_rule "reset log all from $vpn_network to any // DEFAULT VPN BLOCK"
+
+add_rule "allow tcp from $vpn_network to $lan_network 22,80,443 in via tun0" ALLOW_SSH_HTTP_HTTPS
+add_rule "allow tcp from $lan_network 22,80,443 to $vpn_network out via tun0"
+
+#
+# EVERYTHING BELOW HERE IS NAT'D, all the rules should be stateful (i.e. use
+# "keep-state" and/or "limit"); any rule with state found in dynamic rules
+# table is allowed
+#
+
+#
+# divert traffic to natd
+#
+# Dynamic rules are created when a packet matches a keep-state or limit rule,
+# causing the creation of a dynamic rule which will match all and only packets
+# with a given protocol between a src-ip/src-port dst-ip/dst-port pair of
+# addresses
+add_rule "divert natd ip4 from any to any in via $lan_if" NAT_RULE
+
+add_rule "check-state"
+
+
+add_rule "skipto <<ALREADY_DIVERTED>> udp from $vpn_network to $primary_dns 53 out via $lan_if setup $ks"
+add_rule "skipto <<ALREADY_DIVERTED>> udp from $vpn_network to $primary_dns 53 in via tun0 $ks"
+
+# allow ssh
+add_rule "skipto <<ALREADY_DIVERTED>> tcp from $vpn_network to $lan_network 22 out via $lan_if setup limit src-addr 10"
+#add_rule "skipto <<ALREADY_DIVERTED>> tcp from $ip_lan to $lan_network 22 out via $lan_if $ks"
+# 350 Reset TCP 10.9.0.57:36691 10.9.0.83:22 out via em0
+
+# allow http, https
+add_rule "skipto <<ALREADY_DIVERTED>> tcp from $vpn_network to $lan_network 80,443 out via $lan_if setup $ks"
+
+# allow ping
+add_rule "skipto <<ALREADY_DIVERTED>> icmp from $vpn_network to $lan_network $ks"
+
+# these next 2 for traceroute
+add_rule "skipto <<ALREADY_DIVERTED>> icmp from $lan_network to $vpn_network in via $lan_if $ks"
+add_rule "skipto <<ALREADY_DIVERTED>> udp from $vpn_network to $lan_network 3000-65535 $ks"
+
+add_rule "reset log all from any to any"
+add_rule "divert natd ip4 from any to any out via $lan_if" ALREADY_DIVERTED
+
+#
+# ALLOW pre-established connections
+add_rule "allow ip from any to any"
+
+add_rule "reset log ip from any to any"
+
+sysctl net.inet.ip.fw.verbose=1
+sysctl net.inet.ip.fw.verbose_limit=0
+sysctl net.inet.ip.forwarding=1
+ipfw -q -f flush
+eval $(echo -e $RULES | /usr/local/bin/perl -pe 's{<<(\w+)>>}{$ENV{$1}}g')

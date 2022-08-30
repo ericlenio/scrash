@@ -1,0 +1,29 @@
+#! /usr/bin/env bash
+# on OpenBSD, this allows my USB keyboard volume controls to work
+#
+
+if [ $(uname) != OpenBSD ]; then
+  exit 1
+fi
+
+conf=$(mktemp)
+cat << 'EOF' >$conf
+# usbhidaction -f /dev/uhid1 -c conf /dev/mixer0
+# usbhidaction -f /dev/uhid1 -c /usr/local/etc/usbhidaction-keyboard.conf /dev/mixer
+#
+# The volume range is 0..255. Moving 8 volume steps each keypress 
+# moves quickly through the volume range but still has decent 
+# granularity. 
+Consumer:Volume_Increment					   1 
+	mixerctl -f $1 outputs.master=+8 
+Consumer:Volume_Decrement					   1 
+	mixerctl -f $1 outputs.master=-8 
+Consumer:Mute							   1 
+	mixerctl -f $1 outputs.master.mute=toggle
+EOF
+
+#sudo usbhidaction -f /dev/uhid1 -c /usr/local/etc/usbhidaction-keyboard.conf /dev/mixer
+if ! sudo usbhidaction -f /dev/uhid1 -c $conf /dev/audioctl0; then
+  echo "$(basename $0): try re-plugging in the keyboard, or killing previous usbhidaction daemon"
+fi
+rm -f $conf

@@ -1,0 +1,5 @@
+#! /bin/bash
+# trans is from https://www.soimort.org/translate-shell/
+ans=$(trans en:es -b "$*")
+echo "$ans" | cp2cb
+echo "$ans"

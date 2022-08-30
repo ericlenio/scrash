@@ -1,0 +1,4 @@
+#! /bin/bash
+for vm in $(sudo -u lenio VBoxManage list runningvms|perl -pe 's{^"([^"]+)".*}{$1}'); do
+  sudo -u lenio VBoxManage controlvm "$vm" savestate
+done

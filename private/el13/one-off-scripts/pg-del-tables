@@ -1,0 +1,67 @@
+#! /bin/bash
+
+# Modify this list of tables to be backed up, then deleted from postresql; each
+# line must include the schema name, then a period, then the table name
+table_list="
+formsdev.casecreation
+formsdev.proofdelivery
+"
+
+
+
+# Modify the database name if necessary
+dbname="lincdoc335"
+
+# Directory to contain the backups
+backup_dir=/var/backups
+
+# END OF PARAMETERS, nothing configurable below here
+
+
+#sudo -u postgres psql lincdoc335 << EOF
+#create table formsdev.test1_a(v1 varchar(200));
+#create table formsdev.test1_b(v1 varchar(200));
+#EOF
+#table_list="
+#formsdev.test1_a
+#formsdev.test1_b
+#"
+
+function table_exists() {
+  local tbl=$1
+  local schemaname tablename
+  #echo "check if table exists: $tbl"
+  if [[ $tbl =~ ^([_[:alnum:]]+)\.([_[:alnum:]]+)$ ]]; then
+    schemaname=${BASH_REMATCH[1]}
+    tablename=${BASH_REMATCH[2]}
+    local rc=$(sudo -u postgres psql -tAc "select count(*) from pg_tables where schemaname='$schemaname' and tablename='$tablename'" $dbname)
+    [ $rc -gt 0 ] && {
+      #echo "$tbl does exist"
+      return 0
+    }
+    return 1
+  fi
+  echo "Could not parse schema name from: $tbl"
+  return 1
+}
+
+for tbl in $table_list; do
+  if ! table_exists $tbl; then
+    echo "ERROR: table $tbl does not exist, so it cannot be backed up"
+    exit 1
+  fi
+done
+
+for tbl in $table_list; do
+  backup_file=$backup_dir/$dbname-$tbl.sql
+  sudo touch $backup_file
+  sudo chown postgres $backup_file
+  sudo chmod 600 $backup_file
+  echo "Backing up $tbl to $backup_file..."
+  sudo -u postgres pg_dump -t $tbl $dbname | sudo dd of=$backup_file
+  echo -n "Delete $tbl now (y/n, default=n)?"
+  read ans
+  if [ "$ans" = y ]; then
+    sudo -u postgres psql -c "drop table $tbl cascade" $dbname
+  fi
+done

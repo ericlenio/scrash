@@ -1,0 +1,3 @@
+#! /usr/bin/env bash
+
+PKG_PATH=http://apt.lincware.com/openbsd pkg_add -u lwbackup

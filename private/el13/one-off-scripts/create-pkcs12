@@ -1,0 +1,2 @@
+#!/bin/bash
+openssl pkcs12 -export -out star.lincware.com.p12 -inkey star.lincware.com.key -in star.lincware.com.crt

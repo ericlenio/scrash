@@ -1,0 +1,14 @@
+#! /usr/bin/env bash
+user=eml
+pwkey="LincWare LDAP:$user"
+pw=$(pw "$pwkey")
+[ -z "$pw" ] && {
+  echo "Could not retrieve password" >&2
+  exit 1
+}
+auth=$(printf "%s:%s" "$user" "$pw" | openssl enc -a -A)
+auth_hdr=$(printf "Authorization: Basic %s" $auth)
+
+url=https://remoteadmin.private:3333/ra-memory-usage
+
+curl -H "$auth_hdr" $url

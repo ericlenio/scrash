@@ -1,0 +1,46 @@
+#! /usr/bin/env bash
+# use this script to generate a CSR for a given pre-existing private key file
+#
+# to patch:
+# clouda
+# cloudw1
+# eos1
+# customerdev
+# betademo18
+# zarafa (inside /etc/ldap/ssl, and /etc/apache2/ssl)
+# redmine
+# ra.lincware.com
+# o.lincware.com
+# xerus1
+# jenkins
+#
+set -e
+
+usage() {
+  echo "usage: $(basename $0) /path/to/star.example.com.key"
+  exit 1
+}
+
+keyfile=$1
+if [ ! -f $keyfile ]; then
+  usage
+fi
+keyfileb=$(basename $keyfile)
+csrfile=/tmp/${keyfileb/.key/.csr}
+if [ $keyfile = $csrfile ]; then
+  echo "um, keyfile = csrfile = $keyfile" >&2
+  usage
+fi
+
+if [[ $(basename $keyfile) =~ ^star\.([[:alpha:]]+\.[[:alpha:]]+) ]]; then
+  domain=${BASH_REMATCH[1]}
+else
+  echo "could not determine domain from key file name: $keyfile" >&2
+  echo "hint: key file name should follow \"star.something.com.key\"" >&2
+  usage
+fi
+subj="/C=US/ST=New York/L=East Rochester/O=LincWare/OU=IT Department/CN=*.$domain"
+
+echo "Proceeding to generate $csrfile with subject: $subj"
+openssl req -new -key $keyfile -out $csrfile -subj "$subj"
+echo SUCCESS

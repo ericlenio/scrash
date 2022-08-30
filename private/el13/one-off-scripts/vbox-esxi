@@ -1,0 +1,69 @@
+#! /usr/bin/env bash
+# Links:
+# https://www.virtualbox.org/sdkref/interface_i_machine.html
+# https://www.virtualbox.org/manual/ch08.html
+# https://www.virtuallyghetto.com/nested-virtualization/nested-esxi-virtual-appliance
+
+# When attempting to run a VM:
+#
+# Failed - This host supports Intel VT-x, but the Intel VT-x implementation is incompatible with VMware ESX.
+# Errors
+#
+#    This host supports Intel VT-x, but the Intel VT-x implementation is incompatible with VMware ESX.
+#    This host does not support "Intel EPT" hardware assisted MMU virtualization.
+#    This host does not support virtualizing real mode. The Intel "VMX Unrestricted Guest" feature is necessary to run this virtual machine on an Intel processor.
+#    Module 'CPUIDEarly' power on failed.
+#    Failed to start the virtual machine.
+#
+
+
+#
+# from esxi.lincware.com dmesg output:
+# 0:00:00:04.887 cpu0:2097152)WARNING: IOV: 231: IOV initialization failed
+# see: http://www.digitalroadies.com/vmware-6-initializing-iov-issues/
+#
+
+# from VBox.log:
+#   00:00:01.522699 HM: HMR3Init: VT-x w/ nested paging and unrestricted guest execution hw support
+#   00:00:01.590589 HM: Enabled unrestricted guest execution
+# But then later, unrestricted does not seem to work:
+#   00:00:01.591172   UnrestrictedGuest - Unrestricted guest                  = 0 (1)
+
+# The virtualbox SDK has this enum for UnrestrictedExecution, could be worth exploring:
+#
+#       <!-- enum: HWVirtExPropertyType -
+#            Null: 0 -
+#            Enabled: 1 -
+#            VPID: 2 -
+#            NestedPaging: 3 -
+#            UnrestrictedExecution: 4 -
+#            LargePages: 5 -
+#            Force: 6 -
+#            UseNativeApi: 7 -
+#            -->
+#      <xsd:simpleType name="HWVirtExPropertyType">
+#        <xsd:restriction base="xsd:string">
+#          <xsd:enumeration value="Null"/>
+#          <xsd:enumeration value="Enabled"/>
+#          <xsd:enumeration value="VPID"/>
+#          <xsd:enumeration value="NestedPaging"/>
+#          <xsd:enumeration value="UnrestrictedExecution"/>
+#          <xsd:enumeration value="LargePages"/>
+#          <xsd:enumeration value="Force"/>
+#          <xsd:enumeration value="UseNativeApi"/>
+#        </xsd:restriction>
+#      </xsd:simpleType>
+
+#
+# VirtualBox does not seem to use MacOS Hypervisor:
+# https://developer.apple.com/documentation/hypervisor
+# check with: sysctl -a kern.hv_support
+# But, VirtualBox devs seem to think their code is further along than MacOS Hypervisor:
+# https://www.virtualbox.org/ticket/14217
+#
+
+vboxmanage setproperty hwvirtexclusive on
+#vboxmanage modifyvm esxi67 --hpet on
+#vboxmanage modifyvm esxi67 --nestedpaging on
+#vboxmanage modifyvm esxi67 --largepages on
+#vboxmanage modifyvm esxi67 --vtxvpid on

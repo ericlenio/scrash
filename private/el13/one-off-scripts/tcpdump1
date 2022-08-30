@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# The general format of a tcp protocol line is:
+#   src > dst: flags data-seqno ack window urgent options
+# Src and dst are the source and destination IP addresses and ports.  Flags are
+# some combination of S (SYN), F (FIN), P (PUSH), R  (RST), U  (URG),  W  (ECN
+# CWR), E (ECN-Echo) or `.' (ACK), or `none' if no flags are set.  Data-seqno
+# describes the portion of sequence space covered by the data in this packet (see
+# example below).  Ack is sequence number of the next data expected the other
+# direction  on  this connection.
+
+# To briefly recap how TCP connections are established: the client begins by
+# sending a SYN packet to the server. The server replies with a SYN-ACK packet
+# and must remember some state about the connection. When the client receives
+# the SYN-ACK, it considers its connection established, and replies with an ACK
+# (and potentially some initial data). When the server gets the ACK, it
+# considers its side of the connection to be established
+tcpdump -nnvXS -i em0 src 10.9.0.66 or dst 10.9.0.21

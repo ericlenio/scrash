@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Amazon EC2 command line tools
+#
+# to get help for a command:
+#   aws ec2 help
+#   aws ec2 describe-instances help
+#
+cloudw1=i-08e6954559f882b67
+cloudw2=i-aaf8d162
+
+#ltc2=i-01098e4dc0d77b270
+ltc=i-0b3e687156da5d35a
+ltc2=i-08c096412fdb89eb5
+admitwork2=i-0bfbc06a090d8efa9
+ltc2_ami=ami-07917569e2c4a2b6a
+new_clouda=i-0e828b58f74712d43
+eos_work=i-01ec2dc01d539cdc7
+
+aws ec2 describe-instances --region us-east-1 --query 'Reservations[*].Instances[*].[InstanceId,InstanceType,PublicIpAddress,Tags[*]]'
+#aws ec2 get-console-output --region us-west-1 --instance-id $cloudw1 --output text
+#aws ec2 reboot-instances --dry-run --region us-west-1 --instance-ids $cloudw1
+#aws ec2 reboot-instances --dry-run --region us-east-1 --instance-ids $admitwork2
+#aws ec2 get-console-output --region us-east-1 --instance-id $admitwork2 --output text
+exit
+#aws ec2 start-instances --dry-run --region us-west-1 --instance-ids i-08e6954559f882b67
+#aws ec2 stop-instances --dry-run --region us-west-1 --instance-ids i-08e6954559f882b67
+
+aws ec2 get-console-output --region us-east-1 --instance-id $new_clouda --output text
+#aws ec2 start-instances --region us-east-1 --instance-ids $new_clouda
+#aws ec2 describe-instances --instance-ids $eos_work --region us-east-1 --query 'Reservations[*].Instances[*].[InstanceId,InstanceType,PublicIpAddress,Tags[*]]'
+
+#cat ~/Documents/postgresql-9.6-US.pdf | aws s3 cp - s3://lincware-lwbackup/00test.pdf

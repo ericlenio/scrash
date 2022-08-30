@@ -1,0 +1,84 @@
+#! /bin/bash
+# useradd --system redmine
+# apt install build-essential ruby-dev zlib1g-dev libpq-dev libmagick++-dev git subversion
+#
+set -e
+OLD_VER=4.1.0
+NEW_VER=4.1.1
+OLD_REDMINE=/var/opt/redmine-$OLD_VER
+NEW_REDMINE=/var/opt/redmine-$NEW_VER
+logfile=$0-$OLD_VER-$NEW_VER.log
+
+echo "This script will migrate redmine from $OLD_REDMINE to $NEW_REDMINE"
+echo "A log file will be create at: $logfile"
+read -p "Enter \"y\" to continue: " ans
+[ "$ans" != y ] && exit
+
+trap 'echo FAIL' ERR
+eval "exec 1> >(/usr/bin/tee $logfile) 2>&1"
+#echo -n "copying files ..."
+#
+# NOTE: may need to alter this script to make public/plugin_assets writable by
+# www-data ...
+#
+rsync -va --exclude=log/*.log --exclude=tmp/** $OLD_REDMINE/files $OLD_REDMINE/log $OLD_REDMINE/tmp $NEW_REDMINE/.
+rsync -va $OLD_REDMINE/config/database.yml $NEW_REDMINE/config/.
+rsync -va $OLD_REDMINE/config/configuration.yml $NEW_REDMINE/config/.
+
+[ ! $NEW_REDMINE/plugins ] && mkdir $NEW_REDMINE/plugins
+
+chown -R redmine:redmine $NEW_REDMINE
+
+my_bundle=bundle2.7
+sudo -H -u redmine bash << EOF
+set -ex
+cd $NEW_REDMINE/plugins
+[ ! -d redmine_tags ] && git clone https://github.com/ixti/redmine_tags.git
+[ ! -d redmine_custom_css ] && git clone https://github.com/martin-denizet/redmine_custom_css.git
+[ ! -d redmine_git_remote ] && git clone https://github.com/dergachev/redmine_git_remote
+cd $NEW_REDMINE
+#bundle install --path vendor/bundle --without development test
+$my_bundle config set path 'vendor/bundle'
+$my_bundle config set without 'development test'
+$my_bundle install
+$my_bundle exec rake generate_secret_token
+RAILS_ENV=production $my_bundle exec rake db:migrate
+RAILS_ENV=production $my_bundle exec rake redmine:plugins:migrate
+EOF
+
+
+for subdir in files log tmp; do
+  dir=$NEW_REDMINE/$subdir
+  chown -R redmine:www-data $dir
+  find $dir -type d -exec chmod 770 {} \;
+  find $dir ! -type d -exec chmod 660 {} \;
+done
+
+for subdir in plugins public; do
+  dir=$NEW_REDMINE/$subdir
+  chown -R redmine:www-data $dir
+  find $dir -type d -exec chmod 750 {} \;
+  find $dir ! -type d -exec chmod 640 {} \;
+done
+
+chmod 640 $NEW_REDMINE/config/database.yml
+chown redmine:www-data $NEW_REDMINE/config/database.yml
+
+echo "Note: delete $OLD_REDMINE/log/production.log when launching the new version."
+echo "SUCCESS"
+
+cat << EOF
+As of Ubuntu 20/redmine 4.1.1, the following tweaks were necessary.
+
+1. tweak the top of Gemfile to allow ruby 2.7
+
+2. had to monkey patch auth_source_ldap.rb around line 250 to test if the value
+was not frozen:
+
+      if !value.frozen?
+        value.to_s.force_encoding('UTF-8')
+      end
+
+3. uninstall ruby-thor package due to dependency conflicts (redmine requires a
+specific version of thor and it conflicted)
+EOF

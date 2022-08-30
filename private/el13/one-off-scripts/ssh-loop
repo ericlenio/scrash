@@ -1,0 +1,18 @@
+#! /usr/bin/env bash
+# ssh wrapper for a host that is booting up: it retries every 10 seconds to
+# connect until success
+
+timeout=10
+sleep=2
+
+# use "env ssh" in the while loop to avoid ssh bash function: it traps on INT
+# and this is undesirable when attempting to interrupt this script when it is
+# running. So, in this loop we specify "-n" to do a null session which breaks
+# out of the loop when the connection finally succeeds ...
+while ! env ssh -oConnectTimeout=$timeout -n "$@"; do
+  echo "sleep $sleep seconds"
+  sleep $sleep
+done
+
+# ... now invoke the normal ssh shell function for a "normal" session
+ssh "$@"

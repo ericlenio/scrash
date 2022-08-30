@@ -1,0 +1,14 @@
+#! /usr/bin/env bash
+# search for software in openbsd - make sure sqlports is installed first
+#
+
+search_term="$1"
+
+if [ -z "$search_term" ]; then
+  printf "No search term given.\n"
+  exit 1
+fi
+
+sqlite3 /usr/local/share/sqlports << EOF
+select fullpkgname,comment from ports where lower(comment) like '%${search_term}%' or lower(fullpkgname) like '%${search_term}%' order by fullpkgname;
+EOF

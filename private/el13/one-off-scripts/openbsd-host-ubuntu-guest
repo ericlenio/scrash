@@ -1,0 +1,21 @@
+#! /usr/bin/env bash
+# launch an Ubuntu VM guest on OpenBSD host
+
+# add to pf.conf:
+# pass out on egress from 100.64.0.0/10 to any nat-to (egress)
+# pass in proto { udp tcp } from 100.64.0.0/10 to any port domain rdr-to 8.8.8.8 port domain
+
+# during the install, edit the boot line and append: console=ttyS0,115200n8
+
+# quick commands using vmctl:
+# vmctl show
+# vmctl stop ubuntu
+
+# http://archive.ubuntu.com/ubuntu/dists/focal/main/installer-amd64/current/legacy-images/netboot/mini.iso
+cd=/home/el13/incubator/ubuntu-vm/mini.iso
+hd=/home/el13/incubator/ubuntu-vm/ubuntu.img
+if [ ! -f $hd ]; then
+  vmctl create -s 4000m $hd
+fi
+
+sudo vmctl start -i 1 -L -r $cd -d $hd -m 1024M -c ubuntu

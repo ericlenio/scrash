@@ -1,0 +1,3 @@
+#! /usr/bin/env bash
+key=$(pw "eos.work database decryption key")
+curl -v -X POST -F key=$key https://cloud1.eos.work/eos/api/db/encryptionkey

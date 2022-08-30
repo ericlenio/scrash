@@ -1,0 +1,42 @@
+#! /bin/bash
+# Need to run this to get host only network to work with virtualbox guests on OSX
+#
+# based on notes from:
+# http://superuser.com/questions/429405/how-can-i-get-virtualbox-to-run-with-a-hosts-only-adapter
+set -e
+vpn_iface=utun3
+qemu_bridge_iface=bridge100
+#vpn_subnet=10.4.1.0/24
+vmware_iface=vmnet2
+wifi_iface=en0
+qemu_subnet=192.168.105.0/24
+vbox_subnet=192.168.5.0/24
+vbox_iface=vboxnet0
+
+if [ $(uname -s) = Darwin ]; then
+  #sudo sysctl -w net.inet.ip.forwarding=1 net.inet.ip.fw.enable=1
+  #sudo sysctl -a net.inet.ip.forwarding net.inet.ip.fw.enable
+  sudo sysctl -w net.inet.ip.forwarding=1
+  sudo sysctl -a net.inet.ip.forwarding
+  #sudo pfctl -F all -f /etc/pf.conf
+  {
+    echo
+    #echo "nat on en0 from vboxnet0:network -> (en0)"
+    # this next one to allow virtualbox guests to communicate to lincware
+    # servers when VPN is on
+    #echo "nat on $vpn_iface from vboxnet0:network -> ($vpn_iface)"
+    # this one to allow asus flip on 192.168.1.102 to go through the router to
+    # elmbp and across elmbp's VPN to lincware
+    #echo "nat on $vpn_iface from en0:network -> ($vpn_iface)"
+    #echo "pass in quick proto tcp to any keep state"
+    # set up a private static route in the netgear router to pass
+    # 192.168.5.0/24 to elmbp's en0 IP address, then this next "pass" rule gets
+    # that traffic passed from en0 to vboxnet0
+    #echo "pass in quick proto { tcp udp } from 192.168.1.0/24 to 192.168.5.0/24 keep state"
+    # forward VPN traffic to lincware VPN: also must set up a static route on
+    # the router to pass 10.9.0.0/16 to elmbp's en0 IP address
+    #echo "pass in quick proto { tcp udp } from 192.168.1.0/24 to 10.9.0.0/16 keep state"
+    echo "nat on $vpn_iface from { $vbox_subnet $qemu_subnet } to any -> $vpn_iface"
+    echo "nat on $wifi_iface from { $vbox_subnet $qemu_subnet } to any -> $wifi_iface"
+  } | sudo pfctl -e -f -
+fi

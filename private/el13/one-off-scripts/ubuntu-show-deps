@@ -1,0 +1,10 @@
+#! /bin/bash
+# for a given package, show all packages that would get installed 
+
+pkgname="$1"
+if [ -z "$pkgname" ]; then
+  echo "Usage: $(basename $0) package-name"
+  exit
+fi
+
+apt-cache depends --recurse $pkgname

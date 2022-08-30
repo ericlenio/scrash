@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# stop or pause all VMs on vbox2.lincware.com
+
+vms=(
+  redmine
+  zarafa
+  openvpn
+  remoteadmin
+  svn
+  jenkins
+  betademo18
+  customerdev
+  eos1
+  rex-trusty
+)
+
+start_vms() {
+  # note, the order of these vms is somewhat important: redmine has DNS services,
+  # and zarafa has LDAP services so they are started earlier
+
+  for vm in ${vms[@]}; do
+    if ! vboxmanage list runningvms | grep -q '"'"$vm"'"'; then
+      echo "starting $vm ..."
+      vboxheadless -s $vm &
+      sleep 1
+    else
+      echo "skipping $vm, already running"
+    fi
+  done
+}
+
+pause_all_vms() {
+  #for vm in $(vboxmanage list runningvms); do
+  for vm in ${vms[@]}; do
+    echo "pausing $vm ..."
+    vboxmanage controlvm $vm savestate
+    sleep 1
+    #vboxmanage controlvm $vm resume
+  done
+}
+
+
+case "$1" in
+  start) start_vms
+    ;;
+  stop) pause_all_vms
+    ;;
+  *) echo "Usage: $0 start|pause"
+    exit 1
+    ;;
+esac
