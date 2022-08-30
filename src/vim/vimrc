@@ -1,9 +1,7 @@
 " vnoremap: 'v' visual mode, 'nore' no recurse, 'map' map
 " here we remap control-c to copy the current visual selection to the OS clipboard
-autocmd BufReadPre,FileReadPre * {
-  vnoremap <c-c> y:call Cp2cb()<cr>
-  map <c-v> :call PasteCb()<cr>
-}
+autocmd BufReadPre,FileReadPre * vnoremap <c-c> y:call Cp2cb()<cr>
+autocmd BufReadPre,FileReadPre * map <c-v> :call PasteCb()<cr>
 
 " when editing the passwords file, remap * to copy the current word to OS clipboard
 " use the expand() function to highlight the current word (cword)
