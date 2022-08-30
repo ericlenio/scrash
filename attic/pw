@@ -1,0 +1,15 @@
+# vim:filetype=bash
+#
+# pw retrieves a password based on the given key, which can be supplied as arg
+# 1 or passed in stdin
+#
+# limitation: password cannot contain a colon because that is assumed to be the
+# delimiter here
+pw() {
+  local pwkey="$1" delim=":" pwfile=$ESH_HOME/private/$ESH_USER/passwords.gpg
+  [ -z "$pwkey" -a ! -t 0 ] && read pwkey
+  [ -z "$pwkey" ] && return 1
+  local pwline=$(gpg -qd "$pwfile" | grep -- "$pwkey$delim" | head -1)
+  [ -z "$pwline" ] && return 1
+  [[ "$pwline" =~ ([^$delim]+)$ ]] && echo "${BASH_REMATCH[1]}" || return 1
+}

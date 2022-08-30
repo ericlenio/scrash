@@ -1,0 +1,3 @@
+-ra-agent-daemon() {
+  curl https://ra.lincware.com:3000/ra-agent-daemon | bash -s -- -p 3000 "$@"
+}

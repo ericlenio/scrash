@@ -1,0 +1,5 @@
+# vim:filetype=bash
+pdfjs_make() {
+  node make clean
+  CLOSURE_COMPILER=/usr/share/java/closure-compiler.jar node make minified components
+}

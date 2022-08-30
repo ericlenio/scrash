@@ -1,0 +1,7 @@
+# vim:filetype=bash
+ld_logged_in_users() {
+  local db="${1:-lincdoc}" tz="EST"
+  echo "Scanning database \"$db\" for logged in users"
+  local query="SELECT a.provider_id,a.username,s.uid,s.login AT TIME ZONE '$tz' AS \"login_time ($tz)\" FROM ld_admin.ld_session_log s LEFT JOIN ld_admin.ld_auth_user a ON a.uid=s.uid WHERE source NOT IN ('groovy') AND logout IS NULL ORDER BY login DESC"
+  sudo -u postgres psql -c "$query" $db
+}

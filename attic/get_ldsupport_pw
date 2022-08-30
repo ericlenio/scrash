@@ -1,0 +1,53 @@
+# vim:filetype=bash
+get_ldsupport_pw() {
+  #local marker="$(_ES_marker LDSUPPORT_PW)"
+  local app_context=$1
+  if [ -z "$app_context" ]; then
+    app_context=lincdoc
+  fi
+  if [ -d /etc/lincware/lwsa ]; then
+    # 3.1 or higher
+    local pfile=/var/run/lwsa-remoteadmin.http_port
+    # newer style is pfile2, try to use that first
+    local pfile2=/var/run/remoteadmin.http_port
+    [ -f $pfile2 ] && pfile=$pfile2
+    local ld_url="http://remoteadmin.lincware.com:$(cat $pfile)/$app_context/login/_/system"
+    local cmd="$(sudo lwsa --silent --get_psql_connect $app_context) -tAc \"select config from ld_admin.ld_config_map where key = 'ldsupport-crypt-pw'\""
+    if [[ "$cmd" != *psql* ]]; then
+      if [ -n "$app_context" ]; then
+        echo "ERROR: no such app context: $app_context"
+        echo "Re-run get_ldsupport_pw, specifying one of these contexts:"
+        for ac in $(sudo lwsa --list_app_context_ids --silent); do
+          echo ${ac#localhost-8080-}
+        done
+      else
+        echo "ERROR: could not read lwsa configuration to get psql connect string."
+      fi
+      return
+    fi
+    echo $ld_url
+    local enc_pass="$(eval $cmd)"
+    local args=$(printf "ld_url {%s} enc_pass {%s}" "$ld_url" "$enc_pass")
+    #_ES_send_marker "$marker" "$args"
+    local pw=$(_esh_b getLdsupportPw $ld_url $enc_pass)
+    echo $pw
+  else
+    local p=/etc/profile.d/lincware.sh
+    [ -e $p ] && . $p
+    local version=$(show-version)
+    if [[ "$version" = 3* ]]; then
+      local pid=$(pgrep -U remoteadmin ssh)
+      if [ -n "$pid" ]; then
+        ps --no-headers ww $pid | perl -pe 's{.*?\b(\d+):localhost:80\b.*}{http://remoteadmin.lincware.com:$1}'
+      fi
+      generate-build-properties -get lincdoc.user.ldsupport.password
+    else
+      # version 2.x
+      local pid=$(pgrep -U sshtunnel ssh)
+      if [ -n "$pid" ]; then
+        ps --no-headers -ww -o user:12,pid,args $pid | perl -pe 's{.*?\b(\d+):localhost:80\b.*}{http://remoteadmin.lincware.com:$1}'
+      fi
+      echo "lincdoc/$(generate-build-properties -get lincdoc.ldap.password)"
+    fi
+  fi
+}

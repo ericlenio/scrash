@@ -1,0 +1,6 @@
+# vim:filetype=bash
+pg_version() {
+  # Note: just gets the major.minor version number
+  sudo -u postgres psql -tAc "select version()" 2>/dev/null | perl -pe 's{^\w+\s(\d+\.\d+).*}{$1}'
+}
+export -f pg_version

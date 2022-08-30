@@ -1,0 +1,133 @@
+# vim:filetype=bash
+# based on Oleg configuration at:
+# https://jenkins.lincware.com/view/All/job/LDC-Staging/configure
+#
+# 1-time stuff:
+#   curl -sL https://deb.nodesource.com/setup | sudo bash -
+#   sudo apt-get install nodejs
+#   sudo npm install grunt -g
+#   sudo npm install grunt-cli -g
+#   sudo npm install bower -g
+#   curl -s get.gvmtool.net | bash
+#   . ~/.gvm/bin/gvm-init.sh
+#   gvm install grails 2.4.4
+#   git clone -b develop ssh://git@svn.lincware.com/var/lib/git/ldc.git
+#
+#   09/24/2015: gvm apparently replaced by sdkman:
+#   export SDKMAN_DIR="/home/lenio/.sdkman" && source "/home/lenio/.sdkman/bin/sdkman-init.sh"
+#
+# DATABASE:
+# To reconfigure your local copy of LDC to use PostgreSQL instead of H2 memory
+# database, you can do this in the grails-app/conf/DataSource.groovy - just
+# edit dataSource under the development environment. You'll need to change the
+# JDBC URL as well as driver, dialect, username and password. For proper
+# values, just see the staging environment below, which uses PostgreSQL and
+# remember not to commit the modified file. 
+#
+# Arguments:
+# -c: clean out old builds first
+#
+eos_build() {
+  
+  local propsfile=eos.properties
+  local warfile=grails/target/eos-0.1.war
+  local context=/eos
+  local tomcat_user=lwsa
+  local tomcat_pass=lincdoc1
+  local tomcat_base_url=http://localhost:8080/manager/text
+  local grails_env=development
+
+  local OPTS clean=0
+  local uname=$(uname)
+  if [ $uname = Darwin ]; then
+    OPTS=$(getopt pc "$@")
+  else
+    OPTS=$(getopt -o pc -- "$@")
+  fi
+  # set temporary positional parameters
+  eval set -- "$OPTS"
+  while true; do
+    case "$1" in
+      --) break
+        ;;
+      -c) clean=1
+        shift
+        ;;
+      -p) grails_env=production
+        shift
+        ;;
+      *) shift
+        ;;
+    esac
+  done
+
+  if [ ! -d .git ]; then
+    echo "Not inside base directory of a eos checkout."
+    return 1
+  fi
+
+  local git_url=$(git config --get remote.origin.url)
+  if [ ${git_url##*/} != ldc.git ]; then
+    echo "Not a checkout of eos."
+    return 1
+  fi
+
+  if [ ! -f $propsfile ]; then
+    echo "warfile=$warfile" > $propsfile
+    echo "context=$context" >> $propsfile
+    echo "tomcat_user=$tomcat_user" >> $propsfile
+    echo "tomcat_pass=$tomcat_pass" >> $propsfile
+    echo "tomcat_base_url=$tomcat_base_url" >> $propsfile
+    echo "grails_env=$grails_env" >> $propsfile
+    echo "Created eos.properties file with stub properties, please edit it and re-run eos_build."
+    return
+  fi
+
+  source $propsfile
+  local auth_string=$(echo -n $tomcat_user:$tomcat_pass | openssl enc -base64 -A)
+
+  if [ $clean = 1 ]; then
+    ( cd angular; grunt clean )
+    ( cd angular_portal; grunt clean )
+    ( cd grails; grails clean-all )
+  fi
+
+  rm -f $warfile
+
+  # Running npm install in the same folder as a package.json file will install
+  # the correct version of each dependency listed therein.
+  (
+    cd angular
+    npm install
+    bower install
+    grunt
+  )
+
+  cp -R angular/dist/* grails/web-app/
+  cp angular/dist/index.html grails/grails-app/views/index.gsp
+
+  (
+    cd angular_portal
+    npm install
+    bower install
+    grunt
+  )
+
+  mkdir -p grails/web-app/portal 
+  cp -R angular_portal/dist/* grails/web-app/portal
+
+  (
+    cd grails
+    grails test-app
+    grails -Dgrails.env=$grails_env war
+  )
+
+
+  if [ -f $warfile ]; then
+    curl -s -k -H "Authorization: Basic $auth_string" $tomcat_base_url/undeploy?path=$context
+    curl -s -k -H "Authorization: Basic $auth_string" -T $warfile $tomcat_base_url/deploy?path=$context
+    curl -s -k -H "Authorization: Basic $auth_string" $tomcat_base_url/list
+  else
+    echo "No war file generated."
+  fi
+}

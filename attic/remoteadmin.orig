@@ -1,0 +1,138 @@
+# vim:filetype=sh
+#
+# Usage: remoteadmin [filter] [command ...]
+# where filter is used as a simple search filter against all currently
+# connected VMs. The user is prompted to pick the VM from a list and further
+# prompted to run either ssh or sftp to that VM.
+#
+# If a command is given we assume it is to be run on the remote VM identified
+# by the filter (and the assumption is that the filter will match on exactly 1
+# VM).
+#
+# Programmer note: this script is designed to work on Linux, Cygwin, and Mac OS
+# X. So do not use any obscure syntax or 3rd party tools which may not exist in
+# some environments, e.g., Mac OS X's bash does not support associative arrays.
+#
+#exec > >(tee >(grep ^: >$cmds) | grep -v ^:)
+#trap "rm -f $stdout $cmds; echo $stdout was deleted" EXIT INT
+
+remoteadmin() {
+  local exec ssh_params assume_ssh
+  declare -a exec
+  declare -a ssh_params
+  local ssh_params_file=$HOME/.remoteadmin/ssh_options
+
+  local filter="$1"
+  shift
+  if [ -z "$filter" ]; then
+    filter="."
+  fi
+
+  if [ ${#@} -gt 0 ]; then
+    assume_ssh=1
+  else
+    assume_ssh=0
+  fi
+
+  get_extra_ssh_params() {
+    local hostname=$(echo $1 | tr "[:upper:]" "[:lower:]")
+    local hostname2
+    local line
+    if [ -f $ssh_params_file ]; then
+      while read -r line; do
+        if [[ $line =~ ^([-\.[:alnum:]]+)=(.+) ]]; then
+          hostname2=$(echo ${BASH_REMATCH[1]} | tr "[:upper:]" "[:lower:]")
+          if [ ${hostname} = ${hostname2} ]; then
+            printf %s "${BASH_REMATCH[2]}"
+            return
+          fi
+        fi
+      done < $ssh_params_file
+    fi
+  }
+
+  eval $(_esh_e)
+
+  if [ -z "$RA_USER" ]; then
+    read -p "What is your remoteadmin username? " RA_USER
+    [ -z "$RA_USER" ] && return 1
+    read -p "Confirm: username is \"$RA_USER\" (y/n, default is y)? " yesno
+    [ "$yesno" -a "$yesno" != y ] && return
+    _esh_e +RA_USER
+  fi
+
+  local pwkey="LincWare LDAP:$RA_USER"
+  local pw=$(pw "$pwkey")
+  [ -z "$pw" ] && {
+    echo "Could not retrieve password for \"$RA_USER\" to launch remoteadmin" >&2
+    return 1
+  }
+  local vmjson auth=$(printf "%s:%s" "$RA_USER" "$pw" | openssl enc -a -A)
+  local auth_hdr=$(printf "Authorization: Basic %s" $auth)
+  #local endpoint=https://remoteadmin-dev.lincware.com/get-vms
+  local endpoint=https://remoteadmin.private:3333/ra-get-agents
+  vmjson=$(curl -k -S -s -f -H "$auth_hdr" $endpoint)
+  local rc=$?
+  if [ $rc -gt 0 ]; then
+    echo "Failed to read $endpoint"
+    return 1
+  fi
+  #local matching_indices=$(jq -c "[.[] | .hostname | test(\".*$filter.*\";\"i\")] | indices(true)" <<<$vmjson)
+  local matching=$(node - "$vmjson" "$filter" << 'EOF'
+var agents=JSON.parse(process.argv[2]);
+var filter=new RegExp(process.argv[3],"i");
+agents.map(function(agent,idx) {
+  if (agent.raHostname.search(filter)>=0) {
+    console.log("hostname=%s ip=%s ssh_port=%s",agent.raHostname,agent.remoteAddress,agent.raSshPort);
+  }
+});
+EOF
+)
+
+  if [ ! "$matching" ]; then
+    echo "no matches for filter: $filter"
+    return 1
+  fi
+
+  get_vm_data() {
+    local key=$1
+    local l
+    while read l; do
+      eval "$l"
+      echo "${!key}"
+    done <<<"$matching"
+  }
+
+  local hostnames=($(get_vm_data hostname)) choice=0
+  local n=$((${#hostnames[@]}-1))
+  if [ $n -ge 1 ]; then
+    local choice_list=$(
+      for ((i=0; i<=$n; i++)); do
+        printf "%s\n" ${hostnames[$i]}
+      done
+    )
+    choice=$(pick_something "Pick:" "$choice_list" 1) || {
+      echo "invalid choice"
+      return 1
+    }
+  fi
+  local ssh_ports=($(get_vm_data ssh_port))
+  local ssh_port=${ssh_ports[$choice]}
+  local hostname=${hostnames[$choice]}
+  local extra_params="$(get_extra_ssh_params $hostname)"
+  if [ -n "$extra_params" ]; then
+    echo "Passing extra params to ssh: $extra_params"
+  fi
+
+  chroot_dir=/var/remoteadmin-chroot/443
+  ssh_config=/home/remoteadmin/ssh-files/ra-agent-ssh-config-$ssh_port
+  #cp_file=/home/remoteadmin/ssh-files/ra-agent-controlpath-$ssh_port
+
+  #SSH_STY_LBL=$hostname ssh -t -oProxyCommand="env ssh ra.lincware.com sudo chroot -u remoteadmin $chroot_dir ssh -v -F $ssh_config %r@127.0.0.1" $extra_params lincdoc@ra.lincware.com
+  #SSH_STY_LBL=$hostname ssh -t -oProxyCommand="env ssh ra.lincware.com sudo chroot -u remoteadmin $chroot_dir ssh -F $ssh_config -v %r@127.0.0.1 sudo sshd -i" $extra_params lincdoc@unknown
+  #SSH_STY_LBL=$hostname ssh -t ra.lincware.com sudo chroot -u remoteadmin $chroot_dir ssh -F $ssh_config -v lincdoc@127.0.0.1
+  #SSH_STY_LBL=$hostname ssh -vv -t -oProxyCommand="env ssh ra.lincware.com sudo chroot -u remoteadmin $chroot_dir ssh -F $ssh_config %r@127.0.0.1 sudo remoteadmin-lincdoc-sshd" $extra_params lincdoc@unknown
+  #SSH_STY_LBL=$hostname ssh -t -oProxyCommand="env ssh -A remoteadmin@ra.lincware.com ssh -F $ssh_config 127.0.0.1 bash -c \"':;. .remoteadmin-shell-functions && exec sudo sshd -i'\"" $extra_params lincdoc@unknown
+
+  SSH_STY_LBL=$hostname ssh -oProxyJump=remoteadmin@ra.lincware.com -p $ssh_port $extra_params lincdoc@127.0.0.1
+}

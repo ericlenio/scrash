@@ -1,0 +1,5 @@
+# vim:filetype=bash
+# quick shortcut for localhost root access via ssh
+-sshroot() {
+  ssh -A -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null root@127.0.0.1 "$@"
+}

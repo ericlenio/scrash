@@ -1,0 +1,2 @@
+export RA_USER=eml
+export RA_USER_PASSWORD_64=$(-pw "LincWare LDAP" | openssl enc -a -A)

@@ -1,0 +1,43 @@
+# vim:filetype=bash
+update_gpg_key() {
+  local apt_keyring=/etc/apt/trusted.gpg
+  # the old key expired 04/28/2014
+  local old_key="Lincware Repository"
+  local apt_lincware_key_file=/etc/apt/trusted.gpg.d/apt.lincware.com.gpg.asc
+  # To do: set http_proxy environment var if customer uses a proxy
+  local new_key_url=http://apt.lincware.com/apt.lincware.com.gpg.asc
+  local ubuntu_release=$(lsb_release -rs | cut -d. -f1)
+  echo "Attempting to fetch $new_key_url now"
+  local new_key_base64="$(curl --silent $new_key_url)"
+  if [ -f $apt_keyring ]; then
+    gpg --no-default-keyring --with-colons --list-keys --keyring $apt_keyring "$old_key" >/dev/null 2>&1 && {
+      # delete old gpg key that expired on 04/28/2014
+      gpg --no-default-keyring --keyring $apt_keyring --yes --batch --delete-key "$old_key"
+    }
+  fi
+  if [ -d $(dirname $apt_lincware_key_file) ]; then
+    #echo "$new_key_base64" | gpg --output - --dearmor | gpg --no-default-keyring --keyring $apt_lincware_key_file --import
+    echo "$new_key_base64" > $apt_lincware_key_file
+    chmod 644 $apt_lincware_key_file
+    gpg --dearmor $apt_lincware_key_file
+  else
+    # ubuntu hardy
+    echo "$new_key_base64" | gpg --output - --dearmor | gpg --no-default-keyring --keyring $apt_keyring --import
+  fi
+  local aptfile=/etc/apt/sources.list.d/lincware.list
+  if [ ! -f $aptfile ]; then
+    if [ $ubuntu_release -ge 18 ]; then
+      machine=$(uname -m)
+      case $machine in
+        x86_64) arch=amd64;;
+        aarch64) arch=arm64;;
+        *) echo "no support for machine: $machine" >&2
+          return 1
+          ;;
+      esac
+      echo "deb [arch=$arch] http://apt.lincware.com/ubuntu $(lsb_release -cs) core" > $aptfile
+    else
+      echo "deb http://apt.lincware.com/ubuntu three core" > $aptfile
+    fi
+  fi
+}

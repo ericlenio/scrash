@@ -1,0 +1,4 @@
+# vim:filetype=bash
+visudo() {
+  env EDITOR=$ESH_EDITOR visudo "$@"
+}

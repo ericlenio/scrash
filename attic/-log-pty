@@ -1,0 +1,5 @@
+# vim:filetype=bash
+# toggle logging of the current escreen session
+-log-pty() {
+  _esh_y log
+}

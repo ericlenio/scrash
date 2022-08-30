@@ -1,0 +1,10 @@
+# vim:filetype=bash
+openssl_show_cert() {
+  local cert=$1
+  if [ -z "$cert" ]; then
+    # assume stdin
+    cert="-"
+  fi
+  openssl x509 -in $cert -noout -text
+}
+export -f openssl_show_cert

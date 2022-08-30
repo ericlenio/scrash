@@ -1,0 +1,4 @@
+# vim:filetype=bash
+crontab() {
+  env EDITOR=$ESH_EDITOR crontab "$@"
+}

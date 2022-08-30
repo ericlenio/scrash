@@ -1,0 +1,63 @@
+# vim:filetype=bash
+openssl_s_client_show_certs() (
+  local arg1 usage show_cert_details host port hostport cert_line=0 n=1 opts="v" opt verbose=0 certs OPTARG OPTIND
+  usage() {
+    {
+      echo "usage: $FUNCNAME [-v] {hostname:port|/path/to/pem/certs}"
+      echo "or, pipe PEM certs to $FUNCNAME"
+      echo "use -v to display the certs"
+    } >/dev/tty
+  }
+  show_cert_details() {
+    local cert="$1"
+    echo "################ CERT #$n"
+    while read line; do
+      printf "# %s\n" "$line"
+    done < <(echo "$cert" | openssl x509 -noout -subject -issuer -startdate -enddate)
+    if [ $verbose = 1 ]; then
+      echo -n "$cert"
+    fi
+  }
+  while getopts $opts opt; do
+    case $opt in
+      v) verbose=1
+      ;;
+    esac
+  done
+  shift $(($OPTIND-1))
+  if [ -t 0 ]; then
+    arg1="$1"
+    if [ -z "$arg1"  ]; then
+      usage
+      return 1
+    fi
+    if [ -f "$arg1" ]; then
+      exec 0<$arg1
+    else
+      hostport="$arg1"
+      if ! [[ "$hostport" =~ ^([-\.[:alnum:]]+):([0-9]+)$ ]]; then
+        usage
+        return 1
+      fi
+      host=${BASH_REMATCH[1]}
+      port=${BASH_REMATCH[2]}
+      exec 0< <(echo | openssl s_client -showcerts -connect $host:$port 2>/dev/null)
+    fi
+  fi
+  while read line; do
+    if [[ "$line" =~ ^-----BEGIN\ CERTIFICATE----- ]]; then
+      cert_line=1
+      cert=""
+    fi
+    if [ $cert_line = 1 ]; then
+      cert+="$line"$'\n'
+    fi
+    if [[ "$line" =~ ^-----END\ CERTIFICATE----- ]]; then
+      cert_line=0
+      show_cert_details "$cert"
+      let n++
+      certs+="$cert"
+    fi
+  done
+)
+export -f openssl_s_client_show_certs

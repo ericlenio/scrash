@@ -1,0 +1,51 @@
+# vim:filetype=bash
+redmine_time_report() {
+  #ssh root@redmine -oProxyCommand="ssh zarafa1 ssh redmine sshd -i" sudo -u postgres psql redmine << EOF
+  /usr/bin/ssh root@redmine sudo -u postgres psql redmine << EOF
+COPY (
+select
+a.spent_on,
+a.project_name,
+a.lastname,
+b.customers,
+a.hours,
+a.issue_id,
+a.subject,
+a.comments                                                                          
+from (
+select
+  p.name as project_name,
+  u.lastname,
+  t.spent_on,
+  t.hours,
+  t.issue_id,
+  t.comments,
+  i.subject
+from
+  public.time_entries t,
+  public.projects p,
+  public.users u,
+  public.issues i
+where
+  t.project_id=p.id and
+  t.user_id=u.id and
+  t.issue_id=i.id
+) a
+left join (
+select
+  value as customers,
+  cv.customized_id
+from
+  public.custom_values cv,
+  public.custom_fields cf
+where
+  cf.name='Customers' and
+  cf.id=cv.custom_field_id and
+  cv.customized_type='Issue'
+) b
+on a.issue_id=b.customized_id
+
+order by a.spent_on,a.issue_id
+) TO STDOUT WITH CSV HEADER
+EOF
+}

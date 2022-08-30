@@ -1,0 +1,8 @@
+push_jenkins_build() {
+  rel=$1
+  if [ -z "$rel" ]; then
+    echo "Need a release, e.g. 3.3.5.1"
+    return
+  fi
+  ssh build@svn.lincware.com ./bin/00push $rel
+}

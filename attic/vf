@@ -1,0 +1,10 @@
+# vim:filetype=bash
+#
+# opens vim in "find" mode, see vimrc
+#
+# note leading * so it will autocomplete files that do not necessarily start
+# with arg 1
+#
+vf() {
+  v --cmd ":let my_find='*$1'"
+}

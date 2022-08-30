@@ -1,0 +1,22 @@
+#if [ -f ~/.bashrc ] && grep -q '^alias l=' ~/.bashrc; then
+  # remove annoying alias for l
+  #perl -pi -e 's{^(alias l=.*)}{#$1}' ~/.bashrc
+#fi
+export INPUTRC=$ESH_TMP/$LOGNAME-inputrc
+echo "set mark-symlinked-directories on" > $INPUTRC
+export \
+  HISTCONTROL=ignoreboth:erasedups \
+  PS1='${debian_chroot:+($debian_chroot)}\[\033[100;97m\]\u@\H:\[\033[0m\]\[\033[36m\]\w\[\033[0m\]\[\033[93m\]\$\[\033[0m\] ' \
+  PAGER=less \
+  LESS="-siR"
+# backup PS1 because Ubuntu makes it difficult to use a custom PS1
+export ESH_PS1="$PS1"
+add_to_path() {
+  while [ $# -gt 0 ]; do
+    [ -d "$1" ] && [[ ":$PATH:" != *":$1:"* ]] && PATH="$1:$PATH"
+    shift
+  done
+}
+add_to_path /usr/local/bin $HOME/bin
+# true here so _esh_l does not echo this file
+true

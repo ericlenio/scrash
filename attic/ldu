@@ -1,0 +1,4 @@
+# show disk usage of current working directory and its descendants
+ldu() {
+  perl -e'%h=map{/.\s/;99**(ord$&&7)-$`,$_}`sudo du -h`;print@h{sort%h}'
+}

@@ -1,0 +1,21 @@
+# ZK 6.5 build script, use from a checkout of ZK source:
+# git checkout -b 6.5-Stable git@github.com:zkoss/zk.git
+#
+# Sample build.settings.local file (to build optimized, not entirely sure what
+# that is though):
+#   D.ON=false
+#   javadoc=~/prj/javadoc
+#   unzip=true
+#   zipjs=true
+#   debug=false
+#   optimize=true
+#   #tomcat=/usr/tomcat
+#   #start.service=startup.sh
+#   #Invoke the shell script directly
+#   #start.service=Apache Tomcat 6
+#   #Used if Tomcat is installed as a Windows service
+version=6.5.8-FL
+zkbuild() {
+  local projects=$(cat build.projects |grep -v -E '/zkex|/zkmax|/zml|/deploy|zktest')
+  ./build $projects "$@"
+}

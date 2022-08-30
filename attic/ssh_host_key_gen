@@ -1,0 +1,30 @@
+# vim:filetype=bash
+# Generate a new ssh keypair for remoteadmin unique situations, like forwarding
+# port 443. Sample usage in /etc/lincware/lwsa/remoteadmin-ssh-config:
+#   Host remoteadmin.lincware.com
+#     User root
+#     RemoteForward 10.9.1.8:443 localhost:443
+#     ExitOnForwardFailure no
+#     IdentityFile /etc/lincware/lwsa/lincdocvs10.americanfence.com.id_rsa
+ssh_host_key_gen() {
+  local hostname keyfile pubfile authorized_keys ans
+  echo -n "What hostname do you want to generate a key for? "
+  read hostname
+  if [ -z "$hostname" ]; then
+    echo "No hostname, exiting."
+    return
+  fi
+  keyfile=$HOME/.ssh/$hostname.id_rsa
+  pubfile=$HOME/.ssh/$hostname.id_rsa.pub
+  authorized_keys=$HOME/.ssh/authorized_keys
+  if [ -e $keyfile -o -e $pubfile ]; then
+    echo "Oops, $keyfile or $pubfile already exist."
+    return;
+  fi
+  ssh-keygen -t rsa -f $keyfile -C $hostname -N ''
+  echo -n "Add line to $authorized_keys for this new key? "
+  read ans
+  if [ "$ans" = y ]; then
+    echo "command=\"/bin/false\",no-pty,no-X11-forwarding,no-agent-forwarding,permitopen=\"nosuchhost:443\" $(cat $pubfile)" >> $authorized_keys
+  fi
+}

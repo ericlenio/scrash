@@ -1,0 +1,10 @@
+# vim:filetype=bash
+jargrep() {
+  for f in $(find . -name '*.jar'); do
+  local output=$(jar tvf $f | grep "$@")
+  if [ "$output" ]; then
+    echo "$f: $output"
+  fi
+  done
+}
+export -f jargrep

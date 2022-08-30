@@ -1,0 +1,9 @@
+# vim:filetype=bash
+show_open_ptys() {
+  local os=$(uname)
+  if [ "$os" = OpenBSD ]; then
+    fstat /dev/pty*
+  elif "$os" = Linux ]; then
+    lsof /dev/pts
+  fi
+}

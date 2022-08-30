@@ -1,0 +1,7 @@
+# vim:filetype=bash
+# run this if the terminal get garbled up
+# see: https://unix.stackexchange.com/questions/79684/fix-terminal-after-displaying-a-binary-file
+fixterm() {
+  stty sane
+  echo -e "\033c"
+}

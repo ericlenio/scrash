@@ -1,0 +1,10 @@
+# vim:filetype=bash
+pg_cancel_backend() {
+  local procpid="$1"
+  if [ -z "$procpid" ]; then
+    echo "Usage: pg_cancel_backend procpid"
+    return 1
+  fi
+  printf "select pg_cancel_backend($procpid);" | sudo -u postgres psql
+}
+export -f pg_cancel_backend

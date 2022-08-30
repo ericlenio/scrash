@@ -1,0 +1,22 @@
+# vim:filetype=bash
+# per https://raymii.org/s/tutorials/OCSP_Stapling_on_nginx.html, get a list of
+# hosts to add firewall rules for so OCSP stapling works
+ocsp_stapling() {
+  local sslhost=$1 sslport certs
+  if [[ ! ( "$sslhost" =~ : ) ]]; then
+    sslhost+=:443
+  fi
+  if [[ "$sslhost" =~ ^([-\.[:alnum:]]+):([0-9]+) ]]; then
+    sslhost=${BASH_REMATCH[1]}
+    sslport=${BASH_REMATCH[2]}
+  fi
+  if [ -z "$sslport" ]; then
+    echo "Usage: ${FUNCNAME[0]} www.example.com[:port]"
+    return 1
+  fi
+  IFS=':' certs=$(openssl s_client -connect "$sslhost:$sslport" -showcerts -tlsextdebug -tls1 2>&1 </dev/null | sed -n '/-----BEGIN/,/-----END/ {/-----BEGIN/ s/^/:/; p;}')
+  echo "Add firewall rules to allow the following URLs by the web server:"
+  for cert in ${certs#:}; do
+    echo $cert | openssl x509 -noout -ocsp_uri
+  done
+}
