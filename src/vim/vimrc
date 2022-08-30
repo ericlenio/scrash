@@ -117,6 +117,6 @@ colorscheme elflord
 syntax enable
 set cursorline noswapfile number hlsearch incsearch sw=2 ignorecase wrap nocompatible
 set ruler ai nocindent indentexpr= showmatch modeline modelines=5 nobackup nowritebackup textwidth=0
-set expandtab formatoptions=croql nojoinspaces scrolloff=0
+set expandtab formatoptions=croql nojoinspaces scrolloff=0 laststatus=2
 set wildmenu wildignore=*.o,*.class,*.jar,*.png,*.pdf,$PWD/**node_modules/**,build/**,.git/**,.svn/**,dist/**,tmp/** path=.,,**
 filetype indent off
