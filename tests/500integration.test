@@ -12,7 +12,8 @@ echo $r | -copy-to-clipboard
 # create a vim script file to select/copy the word "nobody", write to fifo,
 # read fifo, copy "root", write to fifo, quit vim
 # the editor
-printf "/^nobody\015ve\003:!echo $r > $f2\015:!read < $f2\015/^root\015ve\003:!echo > $f2\015:q\015" > $t1
+#printf "/^nobody\015ve\003:!echo $r > $f2\015:!read < $f2\015/^root\015ve\003:!echo > $f2\015:q\015" > $t1
+printf "/^nobody\015ve\003:call writefile(['$r'],'$f2')\015:call readfile('$f2')\015/^root\015ve\003:call writefile([''],'$f2')\015:q\015" > $t1
 
 cpfile=$SCR_TMPDIR/ssh-cp
 # start a control master: check that vim inside gnu screen can handle a
@@ -23,9 +24,9 @@ cpfile=$SCR_TMPDIR/ssh-cp
 # try copying a word inside vim to the clipboard over the new SCR_PORT
 screen -S $session_id -X screen bash -c -- "-s nobody v -s $t1 /etc/passwd"
 echo "about to do read on $f2"
+ps -jAwww|grep $cpfile
 ps -jAwww|grep nobody
 read ans < $f2
-echo "GOOD read on $f2"
 [ "$ans" = $r ]
 [ nobody = $(-clipboard) ]
 # flush clipboard
