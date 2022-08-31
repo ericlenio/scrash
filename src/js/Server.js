@@ -42,8 +42,8 @@ class Server extends http.Server {
     switch(url.pathname) {
       case "/scr-get-bash-functions":
         return this.getBashFunctions(url,res);
-      case "/scr-get-test-framework":
-        return this.getTestFramework(url,res);
+      //case "/scr-get-test-framework":
+        //return this.getTestFramework(url,res);
       case "/scr-copy-to-clipboard":
         return this.copyToClipboard(req,res);
       case "/scr-get-clipboard":
@@ -126,6 +126,7 @@ class Server extends http.Server {
     }
   }
 
+  /*
   getTestFramework(url,res) {
     const files=[
       "./tests/test-framework",
@@ -146,6 +147,7 @@ class Server extends http.Server {
       res.end();
     });
   }
+  */
 
   getVimrc(url,res) {
     fsPromises.readFile("./src/vim/vimrc",'utf8')
