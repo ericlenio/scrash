@@ -689,6 +689,71 @@ $n2=0;
 }
 
 #
+# This function greps "ps" output for a given string (case insensetively);
+# similar to pgrep
+#
+# Usage: -psg [search_string]
+#
+# If stdout is the tty, the output highlights the search string in red
+#
+-psg() (
+  local ps_cmd ps_output search_string="$*" os=$(uname) i l m matched x n=0 ATTR_RED='\x1b[1;31m' ATTR_CLEAR='\x1b[0m'
+  shopt -s nocasematch
+  case $os in
+    OpenBSD|Darwin)
+      ps_cmd="ps -jAwww"
+      ;;
+    Linux)
+      ps_cmd="ps -fewww"
+      ;;
+    *)
+      echo "$FUNCNAME: no support for $os" >&2
+      return 1
+      ;;
+  esac
+  ps_output="$($ps_cmd)"
+  output=""
+  while read l; do
+    matched=0
+    n=$(($n+1))
+    if [ $n = 1 -o -z "$search_string" ]; then
+      output+="$l"$'\n'
+      continue
+    elif [[ "$l" =~ $ps_cmd ]]; then
+      continue
+    fi
+    while [[ "$l" =~ ($search_string)(.*) ]]; do
+      m="${BASH_REMATCH[1]}"
+      matched=1
+      # x will be all text leading up to the matched search string
+      x="${l%%$m*}"
+      # compute the index of the search string in the line
+      i=${#x}
+      if [ -t 1 ]; then
+        output+=$(printf "%s$ATTR_RED%s$ATTR_CLEAR" "${l:0:$i}" "$m")
+      else
+        output+=$(printf "%s%s" "${l:0:$i}" "$m")
+      fi
+      l="${l:$i+${#m}}"
+    done
+    [ $matched = 1 ] && output+="$l"$'\n'
+  done <<< "$ps_output"
+
+  # remove the final \n
+  output=$(echo "$output")
+
+  # display the output; if output has more lines than the terminal has rows
+  # then use "less" to view it
+  term_lines=$(tput lines)
+  IFS=$'\n' output_array=($output)
+  if [ ${#output_array[@]} -gt $term_lines ]; then
+    less <<< "$output" >/dev/tty
+  else
+    echo "$output" >/dev/tty
+  fi
+)
+
+#
 # Usage: -ra [filter] [command ...]
 # where filter is used as a simple search filter against all currently
 # connected VMs. The user is prompted to pick the VM from a list and further
