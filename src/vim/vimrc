@@ -1,42 +1,46 @@
-" vnoremap: 'v' visual mode, 'nore' no recurse, 'map' map
-" here we remap control-c to copy the current visual selection to the OS clipboard
-autocmd BufReadPre,FileReadPre * vnoremap <c-c> y:call Cp2cb()<cr>
-autocmd BufReadPre,FileReadPre * map <c-v> :call PasteCb()<cr>
+set nocompatible
 
-" when editing the passwords file, remap * to copy the current word to OS clipboard
-" use the expand() function to highlight the current word (cword)
-" nmap: "n" means we are mapping a key in vim's normal mode
-autocmd BufReadPre,FileReadPre *.gpg nmap <buffer> * :let @/=expand("<cword>")<cr>:let @"=@/<cr>:call Cp2cb()<cr>
+if has("autocmd")
+  " vnoremap: 'v' visual mode, 'nore' no recurse, 'map' map
+  " here we remap control-c to copy the current visual selection to the OS clipboard
+  autocmd BufReadPre,FileReadPre * vnoremap <c-c> y:call Cp2cb()<cr>
+  autocmd BufReadPre,FileReadPre * map <c-v> :call PasteCb()<cr>
 
-" Transparent editing of gpg encrypted files.
-" By Wouter Hanegraaff
-augroup encrypted
-  au!
+  " when editing the passwords file, remap * to copy the current word to OS clipboard
+  " use the expand() function to highlight the current word (cword)
+  " nmap: "n" means we are mapping a key in vim's normal mode
+  autocmd BufReadPre,FileReadPre *.gpg nmap <buffer> * :let @/=expand("<cword>")<cr>:let @"=@/<cr>:call Cp2cb()<cr>
 
-  " First make sure nothing is written to ~/.viminfo while editing
-  " an encrypted file.
-  autocmd BufReadPre,FileReadPre *.gpg set viminfo=
-  " We don't want a swap file, as it writes unencrypted data to disk
-  autocmd BufReadPre,FileReadPre *.gpg set noswapfile
+  " Transparent editing of gpg encrypted files.
+  " By Wouter Hanegraaff
+  augroup encrypted
+    au!
 
-  " Switch to binary mode to read the encrypted file
-  autocmd BufReadPre,FileReadPre *.gpg set bin
-  autocmd BufReadPre,FileReadPre *.gpg let ch_save = &ch|set ch=2
-  " (If you use tcsh, you may need to alter this line.)
-  autocmd BufReadPost,FileReadPost *.gpg '[,']!gpg -d 2>/dev/null
+    " First make sure nothing is written to ~/.viminfo while editing
+    " an encrypted file.
+    autocmd BufReadPre,FileReadPre *.gpg set viminfo=
+    " We don't want a swap file, as it writes unencrypted data to disk
+    autocmd BufReadPre,FileReadPre *.gpg set noswapfile
 
-  " Switch to normal mode for editing
-  autocmd BufReadPost,FileReadPost *.gpg set nobin
-  autocmd BufReadPost,FileReadPost *.gpg let &ch = ch_save|unlet ch_save
-  autocmd BufReadPost,FileReadPost *.gpg execute ":doautocmd BufReadPost " . expand("%:r")
+    " Switch to binary mode to read the encrypted file
+    autocmd BufReadPre,FileReadPre *.gpg set bin
+    autocmd BufReadPre,FileReadPre *.gpg let ch_save = &ch|set ch=2
+    " (If you use tcsh, you may need to alter this line.)
+    autocmd BufReadPost,FileReadPost *.gpg '[,']!gpg -d 2>/dev/null
 
-  " Convert all text to encrypted text before writing
-  " (If you use tcsh, you may need to alter this line.)
-  autocmd BufWritePre,FileWritePre *.gpg '[,']!gpg --default-recipient-self -ae 2>/dev/null
-  " Undo the encryption so we are back in the normal text, directly
-  " after the file has been written.
-  autocmd BufWritePost,FileWritePost *.gpg u
-augroup END
+    " Switch to normal mode for editing
+    autocmd BufReadPost,FileReadPost *.gpg set nobin
+    autocmd BufReadPost,FileReadPost *.gpg let &ch = ch_save|unlet ch_save
+    autocmd BufReadPost,FileReadPost *.gpg execute ":doautocmd BufReadPost " . expand("%:r")
+
+    " Convert all text to encrypted text before writing
+    " (If you use tcsh, you may need to alter this line.)
+    autocmd BufWritePre,FileWritePre *.gpg '[,']!gpg --default-recipient-self -ae 2>/dev/null
+    " Undo the encryption so we are back in the normal text, directly
+    " after the file has been written.
+    autocmd BufWritePost,FileWritePost *.gpg u
+  augroup END
+endif
 
 fu Mktmpdir()
   " make sure the temp directory exists (for long running vim sessions,
@@ -115,7 +119,7 @@ endf
 
 colorscheme elflord
 syntax enable
-set cursorline noswapfile number hlsearch incsearch sw=2 ignorecase wrap nocompatible
+set cursorline noswapfile number hlsearch incsearch sw=2 ignorecase wrap
 set ruler ai nocindent indentexpr= showmatch modeline modelines=5 nobackup nowritebackup textwidth=0
 set expandtab formatoptions=croql nojoinspaces scrolloff=0 laststatus=2
 set wildmenu wildignore=*.o,*.class,*.jar,*.png,*.pdf,$PWD/**node_modules/**,build/**,.git/**,.svn/**,dist/**,tmp/** path=.,,**
