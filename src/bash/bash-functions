@@ -308,7 +308,8 @@ exec vim "$@"
     }
   fi
   if [ ! -e $SCR_VIMRC ]; then
-    -ws /scr-get-vimrc --compressed > $SCR_VIMRC
+    #-ws /scr-get-vimrc --compressed > $SCR_VIMRC
+    -vimrc > $SCR_VIMRC
   fi
   $EDITOR "$@"
 }

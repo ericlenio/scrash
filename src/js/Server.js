@@ -48,8 +48,8 @@ class Server extends http.Server {
         return this.copyToClipboard(req,res);
       case "/scr-get-clipboard":
         return this.getClipboard(req,res);
-      case "/scr-get-vimrc":
-        return this.getVimrc(req,res);
+      //case "/scr-get-vimrc":
+        //return this.getVimrc(req,res);
       case "/scr-hello-world":
         return res.end("hello world\n");
       case "/scr-shutdown":
@@ -149,6 +149,7 @@ class Server extends http.Server {
   }
   */
 
+  /*
   getVimrc(url,res) {
     fsPromises.readFile("./src/vim/vimrc",'utf8')
       .then(vimrc=>{
@@ -162,6 +163,7 @@ class Server extends http.Server {
         res.end(e.toString());
       });
   }
+  */
 
   getBashFunctions(url,res) {
     let shellScript="";
