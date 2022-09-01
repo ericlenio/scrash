@@ -30,5 +30,5 @@ while builtin getopts "hCp:" opt; do
 done
 
 url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
-eval "$(curl -S -f -s --compressed $url)"
+eval -- "$(curl -S -f -s --compressed $url)"
 -shell-init "${shell_init_args[@]}"

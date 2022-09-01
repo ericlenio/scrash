@@ -1,0 +1,19 @@
+# WARNING: keep this caption line first to make sure the proper window height
+# is set, otherwise the window height will be detected 1 line bigger than it
+# actually is (resulting in vim, less, etc. not behaving well)
+caption always "%{= kw}%-w%{= BW}%n%t%{-}%+w %-= @%H %{= Y}%l%{-} %m/%d %0c"
+screen bash
+# init paste buffer to a bash eval-able string
+register . ":"
+multiuser off
+autodetach on
+bind / screen bash -c "v \"\$SCR_PASSWORD_FILE\""
+# bind "%" to take a screenshot, and open a new window to edit it
+bind % exec bash -c 'f=\$(mktemp) t=\$RANDOM; env screen -X hardcopy \$f; env screen -t \$t sh -c "$EDITOR -c \"set nonumber\" \$f; rm \$f"; env screen -X select \$t'
+bind \040 windowlist -b
+bind P eval "password none" "detach"
+vbell on
+vbell_msg DING
+defmonitor off
+msgwait 2
+shelltitle "$ |:"

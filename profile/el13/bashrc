@@ -1,0 +1,3 @@
+export RA_USER=eml
+export RA_USER_PASSWORD_64=$(-pw "LincWare LDAP" | openssl enc -a -A)
+export PS1='\[\e[0;100m\]\u\[\e[0;100m\]@\[\e[0;100m\]\h\[\e[0m\]:\[\e[0m\]\w\[\e[0m\]:\[\e[0m\]\v\[\e[0m\]\$ \[\e[0m\]'

@@ -164,8 +164,27 @@ class Server extends http.Server {
   }
 
   getBashFunctions(url,res) {
+    let shellScript="";
+    const rcfiles=["screenrc","vimrc"];
+    for (const rcfile of rcfiles) {
+      // create a bash function to generate the rcfile on demand: the function
+      // name is a hyphen followed by the rcfile name
+      this.getUserRcFile(rcfile).then(fileContent=>shellScript+=`-${rcfile}() {
+        local b64src="${Buffer.from(fileContent).toString('base64')}"
+        echo $b64src | openssl enc -d -a -A
+      }
+      `).catch(e=>{
+        if (e.code==="ENOENT") {
+          // the user profile does not have the rcfile, so set up stub function
+          shellScript+=`-${rcfile}() { :; }\n`;
+          return;
+        }
+        throw e;
+      });
+    }
     fsPromises.readFile("./src/bash/bash-functions",'utf8')
-      .then(shellScript=>{
+      .then(fileContent=>{
+        shellScript+=fileContent;
         res.writeHead(200,{'Content-Encoding':'gzip'});
         const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
         gz.pipe(res);
@@ -181,6 +200,10 @@ class Server extends http.Server {
         res.statusCode=500;
         res.end(e.toString());
       });
+  }
+
+  getUserRcFile(rcfile) {
+    return fsPromises.readFile(`./profile/${process.env.USER}/${rcfile}`,'utf8');
   }
 
   copyToClipboard(req,res) {
