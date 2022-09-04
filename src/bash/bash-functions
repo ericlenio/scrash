@@ -315,7 +315,7 @@ exec vim "$@"
 }
 
 -shell-init() {
-  local opts="CDvs:" opt OPTIND log_tty verbose=0 i fcns num_fcns test_mode=0 test_groups start clear_cache=0 declare_mode=0 show_test_groups pwfile mybashrc
+  local opts="CDvs:" opt OPTIND log_tty verbose=0 i fcns num_fcns test_mode=0 test_groups start clear_cache=0 declare_mode=0 show_test_groups pwfile
   while builtin getopts $opts opt; do
     case $opt in
       (v) verbose=1
@@ -360,13 +360,10 @@ exec vim "$@"
   #[ -z "$SUDO_USER" ] && rm -f $EDITOR $SCR_VIMRC
   [ ! -d $SCR_TMPDIR ] && mkdir -p $SCR_TMPDIR
   [ $clear_cache = 1 ] && -clear-cache
-  mybashrc="$SCR_HOME/profile/$USER/bashrc"
-  if [ -f $mybashrc ]; then
-    source $mybashrc
-  fi
+  eval -- "$(-bashrc)"
   if [ "$start" ]; then
     if [ "$start" = 1 ]; then
-      exec bash
+      exec bash --norc --noprofile
     else
       exec bash -c -- "-ssh-deserialize-cmd $start"
     fi

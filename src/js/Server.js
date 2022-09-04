@@ -167,7 +167,7 @@ class Server extends http.Server {
 
   getBashFunctions(url,res) {
     let shellScript="";
-    const rcfiles=["screenrc","vimrc"];
+    const rcfiles=["screenrc","vimrc","bashrc"];
     for (const rcfile of rcfiles) {
       // create a bash function to generate the rcfile on demand: the function
       // name is a hyphen followed by the rcfile name
