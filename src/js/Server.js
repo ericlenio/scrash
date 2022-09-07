@@ -168,10 +168,10 @@ class Server extends http.Server {
   getBashFunctions(url,res) {
     let shellScript="";
     const rcfiles=["screenrc","vimrc","bashrc"];
-    for (const rcfile of rcfiles) {
+    Promise.all(rcfiles.map(rcfile=>{
       // create a bash function to generate the rcfile on demand: the function
       // name is a hyphen followed by the rcfile name
-      this.getUserRcFile(rcfile).then(fileContent=>shellScript+=`-${rcfile}() {
+      return this.getUserRcFile(rcfile).then(fileContent=>shellScript+=`-${rcfile}() {
         local b64src="${Buffer.from(fileContent).toString('base64')}"
         echo $b64src | openssl enc -d -a -A
       }
@@ -183,25 +183,24 @@ class Server extends http.Server {
         }
         throw e;
       });
-    }
-    fsPromises.readFile("./src/bash/bash-functions",'utf8')
-      .then(fileContent=>{
-        shellScript+=fileContent;
-        res.writeHead(200,{'Content-Encoding':'gzip'});
-        const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
-        gz.pipe(res);
-        gz.write(shellScript);
-        const start=url.searchParams.get('start');
-        if (start) {
-          gz.write(`export SCR_PORT=${url.port}\n`);
-          gz.write(`-shell-init -s ${start}\n`);
-        }
-        gz.end();
-      })
-      .catch(e=>{
-        res.statusCode=500;
-        res.end(e.toString());
-      });
+    })).then(()=>fsPromises.readFile("./src/bash/bash-functions",'utf8'))
+    .then(fileContent=>{
+      shellScript+=fileContent;
+      res.writeHead(200,{'Content-Encoding':'gzip'});
+      const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
+      gz.pipe(res);
+      gz.write(shellScript);
+      const start=url.searchParams.get('start');
+      if (start) {
+        gz.write(`export SCR_PORT=${url.port}\n`);
+        gz.write(`-shell-init -s ${start}\n`);
+      }
+      gz.end();
+    })
+    .catch(e=>{
+      res.statusCode=500;
+      res.end(e.toString());
+    });
   }
 
   getUserRcFile(rcfile) {

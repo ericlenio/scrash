@@ -197,11 +197,11 @@ screen() {
   if [ -z "$rcfile" -a "$session_id" ]; then
     rcfile=$SCR_SCREENRC
     if [ ! -f $rcfile ]; then
-      -screenrc > $rcfile
+      if ! -screenrc > $rcfile; then
+        return $?
+      fi
     fi
-    env+=(
-      SCR_STY_LAST_UPDATE="$(date)"
-    )
+    env+=(SCR_STY_LAST_UPDATE="$(date)")
     cmd+=(-c $rcfile)
   fi
   if [ "$SSH_TTY" ]; then
@@ -419,7 +419,7 @@ exec vim "$@"
 ssh() {
   local remote_port bootstr OPTIND \
     ssh_legal_opts="1246ab:c:e:fgi:kl:m:no:p:qstvxACD:E:F:GI:J:KL:MNO:PQ:R:S:TVw:W:XYy" \
-    opt ssh_user_host cmd=(env ssh) start=1 N_flag=0
+    opt ssh_user_host cmd=(env ssh) start=1 N_flag=0 rc cmdline_ssh_host
   while builtin getopts $ssh_legal_opts opt; do
     #case $opt in
     #  f|N|M|V)
@@ -452,9 +452,16 @@ ssh() {
     )
     if [ $N_flag = 0 ]; then
       cmd+=(exec bash -c "'"$bootstr"'")
+      cmdline_ssh_host=${ssh_user_host##*@}
+      h=$cmdline_ssh_host
+      [ "$SSH_STY_LBL" ] && h=$SSH_STY_LBL
+      [ "$STY" ] && printf "\033k$h\033\134"
     fi
   fi
   "${cmd[@]}"
+  rc=$?
+  [ "$STY" ] && printf "\033k${HOSTNAME}\033\134"
+  return $rc
 }
 
 # copy to clipboard
