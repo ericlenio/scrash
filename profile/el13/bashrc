@@ -7,13 +7,14 @@ export PS1=$SCR_PS1
 export HISTCONTROL=ignoreboth:erasedups
 export PAGER=less
 export LESS="-siR"
-export PROMPT_COMMAND="-prompt_command"
 -prompt_command() {
-  shopt -u expand_aliases
-  unalias -a
+  if [[ $BASHOPTS =~ expand_aliases ]]; then
+    # disable aliases
+    shopt -u expand_aliases
+    unalias -a
+  fi
   PS1=$SCR_PS1
 }
 export -f -- -prompt_command
-echo "**********************************" >&2
+export PROMPT_COMMAND="-prompt_command"
 echo "******** sourced mybashrc ********" >&2
-echo "**********************************" >&2
