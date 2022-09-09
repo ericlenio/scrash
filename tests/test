@@ -1,32 +1,50 @@
 #! /usr/bin/env bash
 
+-usage() {
+  echo "usage:
+this help:
+  npm test -- -h
+run all test cases:
+  npm test
+run test cases for those test case files that match the word \"basic\":
+  npm test -- -g basic
+same as above, but also include test case file(s) matching on \"vim\":
+  npm test -- -g \"basic vim\"
+"
+}
+
 -init() {
+  local opts="hg:" opt OPTIND
   set -e
   TEST_STATUS=SUCCESS
   TEST_SOURCE_FILE=''
+  TEST_GROUPS='*'
   export SCR_PORT=$((50000+$RANDOM % 10000))
   export SCR_ENV=test
-  trap -- -on-error ERR
-  trap -- -on-exit EXIT
 
-  for opt in "$@"; do
+  while builtin getopts $opts opt; do
     case "$opt" in
-      (-h)
-        no_server=1
+      (h)
+        -usage
+        exit
+        ;;
+      (g)
+        TEST_GROUPS="$OPTARG"
         ;;
     esac
   done
 
-  if [ ${no_server:-0} = 0 ]; then
-    fifo=/tmp/scr-test-fifo
-    if [ ! -e $fifo ]; then
-      mkfifo $fifo
-    fi
-    npm start -- -p $SCR_PORT -n $fifo &
-    # once this read is done, we know the server is up and listening
-    read port<$fifo
-    rm $fifo
+  trap -- -on-error ERR
+  trap -- -on-exit EXIT
+
+  fifo=/tmp/scr-test-fifo
+  if [ ! -e $fifo ]; then
+    mkfifo $fifo
   fi
+  npm start -- -p $SCR_PORT -n $fifo &
+  # once this read is done, we know the server is up and listening
+  read port<$fifo
+  rm $fifo
 
   url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
   eval -- "$(curl -S -f -s --compressed $url)"
@@ -77,9 +95,13 @@
 
 -run-tests() {
   for TEST_SOURCE_FILE in $(find $(dirname $0) -name *.test | sort); do
-    echo "START $TEST_SOURCE_FILE"
-    source $TEST_SOURCE_FILE
-    echo "END $TEST_SOURCE_FILE"
+    for test_group in $TEST_GROUPS; do
+      if [[ $TEST_SOURCE_FILE =~ $test_group ]]; then
+        echo "START $TEST_SOURCE_FILE"
+        source $TEST_SOURCE_FILE
+        echo "END $TEST_SOURCE_FILE"
+      fi
+    done
   done
 }
 
