@@ -9,7 +9,8 @@ multiuser off
 autodetach on
 bind / screen bash -c "v \"\$SCR_PASSWORD_FILE\""
 # bind "%" to take a screenshot, and open a new window to edit it
-bind % exec bash -c 'f=\$(mktemp) t=\$RANDOM; env screen -X hardcopy \$f; env screen -t \$t sh -c "$EDITOR -c \"set nonumber\" \$f; rm \$f"; env screen -X select \$t'
+#bind % exec bash -c 'f=$(mktemp); t=$RANDOM; env screen -X hardcopy $f; env screen -t $t sh -c "$EDITOR -c \"set nonumber\" $f; rm $f"; env screen -X select $t'
+bind % exec bash -c -- -screen-shot
 bind \040 windowlist -b
 bind P eval "password none" "detach"
 vbell on

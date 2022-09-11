@@ -1,4 +1,4 @@
-# vim filetype=bash
+# vim:filetype=bash
 
 l() {
   ls -laF "$@"
@@ -284,6 +284,18 @@ screen() {
   read -d '' rc <$rcfifo
   return $rc
 )
+
+-screen-shot() {
+  local f t
+  f=$(mktemp)
+  t=$RANDOM
+  if [ ! -e $EDITOR ]; then
+    v --version >/dev/null
+  fi
+  env screen -X hardcopy $f
+  env screen -t $t sh -c "$EDITOR -c \"set nonumber\" $f; rm $f"
+  env screen -X select $t
+}
 
 v() {
   if [ -z "$EDITOR" ]; then
