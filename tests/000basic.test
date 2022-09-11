@@ -1,7 +1,7 @@
 # vim:filetype=bash
 -clear-cache
 [[ $SCR_PORT =~ ^[0-9]+$ ]]
-len=8
+len=100
 v=$(-random-string $len)
 [ $len = ${#v} ]
 [ "$EDITOR" ]
@@ -13,7 +13,10 @@ session_id=$(screen --generate-session-id)
 [ $SCR_ENV = test ]
 # md5 testing
 s="hello world"
-t=$(mktemp) && echo "$s" > $t
+t=$(mktemp)
+[ "$t" ]
+echo "$s" > $t
+[ -s "$t" ]
 [ $(-md5 $t) = 6f5902ac237024bdd0c176cb93063dc4 ]
 [ $(echo "$s" | -md5) = 6f5902ac237024bdd0c176cb93063dc4 ]
 ! -md5 /no-such-file

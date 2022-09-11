@@ -1,4 +1,5 @@
 #! /usr/bin/env bash
+# this script launches the test cases
 
 -usage() {
   echo "usage:
@@ -15,13 +16,9 @@ same as above, but also include test case file(s) matching on \"vim\":
 
 -init() {
   local opts="hg:" opt OPTIND
-  set -e
-  TEST_STATUS=SUCCESS
-  TEST_SOURCE_FILE=''
-  TEST_GROUPS='*'
-  export SCR_PORT=$((50000+$RANDOM % 10000))
-  export SCR_ENV=test
-
+  set -eE
+  # force "set -e" to be inherited with "export SHELLOPTS"
+  export SHELLOPTS
   while builtin getopts $opts opt; do
     case "$opt" in
       (h)
@@ -34,8 +31,13 @@ same as above, but also include test case file(s) matching on \"vim\":
     esac
   done
 
+  TEST_SOURCE_FILE=''
+  TEST_GROUPS=${TEST_GROUPS:=*}
+  export SCR_PORT=$((50000+$RANDOM % 10000))
+  export SCR_ENV=test
   trap -- -on-error ERR
   trap -- -on-exit EXIT
+  shopt -s gnu_errfmt
 
   fifo=/tmp/scr-test-fifo
   if [ ! -e $fifo ]; then
@@ -56,32 +58,48 @@ same as above, but also include test case file(s) matching on \"vim\":
 }
 
 -on-error() {
+  echo "INSIDE $FUNCNAME[$BASH_SUBSHELL]: $BASH_COMMAND" >&2
   local i
-  if [ -e $TEST_ERROR_FILE ]; then
-    return
-  fi
+  #if [ -e $TEST_ERROR_FILE ]; then
+    #return
+  #fi
+  trap - ERR
   touch $TEST_ERROR_FILE
-  TEST_STATUS=FAIL
-  echo "ERROR with command: $BASH_COMMAND" >&2
-  echo "BASH_ARGV[${#BASH_ARGV[*]}]: ${BASH_ARGV[*]}" >&2
-  echo "in file: $TEST_SOURCE_FILE" >&2
-  for ((i=0;i<${#BASH_LINENO[*]};i++)); do
-    echo "  at line: ${FUNCNAME[$i]} ${BASH_LINENO[$i]}" >&2
-  done
+  echo "ERROR with command (subshell level: $BASH_SUBSHELL): $BASH_COMMAND" >&2
+  if [ $BASH_SUBSHELL -gt 0 ]; then
+    #echo "BASH_ARGV[${#BASH_ARGV[*]}]: ${BASH_ARGV[*]}" >&2
+    #echo "in file: $TEST_SOURCE_FILE" >&2
+    for ((i=0;i<${#BASH_LINENO[*]};i++)); do
+      echo "  at line: ${FUNCNAME[$i]} ${BASH_LINENO[$i]}" >&2
+    done
+  else
+    echo "caller detail (line number is first):" >&2
+    #read fail_script_line_number fail_script < <(caller)
+    #echo "FAIL at line $fail_script_line_number in file: $fail_script" >&2
+    i=0
+    while caller $i >&2; do
+      let i+=1
+    done
+  fi
 }
 
 -on-exit() {
+  echo "INSIDE $FUNCNAME" >&2
   local rc=$?
-  set +e
-  if [ $rc -gt 0 ]; then
-    -on-error
-  fi
+  #set +e
+  #if [ $rc -gt 0 ]; then
+    #-on-error
+  #fi
   -cleanup
-  echo $TEST_STATUS
+  if [ $rc -gt 0 -o -e $TEST_ERROR_FILE ]; then
+    echo "FAIL"
+  else
+    echo "SUCCESS"
+  fi
 }
 
 -cleanup() {
-  curl http://127.0.0.1:$SCR_PORT/scr-shutdown
+  curl -s http://127.0.0.1:$SCR_PORT/scr-shutdown
 }
 
 -ssh-not-strict() {
