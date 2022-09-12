@@ -20,72 +20,6 @@ l() {
   fi
 }
 
-#
-# call within gnu screen to update important environment variables; in
-# particular, this must be called prior to any call to -ws or -ssh
--screen-env() {
-  local opts="uS:" opt OPTIND update=0 v SCR_UPDATEABLE="SCR_PORT SSH_AUTH_SOCK" file_prefix=scr-sty-fifo
-  # keep STY local so we don't pollute parent shell when reconnecting to a gnu
-  # screen session
-  local STY=$STY
-  while builtin getopts $opts opt; do
-    case $opt in
-      (u) update=1
-        ;;
-      (S) STY=$OPTARG
-        ;;
-    esac
-  done
-  if [ -z "$STY" ]; then
-    echo "$FUNCNAME: no value for STY" >&2
-    return 1
-  fi
-  local session_id=${STY##*.}
-  local SCR_STY_FIFO=$SCR_TMPDIR/$file_prefix-$session_id
-  local old_fifo old_fifo_id
-  for old_fifo in $(ls $SCR_TMPDIR/$file_prefix-* 2>/dev/null); do
-    if [[ $old_fifo =~ $file_prefix-(.*) ]]; then
-      old_fifo_id=${BASH_REMATCH[1]}
-      if ! screen -ls | grep -q $old_fifo_id; then
-        rm -f $old_fifo
-        echo "removed old fifo: $old_fifo" >&2
-      fi
-    fi
-  done
-  if [ $update = 1 ]; then
-    # update critical environment variables
-    local buf=$(
-      for v in $SCR_UPDATEABLE; do
-        if [ "${!v}" ]; then
-          printf "%s='%s';" $v ${!v}
-        fi
-      done
-    )
-    # set buf to ":" if it is unset: want to avoid an empty register
-    if ! env screen -S $session_id -X register . "${buf:-:}"; then
-      echo "$FUNCNAME: failed to update environment for $session_id: $buf" >&2
-      return 1
-    fi
-    echo "$FUNCNAME: successful update on $session_id: $buf"
-    return
-  fi
-  if [ ! -e $SCR_STY_FIFO ]; then
-    mkfifo -m 0600 $SCR_STY_FIFO
-  fi
-  # paste the contents of register "p" into the named pipe, then source it's
-  # contents into the current shell. UPDATE: not using "p", just the direct
-  # paste buffer because there is a bug that the first paste of a register to
-  # the paste buffer from an initially detached screen will not work
-  if env screen -S $session_id -X writebuf $SCR_STY_FIFO; then
-    # note: cannot do "source $SCR_STY_FIFO" here, at least not with bash 3.2
-    # on Mac
-    eval "$(<$SCR_STY_FIFO)"
-  else
-    echo "$FUNCNAME: failed to load data from paste buffer" >&2
-    return 1
-  fi
-}
-
 -debug-ts() {
   echo "${FUNCNAME[*]}:$@:$(date +%s)" >> $SCR_TMPDIR/a
 }
@@ -124,6 +58,65 @@ l() {
     echo $session_id
   else
     echo "$FUNCNAME: no match for pick_sty_line: $pick_sty_line" >&2
+    return 1
+  fi
+}
+
+#
+# call within gnu screen to update important environment variables; in
+# particular, this must be called prior to any call to -ws or -ssh
+-screen-env() {
+  local opts="uS:" opt OPTIND update=0 v SCR_UPDATEABLE="SCR_PORT SSH_AUTH_SOCK" file_prefix=scr-sty-env-
+  # keep STY local so we don't pollute parent shell when reconnecting to a gnu
+  # screen session
+  local STY=$STY
+  while builtin getopts $opts opt; do
+    case $opt in
+      (u) update=1
+        ;;
+      (S) STY=$OPTARG
+        ;;
+    esac
+  done
+  if [ -z "$STY" ]; then
+    echo "$FUNCNAME: no value for STY" >&2
+    return 1
+  fi
+  local session_id=${STY##*.}
+  local SCR_STY_ENV=$SCR_TMPDIR/$file_prefix$session_id
+  if [ -z "$SUDO_USER" ]; then
+    local old_env old_env_id
+    for old_env in $SCR_TMPDIR/$file_prefix*; do
+      if [[ $old_env =~ $file_prefix([:alnum:].*) ]]; then
+        old_env_id=${BASH_REMATCH[1]}
+        if ! screen -ls | grep -q $old_env_id; then
+          rm -f $old_env
+          echo "removed old fifo: $old_env" >&2
+        fi
+      fi
+    done
+  fi
+  if [ $update = 1 ]; then
+    # update critical environment variables
+    if {
+      for v in $SCR_UPDATEABLE; do
+        if [ "${!v}" ]; then
+          printf "%s='%s'\n" $v ${!v}
+        fi
+      done
+    } > $SCR_STY_ENV; then
+      printf "%s: successful update on %s:\n%s\n" $FUNCNAME $session_id "$(<$SCR_STY_ENV)" >&2
+      return
+    else
+      echo "$FUNCNAME: failed to write to $SCR_STY_ENV" >&2
+      return 1
+    fi
+  fi
+  if [ ! -e $SCR_STY_ENV ]; then
+    touch $SCR_STY_ENV
+  fi
+  if ! source $SCR_STY_ENV; then
+    echo "$FUNCNAME: failed to load data from $SCR_STY_ENV" >&2
     return 1
   fi
 }
