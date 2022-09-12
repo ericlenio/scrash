@@ -28,4 +28,5 @@ If the last line of output is `SUCCESS`, then all test cases (in theory) were
 successful.
 
 # Running
-Start the server with `npm start`. Then launch the bash shell with `./client`.
+Start the server with `npm start`. Then in another window launch the bash shell
+with `./client`.
