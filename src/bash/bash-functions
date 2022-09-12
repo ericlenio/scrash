@@ -48,9 +48,7 @@ l() {
       old_fifo_id=${BASH_REMATCH[1]}
       if ! screen -ls | grep -q $old_fifo_id; then
         rm -f $old_fifo
-        if [ /dev/tty ]; then
-          echo "removed old fifo: $old_fifo" >/dev/tty
-        fi
+        echo "removed old fifo: $old_fifo" >&2
       fi
     fi
   done
