@@ -58,7 +58,7 @@ same as above, but also include test case file(s) matching on \"vim\":
 }
 
 -on-error() {
-  echo "INSIDE $FUNCNAME[$BASH_SUBSHELL]: $BASH_COMMAND" >&2
+  #echo "INSIDE $FUNCNAME[$BASH_SUBSHELL]: $BASH_COMMAND" >&2
   local i
   #if [ -e $TEST_ERROR_FILE ]; then
     #return
@@ -84,7 +84,7 @@ same as above, but also include test case file(s) matching on \"vim\":
 }
 
 -on-exit() {
-  echo "INSIDE $FUNCNAME" >&2
+  #echo "INSIDE $FUNCNAME" >&2
   local rc=$?
   #set +e
   #if [ $rc -gt 0 ]; then
