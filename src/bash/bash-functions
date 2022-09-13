@@ -252,7 +252,11 @@ screen() {
   {
     c=("$@")
     declare -p c
-    echo '"${c[@]}"'
+    echo 'if [[ "${c[@]}" =~ \$ ]]; then'
+    echo '  eval -- "${c[@]}"'
+    echo 'else'
+    echo '  "${c[@]}"'
+    echo 'fi'
     echo 'rc=$?'
     echo 'echo $rc >&3'
     echo 'exit'
@@ -272,7 +276,7 @@ screen() {
   pids+=($!)
   trap "kill -KILL ${pids[*]}; trap - INT; exit 1" INT
   screen "${cmd[@]}"
-  read -d '' rc <$rcfifo
+  read -d '' rc <$rcfifo || true
   return $rc
 )
 
@@ -382,6 +386,7 @@ exec vim "$@"
 -s() {
   local user=${1:-root} bootstr
   [ $# -gt 0 ] && shift
+  [ "$STY" ] && -screen-env
   bootstr=$(-shell-boot-string $SCR_PORT "$@")
   if [ ! -e $EDITOR ]; then
     # create the editor, might need it under sudo and sudo user will not be
@@ -399,9 +404,9 @@ exec vim "$@"
 -ssh-deserialize-cmd() {
   # b64 is assumed to have been generated from -ssh-serialize-cmd
   local b64="$1" c
-  eval "$(echo -n $b64 | openssl enc -d -a -A)"
+  eval -- "$(echo -n $b64 | openssl enc -d -a -A)"
   if [[ "${c[@]}" =~ \$ ]]; then
-    eval "${c[@]}"
+    eval -- "${c[@]}"
   else
     "${c[@]}"
   fi
@@ -420,7 +425,7 @@ exec vim "$@"
 }
 
 ssh() {
-  local remote_port bootstr OPTIND \
+  local SCR_PORT_FORWARD bootstr OPTIND \
     ssh_legal_opts="1246ab:c:e:fgi:kl:m:no:p:qstvxACD:E:F:GI:J:KL:MNO:PQ:R:S:TVw:W:XYy" \
     opt ssh_user_host cmd=(env ssh) start=1 N_flag=0 rc cmdline_ssh_host
   while builtin getopts $ssh_legal_opts opt; do
@@ -445,25 +450,30 @@ ssh() {
     if [ $# -eq 0 ]; then
       cmd+=(-t)
     fi
-    remote_port=$(( $RANDOM % 5000 + 56100 ))
-    bootstr=$(-shell-boot-string $remote_port "$@")
+    SCR_PORT_FORWARD=$(( $RANDOM % 5000 + 56100 ))
     [ "$STY" ] && -screen-env
     cmd+=(
       -oExitOnForwardFailure=yes
-      -R$remote_port:127.0.0.1:$SCR_PORT
+      -R$SCR_PORT_FORWARD:127.0.0.1:$SCR_PORT
       "$ssh_user_host"
     )
     if [ $N_flag = 0 ]; then
+      bootstr=$(-shell-boot-string $SCR_PORT_FORWARD "$@")
       cmd+=(exec bash -c "'"$bootstr"'")
       cmdline_ssh_host=${ssh_user_host##*@}
       h=$cmdline_ssh_host
       [ "$SSH_STY_LBL" ] && h=$SSH_STY_LBL
       [ "$STY" ] && printf "\033k$h\033\134"
+    else
+      # display for forwarded port, might have a use for this someday
+      printf "SCR_PORT_FORWARD=%s\n" $SCR_PORT_FORWARD
     fi
   fi
   "${cmd[@]}"
   rc=$?
-  [ "$STY" ] && printf "\033k${HOSTNAME}\033\134"
+  if [ $N_flag = 0 ]; then
+    [ "$STY" ] && printf "\033k${HOSTNAME}\033\134"
+  fi
   return $rc
 }
 
