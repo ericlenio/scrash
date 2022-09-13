@@ -1,34 +1,45 @@
 # vim:filetype=bash
 # vim/screen/ssh/sudo integration tests
+-clear-cache
 session_id=$(screen --generate-session-id)
-screen -S $session_id -d -m
+# use ssh to start a "remote" screen session using a forwarded SCR_PORT value -
+# ssh will immediately end and so will the port forward and then below we test
+# the ability to reconnect it
+-ssh-localhost screen -S $session_id -d -m
 t1=$SCR_TMPDIR/t1
+t2=$SCR_TMPDIR/t2
 f2=$SCR_TMPDIR/f2
 mkfifo -m 0666 $f2
+passwd_user=nobody
 r=$(-random-string)
+[ ${#r} -gt 0 ]
+echo r=$r
 # flush clipboard
 echo $r | -copy-to-clipboard
 [ $r = $(-clipboard) ]
 # create a vim script file to select/copy the word "nobody", write to fifo,
 # read fifo, copy "root", write to fifo, quit vim
 # the editor
-#printf "/^nobody\015ve\003:!echo $r > $f2\015:!read < $f2\015/^root\015ve\003:!echo > $f2\015:q\015" > $t1
-printf "/^nobody\015ve\003:call writefile(['$r'],'$f2')\015:call readfile('$f2')\015/^root\015ve\003:call writefile([''],'$f2')\015:q\015" > $t1
+printf "/^$passwd_user\015ve\003:call writefile(['$r'],'$f2')\015:call readfile('$f2')\015/^root\015ve\003:call writefile([\$USER],'$f2')\015:q\015" > $t1
 
 cpfile=$SCR_TMPDIR/ssh-cp
 # start a control master: check that vim inside gnu screen can handle a
 # change in SCR_PORT
--ssh-not-strict -f -N -M -S $cpfile -oBatchMode=yes localhost
+#-ssh-not-strict -f -N -M -S $cpfile -oBatchMode=yes localhost
 # update SCR_PORT
--ssh-not-strict -S $cpfile localhost screen -u -S $session_id -X select -
+#-ssh-not-strict -S $cpfile localhost screen -u -S $session_id -X select -
+#-ssh-localhost -screen-pipe -u -S $session_id -- -ws-hello-world
 # try copying a word inside vim to the clipboard over the new SCR_PORT
-screen -S $session_id -X screen bash -c -- "-s nobody v -s $t1 /etc/passwd"
-echo "about to do read on $f2"
--psg $cpfile
--psg nobody
-read ans < $f2
+cat <<EOF >$t2
+screen -X screen bash -c -- "-s $passwd_user v -s $t1 /etc/passwd"
+echo "about to do read on $f2" >&2
+cat $f2
+EOF
+ans=$(-ssh-localhost -screen-pipe -u -S $session_id bash $t2)
+echo "f2 ans:<$ans>" >&2
 [ "$ans" = $r ]
-[ nobody = $(-clipboard) ]
+[ $passwd_user = $(-clipboard) ]
+-ssh-localhost -screen-pipe -u -S $session_id bash 
 # flush clipboard
 echo $r | -copy-to-clipboard
 [ $r = $(-clipboard) ]
@@ -36,10 +47,11 @@ echo $r | -copy-to-clipboard
 -ssh-not-strict -S $cpfile localhost screen -u -S $session_id -X select -
 echo > $f2
 read ans < $f2
+[ "$ans" = $passwd_user ]
 [ root = $(-clipboard) ]
 # clean up
 -ssh-not-strict -N -S $cpfile -O stop localhost
-rm $t1 $f2
+rm $t1 $t2 $f2
 -ssh-localhost -screen-pipe -u -S $session_id -- -ws-hello-world -o $t1
 -ssh-localhost -screen-pipe -u -S $session_id -- uname | grep $(uname)
 ! -ssh-localhost -screen-pipe -u -S $session_id -- false

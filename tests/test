@@ -103,12 +103,17 @@ same as above, but also include test case file(s) matching on \"vim\":
 }
 
 -ssh-not-strict() {
-   # disable "Warning: Permanently added ..." by using error log level
-   ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oLogLevel=error "$@"
+  # confirm ssh-agent is running so we can automatically do some ssh stuff
+  if [ -z "$SSH_AUTH_SOCK" ]; then
+    echo "$FUNCNAME: expected SSH_AUTH_SOCK to be set for password-less ssh" >&2
+    return 1
+  fi
+  # disable "Warning: Permanently added ..." by using error log level
+  ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oLogLevel=error "$@"
 }
 
 -ssh-localhost() {
-   -ssh-not-strict localhost "$@"
+  -ssh-not-strict localhost "$@"
 }
 
 -run-tests() {
