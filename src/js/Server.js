@@ -8,6 +8,10 @@ import crypto from 'crypto';
 import path from 'path';
 import pty from 'node-pty';
 
+const SCR_ENV=process.env.SCR_ENV || process.env.npm_package_config_SCR_ENV;
+const SCR_VERSION=process.env.npm_package_version;
+const SCR_PROFILE=process.env.USER;
+
 const E_OS_PROG_ENUM={
   COPY:{
     linux:["clipit"],
@@ -28,6 +32,7 @@ const E_OS_PROG_ENUM={
 
 class Server extends http.Server {
   init({notify}) {
+    console.log(`starting Server.js v${SCR_VERSION}, configuration: ${SCR_ENV}, profile: ${SCR_PROFILE}`);
     this.once('listening',()=>console.log("listening on port:",this.address().port));
     if (notify) {
       this.once('listening',()=>fsPromises.appendFile(notify,this.address().port+"\n").catch(e=>console.error(e)))
@@ -193,7 +198,8 @@ class Server extends http.Server {
       const start=url.searchParams.get('start');
       if (start) {
         gz.write(`export SCR_PORT=${url.port}\n`);
-        gz.write(`export SCR_ENV=${process.env.SCR_ENV}\n`);
+        gz.write(`export SCR_ENV=${SCR_ENV}\n`);
+        gz.write(`export SCR_VERSION=${SCR_VERSION}\n`);
         gz.write(`-shell-init -s ${start}\n`);
       }
       gz.end();
@@ -257,7 +263,7 @@ class Server extends http.Server {
   }
 
   shutdown(res) {
-    if (process.env.SCR_ENV==='test') {
+    if (SCR_ENV==='test') {
       res.end();
       process.nextTick(()=>process.exit(0));
     }

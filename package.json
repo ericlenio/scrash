@@ -11,5 +11,8 @@
   "license": "AGPL-3.0-only",
   "dependencies": {
     "node-pty": "^0.10.1"
+  },
+  "config":{
+    "SCR_ENV":"dev"
   }
 }

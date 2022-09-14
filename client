@@ -2,7 +2,7 @@
 
 export SCR_PORT=4553
 export SCR_ENV=dev
-export SCR_HOME=$(node -r fs -r path -e "console.log(fs.realpathSync(path.join('$0','..')))")
+eval $(node -r fs -r path -e 'const h=fs.realpathSync(path.join(process.argv[1],"..")); const p=require(path.join(h,"package.json")); console.log(`export SCR_HOME=${h} SCR_VERSION=${p.version}`);' -- $0)
 shell_init_args=(-s 1)
 
 usage() {
