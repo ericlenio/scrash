@@ -66,7 +66,7 @@ l() {
 # call within gnu screen to update important environment variables; in
 # particular, this must be called prior to any call to -ws or -ssh
 -screen-env() {
-  local opts="uS:" opt OPTIND update=0 v SCR_UPDATEABLE="SCR_PORT SSH_AUTH_SOCK" file_prefix=scr-sty-env-
+  local opts="uS:p" opt OPTIND update=0 v SCR_UPDATEABLE="SCR_PORT SSH_AUTH_SOCK" file_prefix=scr-sty-env- echo_port=0
   # keep STY local so we don't pollute parent shell when reconnecting to a gnu
   # screen session
   local STY=$STY
@@ -75,6 +75,8 @@ l() {
       (u) update=1
         ;;
       (S) STY=$OPTARG
+        ;;
+      (p) echo_port=1
         ;;
     esac
   done
@@ -118,6 +120,9 @@ l() {
   if ! source $SCR_STY_ENV; then
     echo "$FUNCNAME: failed to load data from $SCR_STY_ENV" >&2
     return 1
+  fi
+  if [ $echo_port = 1 ]; then
+    echo $SCR_PORT
   fi
 }
 
@@ -393,7 +398,9 @@ exec vim "$@"
     # able to create it
     v --version >/dev/null
   fi
-  sudo -H -u $user bash -c "$bootstr"
+  # we pass along STY so that -ws calls can properly detect when to run
+  # -screen-env
+  sudo -H -u $user bash -c "STY='$STY' $bootstr"
 }
 
 -ssh-serialize-cmd() {
@@ -420,7 +427,6 @@ exec vim "$@"
   else
     start=1
   fi
-  #printf "'eval \"\$(curl -S -f -s --compressed http://127.0.0.1:%s/scr-get-bash-functions?start=%s)\"'" $remote_port $start
   printf 'eval -- "$(curl -S -f -s --compressed http://127.0.0.1:%s/scr-get-bash-functions?start=%s)"' $remote_port $start
 }
 
@@ -484,7 +490,7 @@ ssh() {
     echo "$FUNCNAME: no such file, or file is not readable: $f" >&2
     return 1
   fi
-  -ws /scr-copy-to-clipboard --data-binary @$f
+  -ws /scr-set-clipboard --data-binary @$f
 }
 
 -clipboard() {

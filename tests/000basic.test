@@ -27,3 +27,8 @@ h=$(-ssh-localhost hostname)
 remote_port=$(eval $(-ssh-localhost declare -p SCR_PORT); echo $SCR_PORT)
 [ $remote_port != $SCR_PORT ]
 [[ $remote_port =~ ^[0-9]+$ ]]
+
+scr_env2=$(-ssh-localhost echo '$SCR_ENV')
+[ "$scr_env2" = $SCR_ENV ]
+scr_env2=$(-s nobody echo '$SCR_ENV')
+[ "$scr_env2" = $SCR_ENV ]

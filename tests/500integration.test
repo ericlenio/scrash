@@ -9,7 +9,7 @@ session_id=$(screen --generate-session-id)
 
 # extract the current value of SCR_PORT from the detached screen session
 -get-scr-port() {
-  local p=$(-screen-pipe -S $session_id echo '$SCR_PORT')
+  local p=$(-screen-pipe -S $session_id bash -c -- '-screen-env -p')
   [[ "$p" =~ ^[0-9]+$ ]]
   echo $p
 }
@@ -17,7 +17,9 @@ session_id=$(screen --generate-session-id)
 SCR_PORT0=$(-get-scr-port)
 t1=$SCR_TMPDIR/t1
 t2=$SCR_TMPDIR/t2
+t3=$SCR_TMPDIR/t3
 f2=$SCR_TMPDIR/f2
+logfile=$SCR_TMPDIR/logfile
 mkfifo -m 0666 $f2
 passwd_user=nobody
 r=$(-random-string)
@@ -26,29 +28,22 @@ echo r=$r
 # flush clipboard
 echo $r | -copy-to-clipboard
 [ $r = $(-clipboard) ]
+
+
+
 # create a vim script file to select/copy the word "nobody", write to fifo,
-# read fifo, copy "root", write to fifo, quit vim
-# the editor
+# (then we change SCR_PORT behind the scenes), read fifo, copy "root", write to
+# fifo, quit vim
 printf "/^$passwd_user\015ve\003:call writefile(['$r'],'$f2')\015:call readfile('$f2')\015/^root\015ve\003:call writefile([\$USER],'$f2')\015:q\015" > $t1
 
-cpfile=$SCR_TMPDIR/ssh-cp
-# start a control master: check that vim inside gnu screen can handle a
-# change in SCR_PORT
-#-ssh-not-strict -f -N -M -S $cpfile -oBatchMode=yes localhost
-# update SCR_PORT
-#-ssh-not-strict -S $cpfile localhost screen -u -S $session_id -X select -
-#-ssh-localhost -screen-pipe -u -S $session_id -- -ws-hello-world
-# try copying a word inside vim to the clipboard over the new SCR_PORT
 
 
 
 cat <<EOF >$t2
 screen -X screen bash -c -- "-s $passwd_user v -s $t1 /etc/passwd"
-echo "about to do read on $f2" >&2
 cat $f2
 EOF
 ans=$(-ssh-localhost -screen-pipe -u -S $session_id bash $t2)
-echo "f2 ans:<$ans>" >&2
 [ "$ans" = $r ]
 [ $passwd_user = $(-clipboard) ]
 
@@ -58,40 +53,36 @@ echo $r | -copy-to-clipboard
 [ $r = $(-clipboard) ]
 
 
+
+# start log file, just in case things go wrong
+screen -S $session_id -X eval "logfile $logfile" "log on"
+
+
+
+
 # now change the SCR_PORT of the detached screen session, then continue our vim
 # script by writing a line to the fifo
-cat <<EOF >$t2
+cat <<EOF >$t3
 echo > $f2
-echo "about to do 2nd read on $f2" >&2
 cat $f2
 EOF
-ans=$(-ssh-localhost -screen-pipe -u -S $session_id bash $t2)
-echo "f2 ans:<$ans>" >&2
+ans=$(-ssh-localhost -screen-pipe -u -S $session_id bash $t3)
 [ "$ans" = $passwd_user ]
-echo "clipboard:$(-clipboard)" >&2
-cat $SCR_STY_ENV
 [ root = $(-clipboard) ]
 
 
+# scr ports should differ, proving we survived a port change
+SCR_PORT1=$(-get-scr-port)
+[ $SCR_PORT != $SCR_PORT0 ]
+[ $SCR_PORT0 != $SCR_PORT1 ]
 
-# flush clipboard
-echo $r | -copy-to-clipboard
-[ $r = $(-clipboard) ]
 
 
-# update SCR_PORT
-#-ssh-not-strict -S $cpfile localhost screen -u -S $session_id -X select -
-#echo > $f2
-#read ans < $f2
-#[ "$ans" = $passwd_user ]
-#[ root = $(-clipboard) ]
-## clean up
-#-ssh-not-strict -N -S $cpfile -O stop localhost
-rm $t1 $t2 $f2
+rm $t1
 -ssh-localhost -screen-pipe -u -S $session_id -- -ws-hello-world -o $t1
 -ssh-localhost -screen-pipe -u -S $session_id -- uname | grep $(uname)
 ! -ssh-localhost -screen-pipe -u -S $session_id -- false
 screen -S $session_id -X quit
 [ -e $t1 ]
 grep -q hello $t1
-rm $t1
+rm $t1 $t2 $t3 $f2

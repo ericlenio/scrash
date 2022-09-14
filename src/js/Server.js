@@ -44,8 +44,8 @@ class Server extends http.Server {
         return this.getBashFunctions(url,res);
       //case "/scr-get-test-framework":
         //return this.getTestFramework(url,res);
-      case "/scr-copy-to-clipboard":
-        return this.copyToClipboard(req,res);
+      case "/scr-set-clipboard":
+        return this.setClipboard(req,res);
       case "/scr-get-clipboard":
         return this.getClipboard(req,res);
       //case "/scr-get-vimrc":
@@ -193,6 +193,7 @@ class Server extends http.Server {
       const start=url.searchParams.get('start');
       if (start) {
         gz.write(`export SCR_PORT=${url.port}\n`);
+        gz.write(`export SCR_ENV=${process.env.SCR_ENV}\n`);
         gz.write(`-shell-init -s ${start}\n`);
       }
       gz.end();
@@ -207,12 +208,12 @@ class Server extends http.Server {
     return fsPromises.readFile(`./profile/${process.env.USER}/${rcfile}`,'utf8');
   }
 
-  copyToClipboard(req,res) {
+  setClipboard(req,res) {
     const cp_prog=this.getOsProgram(E_OS_PROG_ENUM.COPY);
     const p=child_process.spawn(cp_prog[0],cp_prog.slice(1),{stdio:['pipe','ignore',process.stderr]});
     req.pipe(p.stdin);
     p.on("error",e=>{
-      console.error("copyToClipboard:"+e);
+      console.error("setClipboard:"+e);
       res.statusCode=500;
       res.statusMessage=e.toString();
       res.end();
@@ -221,7 +222,7 @@ class Server extends http.Server {
       if (rc===0) {
         console.log(`copied ${req.headers['content-length']} bytes to clipboard`);
       } else {
-        console.warn(`copyToClipboard: got rc=${rc}`);
+        console.warn(`setClipboard: got rc=${rc}`);
       }
       res.end();
       /*
@@ -230,7 +231,7 @@ class Server extends http.Server {
       if (rc==0 && platform=="linux" && clipboardBytes<=maxXselBuf) {
         var p2=child_process.spawn("xsel",["-i","-p"],{stdio:['pipe',process.stdout,process.stderr]});
         p2.on("error",function(e) {
-          console.error("copyToClipboard: xsel: "+e);
+          console.error("setClipboard: xsel: "+e);
           socket.end(e.toString());
         });
         p2.stdin.end(xselBuf);
