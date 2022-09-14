@@ -1,5 +1,9 @@
 import Server from './src/js/Server.js';
 
+if (!process.env.SCR_ENV) {
+  process.env.SCR_ENV='dev';
+}
+
 const DEFAULT_PORT=4553;
 let PORT=DEFAULT_PORT;
 let FIFO;
