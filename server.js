@@ -1,19 +1,30 @@
+import chroot from 'chroot';
 import Server from './src/js/Server.js';
 
 if (!process.env.SCR_ENV) {
   process.env.SCR_ENV='dev';
 }
 
+const SCR_CHROOT_DIR="/var/scrash-chroot";
+const SCR_CHROOT_USER="nobody";
+const SCR_CHROOT_GROUP="nobody";
 const DEFAULT_PORT=4553;
 let PORT=DEFAULT_PORT;
 let FIFO;
+
+//chroot(SCR_CHROOT_DIR,SCR_CHROOT_USER,SCR_CHROOT_GROUP);
+//console.log(`chroot successful to ${SCR_CHROOT_DIR} as user/group ${SCR_CHROOT_USER}/${SCR_CHROOT_GROUP}`);
+
 for (let i=2;i<process.argv.length;i++) {
-  if (process.argv[i]==="-p") {
-    PORT=process.argv[i+1];
-  }
-  if (process.argv[i]==="-n") {
-    FIFO=process.argv[i+1];
+  switch(process.argv[i]) {
+    case "-p":
+      PORT=process.argv[i+1];
+      break;
+    case "-n":
+      FIFO=process.argv[i+1];
+      break;
   }
 }
+
 const s=new Server();
 s.init({notify:FIFO}).then(()=>s.listen(PORT));

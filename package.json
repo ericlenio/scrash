@@ -10,9 +10,11 @@
   "author": "",
   "license": "AGPL-3.0-only",
   "dependencies": {
+    "chroot": "^1.0.11",
     "node-pty": "^0.10.1"
   },
-  "config":{
-    "SCR_ENV":"dev"
+  "config": {
+    "SCR_ENV": "dev",
+    "SCR_PROFILE":"el13"
   }
 }

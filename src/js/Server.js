@@ -10,7 +10,7 @@ import pty from 'node-pty';
 
 const SCR_ENV=process.env.SCR_ENV || process.env.npm_package_config_SCR_ENV;
 const SCR_VERSION=process.env.npm_package_version;
-const SCR_PROFILE=process.env.USER;
+const SCR_PROFILE=process.env.SCR_PROFILE || process.env.npm_package_config_SCR_PROFILE;
 
 const E_OS_PROG_ENUM={
   COPY:{
