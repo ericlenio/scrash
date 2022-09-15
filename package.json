@@ -1,6 +1,6 @@
 {
   "name": "scrash",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "",
   "type": "module",
   "main": "index.js",
@@ -15,6 +15,6 @@
   },
   "config": {
     "SCR_ENV": "dev",
-    "SCR_PROFILE":"el13"
+    "SCR_PROFILE": "el13"
   }
 }
