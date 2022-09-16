@@ -12,9 +12,6 @@ const DEFAULT_PORT=4553;
 let PORT=DEFAULT_PORT;
 let FIFO;
 
-//chroot(SCR_CHROOT_DIR,SCR_CHROOT_USER,SCR_CHROOT_GROUP);
-//console.log(`chroot successful to ${SCR_CHROOT_DIR} as user/group ${SCR_CHROOT_USER}/${SCR_CHROOT_GROUP}`);
-
 for (let i=2;i<process.argv.length;i++) {
   switch(process.argv[i]) {
     case "-p":
@@ -27,4 +24,7 @@ for (let i=2;i<process.argv.length;i++) {
 }
 
 const s=new Server();
-s.init({notify:FIFO}).then(()=>s.listen(PORT));
+s.init({notify:FIFO,port:PORT}).then(()=>{
+  //chroot(SCR_CHROOT_DIR,SCR_CHROOT_USER,SCR_CHROOT_GROUP);
+  //console.log(`chroot successful to ${SCR_CHROOT_DIR} as ${SCR_CHROOT_USER}/${SCR_CHROOT_GROUP}`);
+});

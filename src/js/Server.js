@@ -16,22 +16,24 @@ const E_OS_PROG_ENUM={
   COPY:{
     linux:["clipit"],
     darwin:["pbcopy"],
-    openbsd:["xclip","-i","-selection","clipboard"],
+    openbsd:["/usr/local/bin/xclip","-i","-selection","clipboard"],
   },
   PASTE:{
     linux:["clipit","-c"],
     darwin:["pbpaste"],
-    openbsd:["xclip","-o","-selection","clipboard"],
+    openbsd:["/usr/local/bin/xclip","-o","-selection","clipboard"],
   },
   OPEN:{
     linux:["xdg-open"],
     darwin:["open"],
-    openbsd:["xdg-open"],
+    openbsd:["/usr/local/bin/xdg-open"],
   },
 };
 
 class Server extends http.Server {
-  init({notify}) {
+  #shellScript;
+
+  init({notify,port}) {
     console.log(`starting Server.js v${SCR_VERSION}, configuration: ${SCR_ENV}, profile: ${SCR_PROFILE}`);
     this.once('listening',()=>console.log("listening on port:",this.address().port));
     if (notify) {
@@ -39,12 +41,17 @@ class Server extends http.Server {
     }
     this.on('request',(req,res)=>this.onRequest(req,res));
     this.on('connect',(req,socket,head)=>this.onConnect(req,socket,head));
-    return Promise.resolve();
+    return this.loadBashFunctions()
+      .then(shellScript=>this.#shellScript=shellScript)
+      .then(()=>this.listen(port))
+      .then(()=>new Promise(resolve=>this.once('listening',resolve)));
   }
 
   onRequest(req,res) {
     const url=new URL(req.url,`http://${req.headers.host}`);
     switch(url.pathname) {
+      case "/scr-about":
+        return res.end(`Server.js v${SCR_VERSION}-${SCR_ENV}/${SCR_PROFILE}\n`);
       case "/scr-get-bash-functions":
         return this.getBashFunctions(url,res);
       //case "/scr-get-test-framework":
@@ -170,10 +177,10 @@ class Server extends http.Server {
   }
   */
 
-  getBashFunctions(url,res) {
+  loadBashFunctions() {
     let shellScript="";
     const rcfiles=["screenrc","vimrc","bashrc"];
-    Promise.all(rcfiles.map(rcfile=>{
+    return Promise.all(rcfiles.map(rcfile=>{
       // create a bash function to generate the rcfile on demand: the function
       // name is a hyphen followed by the rcfile name
       return this.getUserRcFile(rcfile).then(fileContent=>shellScript+=`-${rcfile}() {
@@ -189,29 +196,26 @@ class Server extends http.Server {
         throw e;
       });
     })).then(()=>fsPromises.readFile("./src/bash/bash-functions",'utf8'))
-    .then(fileContent=>{
-      shellScript+=fileContent;
-      res.writeHead(200,{'Content-Encoding':'gzip'});
-      const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
-      gz.pipe(res);
-      gz.write(shellScript);
-      const start=url.searchParams.get('start');
-      if (start) {
-        gz.write(`export SCR_PORT=${url.port}\n`);
-        gz.write(`export SCR_ENV=${SCR_ENV}\n`);
-        gz.write(`export SCR_VERSION=${SCR_VERSION}\n`);
-        gz.write(`-shell-init -s ${start}\n`);
-      }
-      gz.end();
-    })
-    .catch(e=>{
-      res.statusCode=500;
-      res.end(e.toString());
-    });
+    .then(fileContent=>shellScript+=fileContent);
+  }
+
+  getBashFunctions(url,res) {
+    res.writeHead(200,{'Content-Encoding':'gzip'});
+    const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
+    gz.pipe(res);
+    gz.write(this.#shellScript);
+    const start=url.searchParams.get('start');
+    if (start) {
+      gz.write(`export SCR_PORT=${url.port}\n`);
+      gz.write(`export SCR_ENV=${SCR_ENV}\n`);
+      gz.write(`export SCR_VERSION=${SCR_VERSION}\n`);
+      gz.write(`-shell-init -s ${start}\n`);
+    }
+    gz.end();
   }
 
   getUserRcFile(rcfile) {
-    return fsPromises.readFile(`./profile/${process.env.USER}/${rcfile}`,'utf8');
+    return fsPromises.readFile(`./profile/${SCR_PROFILE}/${rcfile}`,'utf8');
   }
 
   setClipboard(req,res) {
@@ -316,6 +320,7 @@ class Server extends http.Server {
       res.end();
     });
   }
+
 }
 
 export default Server;

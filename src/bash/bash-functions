@@ -224,6 +224,10 @@ screen() {
   return $rc
 }
 
+-ws-about() {
+  -ws /scr-about -f -S "$@"
+}
+
 -ws-hello-world() {
   -ws /scr-hello-world -f -S "$@"
 }
