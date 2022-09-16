@@ -11,6 +11,7 @@ import pty from 'node-pty';
 const SCR_ENV=process.env.SCR_ENV || process.env.npm_package_config_SCR_ENV;
 const SCR_VERSION=process.env.npm_package_version;
 const SCR_PROFILE=process.env.SCR_PROFILE || process.env.npm_package_config_SCR_PROFILE;
+const SCR_APP_NAME=process.env.npm_package_name;
 
 const E_OS_PROG_ENUM={
   COPY:{
@@ -51,7 +52,7 @@ class Server extends http.Server {
     const url=new URL(req.url,`http://${req.headers.host}`);
     switch(url.pathname) {
       case "/scr-about":
-        return res.end(`Server.js v${SCR_VERSION}-${SCR_ENV}/${SCR_PROFILE}\n`);
+        return res.end(`${SCR_APP_NAME} ${SCR_VERSION}, configuration ${SCR_ENV}, profile ${SCR_PROFILE}\n`);
       case "/scr-get-bash-functions":
         return this.getBashFunctions(url,res);
       //case "/scr-get-test-framework":
@@ -74,7 +75,7 @@ class Server extends http.Server {
 
   onConnect(req,socket,head) {
     const response={
-      statusLine:`HTTP/1.0 200 scrash Connection Established`,
+      statusLine:`HTTP/1.0 200 ${SCR_APP_NAME} Connection Established`,
       headers:[],
       toString:()=>response.statusLine+"\r\n"+response.headers.join("\r\n")+"\r\n",
     };
