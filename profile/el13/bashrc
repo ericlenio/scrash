@@ -17,4 +17,5 @@ export LESS="-siR"
 }
 export -f -- -prompt_command
 export PROMPT_COMMAND="-prompt_command"
+-add-path /usr/local/bin /usr/local/sbin $HOME/bin
 echo "******** sourced mybashrc ********" >&2

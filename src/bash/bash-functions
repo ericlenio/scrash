@@ -4,6 +4,13 @@ l() {
   ls -laF "$@"
 }
 
+-add-path() {
+  while [ $# -gt 0 ]; do
+    [ -d "$1" ] && [[ ":$PATH:" != *":$1:"* ]] && PATH="$1:$PATH"
+    shift
+  done
+}
+
 -vars() {
   {
     set | grep ^EDITOR
