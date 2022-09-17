@@ -40,7 +40,7 @@ printf "/^$passwd_user\015ve\003:call writefile(['$r'],'$f2')\015:call readfile(
 
 
 cat <<EOF >$t2
-screen -X screen bash -c -- "-s $passwd_user v -s $t1 /etc/passwd"
+screen -X screen bash -c -- "-s $passwd_user vim -s $t1 /etc/passwd"
 cat $f2
 EOF
 ans=$(-ssh-localhost -screen-pipe -u -S $session_id bash $t2)

@@ -7,6 +7,6 @@ t1=$SCR_TMPDIR/t1
 # little vim script: find line beginning with "root", select it, copy it to
 # clipboard (by pressing control-c), then quit the editor
 printf "/^root\015ve\003:q\015" > $t1
-v -s $t1 /etc/passwd
+vim -s $t1 /etc/passwd
 [ root = $(-clipboard) ]
 rm $t1

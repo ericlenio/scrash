@@ -1,9 +1,5 @@
 # vim:filetype=bash
 
-l() {
-  ls -laF "$@"
-}
-
 -add-path() {
   while [ $# -gt 0 ]; do
     [ -d "$1" ] && [[ ":$PATH:" != *":$1:"* ]] && PATH="$1:$PATH"
@@ -133,7 +129,7 @@ l() {
   fi
 }
 
-# wrapper around gnu screen. Call with "-test" to run the test suite
+# wrapper around gnu screen
 screen() {
   local i i2 next_arg rcfile session_id_prefix="scr" session_id opt cmd=() env=() esc=^Aa update=0 command=0 skip=0
   for ((i=1;i<=$#;i++)); do
@@ -298,6 +294,10 @@ screen() {
 
 -screen-shot() {
   local f t
+  if [ -z "$STY" ]; then
+    echo "$FUNCNAME: not running gnu screen" >&2
+    return 1
+  fi
   f=$(mktemp)
   t=$RANDOM
   if [ ! -e $EDITOR ]; then
@@ -308,7 +308,7 @@ screen() {
   env screen -X select $t
 }
 
-v() {
+vim() {
   if [ -z "$EDITOR" ]; then
     echo "$FUNCNAME: EDITOR is not set" >&2
     return 1
@@ -316,12 +316,7 @@ v() {
   local d=$(dirname $EDITOR)
   [ ! -d $d ] && mkdir -p $d
   if [ ! -e $EDITOR ]; then
-    local p='#!/usr/bin/env bash
-[ "$1" = "--version" ] && exec vim "$@"
-%s
--shell-init
-exec vim "$@"
-'
+    local p='#!/usr/bin/env bash\n[ "$1" = "--version" ] && exec vim "$@"\n%s\n-shell-init\nexec vim "$@"\n'
     #local url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
     #eval "$(curl -S -f -s --compressed $url)"
     printf "$p" "$(-shell-init -D)" > $EDITOR
@@ -357,7 +352,7 @@ exec vim "$@"
         ;;
     esac
   done
-  fcns=($(compgen -A function "-") screen ssh v l)
+  fcns=($(compgen -A function "-") screen ssh vim)
   if [ $declare_mode = 1 ]; then
     for f in ${fcns[*]}; do
       declare -f -- $f

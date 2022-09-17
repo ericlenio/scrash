@@ -18,4 +18,14 @@ export LESS="-siR"
 export -f -- -prompt_command
 export PROMPT_COMMAND="-prompt_command"
 -add-path /usr/local/bin /usr/local/sbin $HOME/bin
+v() {
+  vim "$@"
+}
+l() {
+  ls -laF "$@"
+}
+c() {
+  -copy-to-clipboard "$@"
+}
+export -f v l c
 echo "******** sourced mybashrc ********" >&2
