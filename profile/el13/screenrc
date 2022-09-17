@@ -1,4 +1,4 @@
-backtick 99 999999999 0 bash -c 'if [ -z "$SSH_TTY" ]; then echo " v$SCR_VERSION-$SCR_ENV"; fi'
+backtick 99 999999999 0 bash -c 'if [ -z "$SSH_TTY" ]; then echo " v$SCR_VERSION:$SCR_ENV"; fi'
 # WARNING: keep this caption line first to make sure the proper window height
 # is set, otherwise the window height will be detected 1 line bigger than it
 # actually is (resulting in vim, less, etc. not behaving well)
