@@ -7,6 +7,21 @@ by the existence of a user profile subdirectory under the `profile` directory
 of this project. By default, the server picks the profile that matches the
 username of the server daemon process.
 
+# Vim
+Put any desired vimrc settings in `./profile/MYPROFILE/vimrc` and they will be
+used for all vim sessions. If you want to use scrash's OS clipboard integration
+then add this to your vimrc file:
+
+    set runtimepath+=$SCR_VIMRUNTIME
+
+Copying to the OS clipboard is achieved by calling call function
+`ScrSetClipboard`; pasting from the clipboard is achieved with function
+`ScrPasteClipboard`. I like to use ctrl-c to copy whatever is currently
+highlighted in Visual mode, and ctrl-v to paste, like this:
+
+    vnoremap <c-c> y:call ScrSetClipboard()<cr>
+    map <c-v> :call ScrPasteClipboard()<cr>
+
 # Testing
 Test cases are found in `./tests/*.test`, and they are just bash scripts that
 get executed with shell option `set -o errexit` enabled, meaning that if any
