@@ -33,6 +33,7 @@ const E_OS_PROG_ENUM={
 
 class Server extends http.Server {
   #shellScript;
+  #vimPlugins={};
 
   init({notify,port}) {
     console.log(`starting Server.js v${SCR_VERSION}, configuration: ${SCR_ENV}, profile: ${SCR_PROFILE}`);
@@ -44,6 +45,8 @@ class Server extends http.Server {
     this.on('connect',(req,socket,head)=>this.onConnect(req,socket,head));
     return this.loadBashFunctions()
       .then(shellScript=>this.#shellScript=shellScript)
+      .then(()=>this.loadVimPlugins())
+      .then(shellScript=>this.#shellScript+=shellScript)
       .then(()=>this.listen(port))
       .then(()=>new Promise(resolve=>this.once('listening',resolve)));
   }
@@ -217,6 +220,22 @@ class Server extends http.Server {
 
   getUserRcFile(rcfile) {
     return fsPromises.readFile(`./profile/${SCR_PROFILE}/${rcfile}`,'utf8');
+  }
+
+  getVimPluginFile(plugin) {
+    return fsPromises.readFile(`./src/vim/${plugin}.vim`,'utf8');
+  }
+
+  loadVimPlugins() {
+    let shellScript="";
+    const plugins=["clipboard"];
+    return Promise.all(plugins.map(plugin=>{
+      return this.getVimPluginFile(plugin).then(fileContent=>`-vim-plugin-${plugin}() {
+        local b64src="${Buffer.from(fileContent).toString('base64')}"
+        echo $b64src | openssl enc -d -a -A
+      }
+      `);
+    }));
   }
 
   setClipboard(req,res) {

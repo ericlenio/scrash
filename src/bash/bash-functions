@@ -325,6 +325,11 @@ vim() {
       return 1
     }
   fi
+  if [ ! -d $SCR_VIMRUNTIME/plugin ]; then
+    if mkdir -p $SCR_VIMRUNTIME/plugin; then
+      -vim-plugin-clipboard > $SCR_VIMRUNTIME/plugin/clipboard.vim
+    fi
+  fi
   if [ ! -e $SCR_VIMRC ]; then
     #-ws /scr-get-vimrc --compressed > $SCR_VIMRC
     -vimrc > $SCR_VIMRC
@@ -366,6 +371,7 @@ vim() {
   export SCR_TMPDIR=/tmp/scr-$SCR_ENV
   export EDITOR=$SCR_TMPDIR/editor
   export SCR_VIMRC=$SCR_TMPDIR/vimrc
+  export SCR_VIMRUNTIME=$SCR_TMPDIR/vim
   export SCR_SCREENRC=$SCR_TMPDIR/screenrc
   pwfile="$SCR_HOME/profile/el13/passwords.gpg"
   if [ -f $pwfile ]; then
