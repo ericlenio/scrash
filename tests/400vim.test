@@ -1,7 +1,13 @@
 # vim:filetype=bash
 -clear-cache
+[ ${#SCR_VIMRC} -gt 0 ]
+[ ${#SCR_VIMRUNTIME} -gt 0 ]
+[ ! -e $SCR_VIMRC ]
+[ ! -e $SCR_VIMRUNTIME ]
 [ ${#EDITOR} -gt 0 ]
 vim --version >/dev/null
+[ -f $SCR_VIMRC ]
+[ -d $SCR_VIMRUNTIME ]
 [ -e $EDITOR ]
 rm $EDITOR
 vim --version >/dev/null
@@ -47,4 +53,7 @@ printf -v s3 "The quick brown\nfox jumps over\nthe lazy dog"
 echo "$s3" | -copy-to-clipboard
 printf "/bb\015:call ScrPasteClipboard()\015ZZ" > $t1
 vim -s $t1 $t3
-[ $(wc -l <$t3) = 3 ]
+[ $(wc -l <$t3) = 4 ]
+grep '^fox jumps over$' $t3 >/dev/null
+grep '^the lazy dogbb cc$' $t3 >/dev/null
+[ "$(tail -1 $t3)" = line2 ]

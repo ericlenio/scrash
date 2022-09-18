@@ -25,9 +25,10 @@ fu ScrPasteClipboard()
       let l:leftPart=strpart(l:line,0,col('.')-l:offset)
       let l:rightPart=strpart(l:line,col('.')-l:offset)
       if len(l:clipboard) > 1
-        let l:clipboard[0]=l:leftPart.l:clipboard[0]
-        let l:clipboard[-1]=l:clipboard[-1].l:rightPart
-        call setline('.',l:clipboard)
+        call setline('.',l:leftPart.l:clipboard[0])
+        call remove(l:clipboard,0)
+        let l:clipboard[-1].=l:rightPart
+        call append('.',l:clipboard)
       else
         call setline('.',l:leftPart.l:clipboard[0].l:rightPart)
       endif
