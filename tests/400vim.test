@@ -1,4 +1,5 @@
 # vim:filetype=bash
+-clear-cache
 [ ${#EDITOR} -gt 0 ]
 vim --version >/dev/null
 [ -e $EDITOR ]
@@ -8,44 +9,42 @@ vim --version >/dev/null
 echo ok | -copy-to-clipboard
 [ ok = $(-clipboard) ]
 t1=$SCR_TMPDIR/t1
-printf "/^root\015ve\003:q\015" > $t1
+t2=$SCR_TMPDIR/t2
+t3=$SCR_TMPDIR/t3
+
+printf "/^root\015vey:call ScrSetClipboard()\015:q\015" > $t1
 vim -s $t1 /etc/passwd
 #'rm $t1
 [ root = $(-clipboard) ]
 
-# vim inside gnu screen
-vim --version >/dev/null
-session_id=$(screen --generate-session-id)
-screen -S $session_id -d -m
-r=$(-random-string)
-echo $r | -copy-to-clipboard
-[ $r = $(-clipboard) ]
-t1=$SCR_TMPDIR/t1
-f1=$SCR_TMPDIR/f1
-mkfifo $f1
-# create a vim script file to select/copy the word "root"
-printf "/^root\015ve\003:!echo $r > $f1\015:q\015" > $t1
-screen -S $session_id -X screen bash -c "vim -s $t1 /etc/passwd"
-read ans < $f1
-[ "$ans" = $r ]
-[ root = $(-clipboard) ]
-r=$(-random-string)
-# flush clipboard
-echo $r | -copy-to-clipboard
-[ $r = $(-clipboard) ]
-# create a vim script file to select/copy the word "nobody"
-printf "/^nobody\015ve\003:!echo $r > $f1\015:q\015" > $t1
-cpfile=$SCR_TMPDIR/ssh-cp
-# start a control master: check that vim inside gnu screen can handle a
-# change in SCR_PORT
--ssh-not-strict -f -N -M -S $cpfile -oBatchMode=yes localhost
-# update SCR_PORT
--ssh-not-strict -S $cpfile localhost screen -u -S $session_id -X select -
-# try copying a word inside vim to the clipboard over the new SCR_PORT
-screen -S $session_id -X screen bash -c "vim -s $t1 /etc/passwd"
-read ans < $f1
-[ "$ans" = $r ]
-[ nobody = $(-clipboard) ]
--ssh-not-strict -N -S $cpfile -O stop localhost
-rm $t1 $f1
-screen -S $session_id -X quit
+s="The quick brown fox jumps over the lazy dog"
+echo "$s" | -copy-to-clipboard
+[ "$s" = "$(-clipboard)" ]
+printf ":call ScrPasteClipboard()\015ZZ" > $t1
+vim -s $t1 $t2
+[ -e $t2 ]
+[ "$(<$t2)" = "$s" ]
+
+# test paste in middle of a line
+cp $t2 $t3
+echo cat | -copy-to-clipboard
+[ cat = $(-clipboard) ]
+printf "/fox\0153x:call ScrPasteClipboard()\015ZZ" > $t1
+vim -s $t1 $t3
+[ "The quick brown cat jumps over the lazy dog" = "$(<$t3)" ]
+
+# test paste at end of a line
+cp $t2 $t3
+printf "$:call ScrPasteClipboard()\015ZZ" > $t1
+vim -s $t1 $t3
+[ "The quick brown fox jumps over the lazy dogcat" = "$(<$t3)" ]
+
+# test pasting multiple lines
+s2="line1:aa bb cc
+line2"
+echo "$s2" > $t3
+printf -v s3 "The quick brown\nfox jumps over\nthe lazy dog"
+echo "$s3" | -copy-to-clipboard
+printf "/bb\015:call ScrPasteClipboard()\015ZZ" > $t1
+vim -s $t1 $t3
+[ $(wc -l <$t3) = 3 ]

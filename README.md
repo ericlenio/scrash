@@ -7,6 +7,9 @@ by the existence of a user profile subdirectory under the `profile` directory
 of this project. By default, the server picks the profile that matches the
 username of the server daemon process.
 
+# Supported operating systems
+Tested on Mac, Linux, and OpenBSD. Almost certainly would be fine with FreeBSD.
+
 # Vim
 Put any desired vimrc settings in `./profile/MYPROFILE/vimrc` and they will be
 used for all vim sessions. If you want to use scrash's OS clipboard integration

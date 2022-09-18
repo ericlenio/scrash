@@ -11,7 +11,7 @@ endf
 fu ScrPasteClipboard()
   " paste contents of OS clipboard
   try
-    let [@",l:stderr,l:rc]=ScrSystemcaller("-clipboard")
+    let [l:clipboard,l:stderr,l:rc]=ScrSystemcaller("-clipboard")
     if len(l:stderr) > 0
       echohl WarningMsg
       echon join(l:stderr," ")
@@ -19,9 +19,19 @@ fu ScrPasteClipboard()
       echon " "
     endif
     if l:rc == 0
-      call feedkeys(col("$")-col(".")==1 ? "p" : "P")
-      "redraw
-      echon "pasted " len(@") " characters"
+      let l:atEndOfLine=col("$")-col(".")==1
+      let l:offset=l:atEndOfLine ? 0 : 1
+      let l:line=getline('.')
+      let l:leftPart=strpart(l:line,0,col('.')-l:offset)
+      let l:rightPart=strpart(l:line,col('.')-l:offset)
+      if len(l:clipboard) > 1
+        let l:clipboard[0]=l:leftPart.l:clipboard[0]
+        let l:clipboard[-1]=l:clipboard[-1].l:rightPart
+        call setline('.',l:clipboard)
+      else
+        call setline('.',l:leftPart.l:clipboard[0].l:rightPart)
+      endif
+      echon "pasted " strlen(join(l:clipboard,'')) " characters"
     endif
   catch /.*/
     echo v:exception
@@ -38,16 +48,13 @@ fu ScrSystemcaller(cmd,...)
   else
     let l:result=system(cmd)
   endif
-  let l:stdout=""
+  let l:stdout=[]
   let l:stderr=[]
   for l:line in split(l:result,'\n')
     if l:line =~ '^stderr:'
       let l:stderr+=[l:line]
     else
-      if len(l:stdout) > 0
-        let l:stdout.="\n"
-      endif
-      let l:stdout.=l:line
+      let l:stdout+=[l:line]
     endif
   endfor
   return [l:stdout,l:stderr,v:shell_error]
