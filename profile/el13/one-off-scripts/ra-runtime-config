@@ -3,7 +3,7 @@ PATH="/usr/local/opt/curl/bin:$PATH"
 LW_CA_CERT=$HOME/Downloads/ca.crt
 user=eml
 pwkey="LincWare LDAP:$user"
-pw=$(pw "$pwkey")
+pw=$(-pw "$pwkey")
 [ -z "$pw" ] && {
   echo "Could not retrieve password" >&2
   exit 1
@@ -25,8 +25,9 @@ ra-runtime-config() {
   #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['mohammad.shahid'].push('admit.work')" | openssl enc -a -A)
   #code64=$(printf "var a=['fundltc','altercare','tsgrinc'];self.config.RA_USER_AUTHORIZED_HOSTS['data.divincenzo']=a;" | openssl enc -a -A)
   #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['abdel.mawla'].push('lincwareweb01test.altercareonline.com')" | openssl enc -a -A)
+  code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['rado'].push('gp1lincdoc-dev.group1auto.com')" | openssl enc -a -A)
   #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['abdel.mawla'].push('colina.com')" | openssl enc -a -A)
-  code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['abdel.mawla']=['.']" | openssl enc -a -A)
+  #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['abdel.mawla']=['.']" | openssl enc -a -A)
   #code64=$(printf "var a=self.config.RA_USER_AUTHORIZED_HOSTS['abdel.mawla'];a.push('bangorpayroll.com');JSON.stringify(a)" | openssl enc -a -A)
   #code64=$(printf "JSON.stringify(self.config.RA_USER_AUTHORIZED_HOSTS['abdel.mawla'])" | openssl enc -a -A)
   #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['aarti.sharma'].push('lincdoc-test.aomofny.com')" | openssl enc -a -A)
