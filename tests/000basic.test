@@ -27,8 +27,11 @@ h=$(-ssh-localhost hostname)
 remote_port=$(eval $(-ssh-localhost declare -p SCR_PORT); echo $SCR_PORT)
 [ $remote_port != $SCR_PORT ]
 [[ $remote_port =~ ^[0-9]+$ ]]
-
-scr_env2=$(-ssh-localhost echo '$SCR_ENV')
+scr_env2=$(-ssh-localhost bash -c 'echo $SCR_ENV')
 [ "$scr_env2" = $SCR_ENV ]
-scr_env2=$(-s nobody echo '$SCR_ENV')
+scr_env2=$(-s nobody bash -c 'echo $SCR_ENV')
 [ "$scr_env2" = $SCR_ENV ]
+u=$(-ssh-localhost bash -c -- "uname -a")
+[ "$u" = "$(uname -a)" ]
+a=$(-ssh-localhost bash -c -- 'a=asdf;echo $a')
+[ $a = asdf ]

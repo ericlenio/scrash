@@ -1,11 +1,10 @@
 # vim:filetype=bash
 # vim/screen/ssh/sudo integration tests
 -clear-cache
-session_id=$(screen --generate-session-id)
 # use ssh to start a "remote" screen session using a forwarded SCR_PORT value -
 # ssh will immediately end and so will the port forward and then below we test
 # the ability to reconnect it
--ssh-localhost screen -S $session_id -d -m
+session_id=$(-screen-session -r)
 
 # extract the current value of SCR_PORT from the detached screen session
 -get-scr-port() {
@@ -82,7 +81,6 @@ rm $t1
 -ssh-localhost -screen-pipe -u -S $session_id -- -ws-hello-world -o $t1
 -ssh-localhost -screen-pipe -u -S $session_id -- uname | grep $(uname)
 ! -ssh-localhost -screen-pipe -u -S $session_id -- false
-screen -S $session_id -X quit
 [ -e $t1 ]
 grep -q hello $t1
 rm $t1 $t2 $t3 $f2

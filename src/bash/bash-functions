@@ -425,7 +425,9 @@ vim() {
   local b64="$1" c
   eval -- "$(echo -n $b64 | openssl enc -d -a -A)"
   if [[ "${c[@]}" =~ \$ ]]; then
-    eval -- "${c[@]}"
+    # may need to revisit this...
+    #eval -- "${c[@]}"
+    "${c[@]}"
   else
     "${c[@]}"
   fi
@@ -994,7 +996,7 @@ $n2=0;
       if [ -n "$extra_params" ]; then
         echo "Passing extra params to ssh: $extra_params"
       fi
-      if c=($(curl -k -f -s -S -b "$cookie_jar" -H "$ldap_auth_hdr" -H "X-Ra-Agent-Id: $raAgentId" $RA_SERVER_BASE_URL/ra-get-shell-ctx)); then
+      if c=(eval -- $(curl -k -f -s -S -b "$cookie_jar" -H "$ldap_auth_hdr" -H "X-Ra-Agent-Id: $raAgentId" $RA_SERVER_BASE_URL/ra-get-shell-ctx)); then
         SSH_STY_LBL=$raHostname ssh -t -oProxyJump=remoteadmin@$RA_SSH_PROXY_JUMP_HOST -p $raSshPort $extra_params "$@" $RA_SSH_USER@127.0.0.1 "${c[@]}" exec bash
       fi
       ;;

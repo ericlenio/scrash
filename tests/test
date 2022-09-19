@@ -54,6 +54,10 @@ same as above, but also include test case file(s) matching on \"vim\":
   # TEST_ERROR_FILE is a semaphore to stop -on-error from running more than
   # once; necessary due to "set -E"
   TEST_ERROR_FILE=$SCR_TMPDIR/err
+  # TEST_CLEANUP_FILE will be sourced in the cleanup stage, append commands
+  # here as needed to do any housekeeping (e.g. kill any started gnu screen
+  # sessions)
+  TEST_CLEANUP_FILE=$SCR_TMPDIR/cleanup
   rm -f $TEST_ERROR_FILE
 }
 
@@ -99,6 +103,9 @@ same as above, but also include test case file(s) matching on \"vim\":
 }
 
 -cleanup() {
+  if [ -e $TEST_CLEANUP_FILE ]; then
+    . $TEST_CLEANUP_FILE
+  fi
   curl -s http://127.0.0.1:$SCR_PORT/scr-shutdown
 }
 
@@ -126,6 +133,23 @@ same as above, but also include test case file(s) matching on \"vim\":
       fi
     done
   done
+}
+
+-screen-session() {
+  local opts=r opt OPTIND
+  local session_id=$(screen --generate-session-id)
+  local cmd=(screen -S $session_id -d -m)
+  while builtin getopts $opts opt; do
+    case "$opt" in
+      (r)
+        # start gnu screen "remotely" over localhost ssh
+        cmd=(-ssh-localhost "${cmd[@]}")
+        ;;
+    esac
+  done
+  "${cmd[@]}"
+  printf "screen -S %s -X quit" $session_id >> $TEST_CLEANUP_FILE
+  echo $session_id
 }
 
 -init "$@"
