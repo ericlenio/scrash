@@ -497,14 +497,19 @@ ssh() {
   return $rc
 }
 
-# copy to clipboard
 -copy-to-clipboard() {
-  local f="${1:-/dev/stdin}"
+  local f="${1:-/dev/stdin}" cmd=(-ws /scr-set-clipboard --data-binary)
   if [ ! -e "$f" ]; then
     echo "$FUNCNAME: no such file, or file is not readable: $f" >&2
     return 1
   fi
-  -ws /scr-set-clipboard --data-binary @$f
+  if [ "$f" = /dev/stdin ]; then
+    # command substitution will strip trailing \n, which we want
+    cmd+=("$(<$f)")
+  else
+    cmd+=(@"$f")
+  fi
+  "${cmd[@]}"
 }
 
 -clipboard() {
