@@ -90,7 +90,7 @@ same as above, but also include test case file(s) matching on \"vim\":
 -on-exit() {
   #echo "INSIDE $FUNCNAME" >&2
   local rc=$?
-  #set +e
+  set +eE
   #if [ $rc -gt 0 ]; then
     #-on-error
   #fi
