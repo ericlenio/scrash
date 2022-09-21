@@ -478,7 +478,7 @@ ssh() {
       "$ssh_user_host"
     )
     if [ $N_flag = 0 ]; then
-      if [ "$RA_AGENT_ID" ]; then
+      if [ "$RA_SSH_USE_EVAL" = 1 -o "$RA_AGENT_ID" ]; then
         # we are running remoteadmin shell - if any of the args begin with $'
         # then we assume we need to prepend an eval; need to drop this hack in
         # remoteadmin 6
@@ -1014,7 +1014,7 @@ $n2=0;
         echo "Passing extra params to ssh: $extra_params"
       fi
       if c=($(curl -k -f -s -S -b "$cookie_jar" -H "$ldap_auth_hdr" -H "X-Ra-Agent-Id: $raAgentId" $RA_SERVER_BASE_URL/ra-get-shell-ctx)); then
-        SSH_STY_LBL=$raHostname ssh -t -oProxyJump=remoteadmin@$RA_SSH_PROXY_JUMP_HOST -p $raSshPort $extra_params "$@" $RA_SSH_USER@127.0.0.1 "${c[@]}" exec bash
+        RA_SSH_USE_EVAL=1 SSH_STY_LBL=$raHostname ssh -t -oProxyJump=remoteadmin@$RA_SSH_PROXY_JUMP_HOST -p $raSshPort $extra_params "$@" $RA_SSH_USER@127.0.0.1 "${c[@]}" exec bash
       fi
       ;;
     psql)
