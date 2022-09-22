@@ -23,7 +23,7 @@ Copying to the OS clipboard is achieved by calling call function
 highlighted in Visual mode, and ctrl-v to paste, like this:
 
     vnoremap <c-c> y:call ScrSetClipboard()<cr>
-    map <c-v> :call ScrPasteClipboard()<cr>
+    nnoremap <c-v> :call ScrPasteClipboard()<cr>
 
 # Testing
 Test cases are found in `./tests/*.test`, and they are just bash scripts that

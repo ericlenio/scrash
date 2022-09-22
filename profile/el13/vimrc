@@ -49,4 +49,4 @@ filetype indent off
 " vnoremap: 'v' visual mode, 'nore' no recurse, 'map' map
 " here we remap control-c to copy the current visual selection to the OS clipboard
 vnoremap <c-c> y:call ScrSetClipboard()<cr>
-map <c-v> :call ScrPasteClipboard()<cr>
+nnoremap <c-v> :call ScrPasteClipboard()<cr>
