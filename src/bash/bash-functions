@@ -350,6 +350,7 @@ vim() {
         start=$OPTARG
         ;;
       (D)
+        # just declare all the functions
         declare_mode=1
         ;;
       (C)
@@ -357,34 +358,34 @@ vim() {
         ;;
     esac
   done
+  if [ $declare_mode = 0 ]; then
+    # SCR_ENV is like node's NODE_ENV, we can use it to create a separate name
+    # space for run time files and such
+    export SCR_ENV=${SCR_ENV:-dev}
+    export SCR_TMPDIR=/tmp/scr-$SCR_ENV
+    export EDITOR=$SCR_TMPDIR/editor
+    export SCR_VIMRC=$SCR_TMPDIR/vimrc
+    export SCR_VIMRUNTIME=$SCR_TMPDIR/vim
+    export SCR_SCREENRC=$SCR_TMPDIR/screenrc
+    pwfile="$SCR_HOME/profile/el13/passwords.gpg"
+    if [ -f $pwfile ]; then
+      export SCR_PASSWORD_FILE="$pwfile"
+    fi
+    export VIMINIT='source $SCR_VIMRC'
+    # for sudo users, if they use vim and SHELL is /bin/false (or similar) then
+    # rvim is used (at least on macos)
+    export SHELL=$BASH
+    #[ -z "$SUDO_USER" ] && rm -f $EDITOR $SCR_VIMRC
+    [ ! -d $SCR_TMPDIR ] && mkdir -p $SCR_TMPDIR
+    [ $clear_cache = 1 ] && -clear-cache
+  fi
+  eval -- "$(-bashrc)"
   fcns=($(compgen -A function "-") screen ssh vim)
   if [ $declare_mode = 1 ]; then
-    for f in ${fcns[*]}; do
-      declare -f -- $f
-    done
+    declare -f -- ${fcns[*]}
     return
   fi
   export -f -- ${fcns[*]}
-  # SCR_ENV is like node's NODE_ENV, we can use it to create a separate name
-  # space for run time files and such
-  export SCR_ENV=${SCR_ENV:-dev}
-  export SCR_TMPDIR=/tmp/scr-$SCR_ENV
-  export EDITOR=$SCR_TMPDIR/editor
-  export SCR_VIMRC=$SCR_TMPDIR/vimrc
-  export SCR_VIMRUNTIME=$SCR_TMPDIR/vim
-  export SCR_SCREENRC=$SCR_TMPDIR/screenrc
-  pwfile="$SCR_HOME/profile/el13/passwords.gpg"
-  if [ -f $pwfile ]; then
-    export SCR_PASSWORD_FILE="$pwfile"
-  fi
-  export VIMINIT='source $SCR_VIMRC'
-  # for sudo users, if they use vim and SHELL is /bin/false (or similar) then
-  # rvim is used (at least on macos)
-  export SHELL=$BASH
-  #[ -z "$SUDO_USER" ] && rm -f $EDITOR $SCR_VIMRC
-  [ ! -d $SCR_TMPDIR ] && mkdir -p $SCR_TMPDIR
-  [ $clear_cache = 1 ] && -clear-cache
-  eval -- "$(-bashrc)"
   if [ "$start" ]; then
     if [ "$start" = 1 ]; then
       exec bash --norc --noprofile
