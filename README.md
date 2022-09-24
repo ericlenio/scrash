@@ -47,4 +47,4 @@ successful.
 
 # Running
 Start the server with `npm start`. Then in another window launch the bash shell
-with `./client`.
+with `./scrash`.

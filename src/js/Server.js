@@ -11,6 +11,7 @@ import pty from 'node-pty';
 const SCR_ENV=process.env.SCR_ENV || process.env.npm_package_config_SCR_ENV;
 const SCR_VERSION=process.env.npm_package_version;
 const SCR_PROFILE=process.env.SCR_PROFILE || process.env.npm_package_config_SCR_PROFILE;
+const SCR_TMPDIR=process.env.SCR_TMPDIR || `/tmp/scr-${SCR_ENV}`;
 const SCR_APP_NAME=process.env.npm_package_name;
 
 const E_OS_PROG_ENUM={
@@ -47,7 +48,7 @@ class Server extends http.Server {
       .then(shellScript=>this.#shellScript=shellScript)
       .then(()=>this.loadVimPlugins())
       .then(shellScript=>this.#shellScript+=shellScript)
-      .then(()=>this.listen(port))
+      .then(()=>this.listen(port,'127.0.0.1'))
       .then(()=>new Promise(resolve=>this.once('listening',resolve)));
   }
 
@@ -213,6 +214,7 @@ class Server extends http.Server {
       gz.write(`export SCR_PORT=${url.port}\n`);
       gz.write(`export SCR_ENV=${SCR_ENV}\n`);
       gz.write(`export SCR_VERSION=${SCR_VERSION}\n`);
+      gz.write(`export SCR_TMPDIR=${SCR_TMPDIR}\n`);
       gz.write(`-shell-init -s ${start}\n`);
     }
     gz.end();
