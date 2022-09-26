@@ -5,8 +5,9 @@ import os from 'os';
 import zlib from 'zlib';
 import {default as fs,promises as fsPromises} from 'fs';
 import crypto from 'crypto';
+import net from 'net';
 import path from 'path';
-import pty from 'node-pty';
+//import pty from 'node-pty';
 
 const SCR_ENV=process.env.SCR_ENV || process.env.npm_package_config_SCR_ENV;
 const SCR_VERSION=process.env.npm_package_version;
@@ -34,7 +35,6 @@ const E_OS_PROG_ENUM={
 
 class Server extends http.Server {
   #shellScript;
-  #vimPlugins={};
 
   init({notify,port}) {
     console.log(`starting Server.js v${SCR_VERSION}, configuration: ${SCR_ENV}, profile: ${SCR_PROFILE}`);
@@ -62,7 +62,7 @@ class Server extends http.Server {
       //case "/scr-get-test-framework":
         //return this.getTestFramework(url,res);
       case "/scr-set-clipboard":
-        return this.setClipboard(req,res);
+        return this.setClipboardFromRequest(req,res);
       case "/scr-get-clipboard":
         return this.getClipboard(req,res);
       //case "/scr-get-vimrc":
@@ -77,30 +77,52 @@ class Server extends http.Server {
     res.end();
   }
 
+  randomInteger(length=4) {
+    return Math.floor(Math.pow(10,length-1)+Math.random()*(Math.pow(10,length)-Math.pow(10,length-1)-1));
+  }
+
   onConnect(req,socket,head) {
+    const url=new URL(req.url);
     const response={
       statusLine:`HTTP/1.0 200 ${SCR_APP_NAME} Connection Established`,
       headers:[],
       toString:()=>response.statusLine+"\r\n"+response.headers.join("\r\n")+"\r\n",
+      send:cb=>socket.write(response.toString(),cb),
     };
     socket.on('error',e=>console.error("onConnect socket:",e));
+    switch(req.url) {
+      case "localhost:22":
+        return this.onSshConnect(req,response);
+      case "localhost:1234":
+        return this.onFileUpload(req,socket,response);
+    }
+  }
+  
+  /*
+  onFileUpload(req,socket,response) {
     socket.write(response.toString(),()=>{
       let p;
       let stdout='';
-      let line1='';
+      let readLines='';
       let uploadFile;
+      const accessCode=process.env.SCR_ENV=='test'
+        ? 'test'
+        : this.randomInteger(4);
       socket.on('data',buf=>{
-        line1+=buf;
-        // see if user specified the upload file directly (otherwise the file
-        // picker script will provide it)
-        const m=/^upload_file=(.*?)\n/.exec(line1);
+        readLines+=buf;
+        // see if user specified the upload file directly, and access code
+        // (otherwise the file picker script will prompt for the access code
+        // and upload file)
+        const m=/^upload_file=(.*?)\naccess_code=(.*?)\n/.exec(readLines);
         if (!m) {
           return;
         }
         socket.on('data',buf=>p.write(buf));
-        line1='';
+        readLines='';
         uploadFile=m[1];
-        p=pty.spawn("./src/bash/upload-file-picker",[uploadFile]);
+        const userProvidedAccessCode=m[2];
+        const env={SCR_ACCESS_CODE:accessCode};
+        p=pty.spawn("./src/bash/upload-file-picker",[uploadFile,userProvidedAccessCode],{env:env});
         console.log("spawn:",new Date().toLocaleString(),p.pid);
         p.on("error",e=>{
           console.error("spawn:"+e);
@@ -130,6 +152,18 @@ class Server extends http.Server {
         //if (p) {
           //p.destroy();
         //}
+      });
+    });
+  }
+  */
+
+  onSshConnect(req,response) {
+    const socket=new net.Socket();
+    socket.on('error',e=>console.log("onSshConnect socket: "+e));
+    socket.connect(22,'127.0.0.1',()=>{
+      response.send(()=>{
+        socket.pipe(req.socket);
+        req.socket.pipe(socket);
       });
     });
   }
@@ -240,35 +274,35 @@ class Server extends http.Server {
     }));
   }
 
-  setClipboard(req,res) {
-    const cp_prog=this.getOsProgram(E_OS_PROG_ENUM.COPY);
-    const p=child_process.spawn(cp_prog[0],cp_prog.slice(1),{stdio:['pipe','ignore',process.stderr]});
-    req.pipe(p.stdin);
-    p.on("error",e=>{
-      console.error("setClipboard:"+e);
-      res.statusCode=500;
-      res.statusMessage=e.toString();
-      res.end();
-    });
-    p.on('exit',(rc,signal)=>{
-      if (rc===0) {
-        console.log(`copied ${req.headers['content-length']} bytes to clipboard`);
-      } else {
-        console.warn(`setClipboard: got rc=${rc}`);
-      }
-      res.end();
-      /*
-      // if small enough buffer, place into X Windows primary selection too for
-      // convenience
-      if (rc==0 && platform=="linux" && clipboardBytes<=maxXselBuf) {
-        var p2=child_process.spawn("xsel",["-i","-p"],{stdio:['pipe',process.stdout,process.stderr]});
-        p2.on("error",function(e) {
-          console.error("setClipboard: xsel: "+e);
-          socket.end(e.toString());
-        });
-        p2.stdin.end(xselBuf);
-      }
-      */
+  setClipboardFromRequest(req,res) {
+    this.setClipboard(req)
+      .then(()=>res.end())
+      .catch(e=>{
+        res.statusCode=500;
+        res.statusMessage=e.toString();
+        res.end();
+      });
+  }
+
+  setClipboard(stream) {
+    return new Promise((resolve,reject)=>{
+      const cp_prog=this.getOsProgram(E_OS_PROG_ENUM.COPY);
+      const p=child_process.spawn(cp_prog[0],cp_prog.slice(1),{stdio:['pipe','ignore',process.stderr]});
+      let numBytes=0;
+      stream.on('data',buf=>numBytes+=buf.length);
+      stream.pipe(p.stdin);
+      p.on("error",e=>{
+        console.error("setClipboard:"+e);
+        reject(e);
+      });
+      p.on('exit',(rc,signal)=>{
+        if (rc===0) {
+          console.log(`copied ${numBytes} bytes to clipboard`);
+        } else {
+          console.warn(`setClipboard: got rc=${rc}`);
+        }
+        resolve();
+      });
     });
   }
 

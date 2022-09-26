@@ -1,20 +1,30 @@
 #! /usr/bin/env bash
+eot=$'\x04'
 upload_file="$1"
+access_code="$2"
+if [ -z "$access_code" ]; then
+  read -e -p "access code [$SCR_ACCESS_CODE]: " access_code
+  echo
+fi
+if [ "$access_code" != $SCR_ACCESS_CODE ]; then
+  printf %s $eot
+  echo "E_NO_ACCESS"
+  exit 1
+fi
 cd ~
-basedir=$PWD
+basedir="$PWD"
 if [ ! "$HOME" ]; then
-  HOME=$PWD
+  HOME="$PWD"
 fi
 if [ -z "$upload_file" ]; then
   echo "current directory: $PWD"
   read -e -p "pick a file: " upload_file
 fi
-eot=$'\x04'
 printf %s $eot
 upload_file=${upload_file/#\~/$HOME}
 if [ -e "$upload_file" ]; then
   if [ ${upload_file:0:1} != / ]; then
-    upload_file=$basedir/$upload_file
+    upload_file="$basedir/$upload_file"
   fi
   md5=$(openssl md5 "$upload_file")
   md5=${md5##*= }
