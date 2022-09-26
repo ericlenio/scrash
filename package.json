@@ -1,6 +1,6 @@
 {
   "name": "scrash",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "",
   "type": "module",
   "main": "index.js",
@@ -9,8 +9,7 @@
   },
   "author": "",
   "license": "AGPL-3.0-only",
-  "dependencies": {
-  },
+  "dependencies": {},
   "config": {
     "SCR_ENV": "dev",
     "SCR_PROFILE": "el13"
