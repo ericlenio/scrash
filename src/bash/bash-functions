@@ -608,15 +608,34 @@ ssh() {
 -sshtool-localhost() {
   local sshtool=$1
   shift
-  $sshtool -oProxyCommand="nc -X connect -x 127.0.0.1:$SCR_PORT localhost 22" localhost "$@"
+  if [ "$STY" ]; then
+    -screen-env
+  fi
+  $sshtool -oProxyCommand="nc -X connect -x 127.0.0.1:$SCR_PORT localhost 22" "$@"
 }
 
--sftp-localhost() {
-  -sshtool-localhost sftp "$@"
+-upload() {
+  local upload_file="$1"
+  if [ "$upload_file" ]; then
+    -sshtool-localhost scp localhost:"${upload_file// /\ }" .
+  else
+    -sshtool-localhost sftp localhost
+  fi
 }
 
--scp-localhost() {
-  -sshtool-localhost scp "$@"
+-download() {
+  local f
+  if [ $# -eq 0 ]; then
+    echo "$FUNCNAME: missing file(s) to be downloaded" >&2
+    return 1
+  fi
+  for f in "$@"; do
+    if [ ! -e "$f" ]; then
+      echo "$FUNCNAME: no such file: $f" >&2
+      return 1
+    fi
+  done
+  -sshtool-localhost scp "$@" localhost:/tmp
 }
 
 # -pw retrieves a password based on the given key, which can be supplied as arg
