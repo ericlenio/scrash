@@ -35,3 +35,12 @@ u=$(-ssh-localhost bash -c -- "uname -a")
 [ "$u" = "$(uname -a)" ]
 a=$(-ssh-localhost bash -c -- 'a=asdf;echo $a')
 [ $a = asdf ]
+-psg node | grep -w $SCR_PORT
+-psg -w node | grep -w $SCR_PORT
+! -psg -kp
+pids=($(-psg -pw node))
+[ ${#pids[@]} -gt 0 ]
+for pid in ${pids[@]}; do
+  echo pid:$pid
+  [[ "$pid" =~ ^[0-9]+$ ]]
+done

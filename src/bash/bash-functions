@@ -663,7 +663,7 @@ ssh() {
 # If stdout is the tty, the output highlights the search string in red
 #
 -psg() (
-  local ps_cmd ps_output search_string os=$(uname) i l m matched x n=0 ATTR_RED='\x1b[1;31m' ATTR_CLEAR='\x1b[0m' opts="wkhe" opt OPTIND wb1 wb2 pid kill_signal kill_clause edit_mode=0 tmpfile
+  local ps_cmd ps_output search_string os=$(uname) i l m matched x n=0 ATTR_RED='\x1b[1;31m' ATTR_CLEAR='\x1b[0m' opts="wkhep" opt OPTIND wb1 wb2 pid kill_signal kill_clause edit_mode=0 tmpfile only_pids=0
   shopt -s nocasematch
   while builtin getopts $opts opt; do
     case $opt in
@@ -671,7 +671,8 @@ ssh() {
         echo "-h      this help"
         echo "-w      match search_string on word boundary"
         echo "-k      output kill statements for matched pids"
-        echo "-e      edit the matched output (mostly useful in kill mode)"
+        echo "-e      edit the matched output (meant to be used simultaneously with -k)"
+        echo "-p      output pids only"
         return
         ;;
       (w)
@@ -685,8 +686,15 @@ ssh() {
       (e)
         edit_mode=1
         ;;
+      (p)
+        only_pids=1
+        ;;
     esac
   done
+  if [ "$kill_signal" -a $only_pids = 1 ]; then
+    echo "$FUNCNAME: incompatible options" >&2
+    return 1
+  fi
   [ $OPTIND -gt 1 ] && shift $(($OPTIND-1))
   search_string="$*"
   case $os in
@@ -706,7 +714,7 @@ ssh() {
   while read l; do
     matched=0
     n=$(($n+1))
-    if [ $n = 1 -o -z "$search_string" ]; then
+    if [ $only_pids = 0 ] && [ $n = 1 -o -z "$search_string" ]; then
       if [ $n = 1 -a "$kill_signal" ]; then
         output+="#                           "
       fi
@@ -718,30 +726,45 @@ ssh() {
     elif [[ "$l" =~ $ps_cmd ]]; then
       continue
     fi
-    while [[ "$l" =~ ^[^[:blank:]]+[[:blank:]]+([0-9]+).*$wb1($search_string)$wb2(.*) ]]; do
-      pid=${BASH_REMATCH[1]}
-      m="${BASH_REMATCH[2]}"
+    pid=""
+    kill_clause=""
+    # find all occurrences of the search string and highlight them (if output
+    # is to a tty)
+    while [[ "$l" =~ $wb1($search_string)$wb2 ]]; do
+      m="${BASH_REMATCH[1]}"
+      if [ -z "$pid" ] && [ "$kill_signal" -o $only_pids = 1 ]; then
+        if ! [[ "$l" =~ ^[^[:blank:]]+[[:blank:]]+([0-9]+) ]]; then
+          echo "$FUNCNAME: could not acquire pid: $l" >&2
+          return 1
+        fi
+        pid=${BASH_REMATCH[1]}
+        if [ $only_pids = 1 ]; then
+          output+=$pid$'\n'
+          break
+        fi
+        if [ "$kill_signal" ]; then
+          printf -v kill_clause 'kill -$kill_signal %6s # ' $pid
+          output+="$kill_clause"
+        fi
+      fi
       matched=1
       # x will be all text leading up to the matched search string
       x="${l%%$m*}"
       # compute the index of the search string in the line
       i=${#x}
-      if [ "$kill_signal" ]; then
-        printf -v kill_clause 'kill -$kill_signal %6s # ' $pid
-      fi
+      output+="${l:0:$i}"
       if [ -t 1 -a $edit_mode = 0 ]; then
-        output+=$(printf "%s%s$ATTR_RED%s$ATTR_CLEAR" "$kill_clause" "${l:0:$i}" "$m")
+        output+=$(printf "$ATTR_RED%s$ATTR_CLEAR" "$m")
       else
-        output+=$(printf "%s%s%s" "$kill_clause" "${l:0:$i}" "$m")
+        output+="$m"
       fi
       l="${l:$i+${#m}}"
     done
-    [ $matched = 1 ] && output+="$l"$'\n'
+    [ $matched = 1 -a $only_pids = 0 ] && output+="$l"$'\n'
   done <<< "$ps_output"
 
   # remove the final \n
   output=$(echo "$output")
-
   # display the output; if output has more lines than the terminal has rows
   # then use "less" to view it
   term_lines=$(tput lines)
