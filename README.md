@@ -27,11 +27,10 @@ highlighted in Visual mode, and ctrl-v to paste, like this:
 
 # Testing
 Test cases are found in `./tests/*.test`, and they are just bash scripts that
-get executed with shell option `set -o errexit` enabled, meaning that if any
-statement in any of these bash scripts finishes with a non-zero return value
-then that is considered a failure and testing is immediately stopped (note: the
-stopping of the test cases can be somewhat confounded if the error happens in a
-subshell).
+get executed with shell options `set -o errexit -o errtrace` enabled, meaning
+that if any statement in any of these bash scripts finishes with a non-zero
+return value then that is considered a failure and testing is immediately
+stopped.
 
 Tests are executed in several ways:
 
@@ -46,5 +45,10 @@ If the last line of output is `SUCCESS`, then all test cases (in theory) were
 successful.
 
 # Running
-Start the server with `npm start`. Then in another window launch the bash shell
-with `./scrash`.
+Run `./scrash -s` to start both the server and client inside a new gnu screen
+session.
+
+Alternatively, start the server with `npm start`. Then in another window launch
+the client shell with `./scrash`.
+
+Run `./scrash -h` for other command line options.

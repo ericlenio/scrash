@@ -47,4 +47,50 @@ export -f v l c
   printf $otp | -copy-to-clipboard
 }
 
+if [ "$SCR_HOME" ]; then
+  -edit() {
+    cd "$SCR_HOME"
+    ./edit
+  }
+fi
+
+#
+# personal grep tool when working on projects
+#
+-grep() {
+  local opts=":a" opt OPTIND all_files=0 skip_paths files
+  skip_paths=(
+    '**/.git/*'
+    '**/.svn*'
+    '*.class'
+    '*.jar'
+    '*.swp'
+    '*.png'
+    '*.jpg'
+    '*.pdf'
+  )
+  while builtin getopts $opts opt; do
+    case $opt in
+      (a) all_files=1
+        shift
+        ;;
+    esac
+  done
+  if [ $all_files = 0 ]; then
+    skip_paths+=(
+      './dist/*'
+      './build/*'
+      './node_modules/*'
+    )
+  fi
+  IFS=$'\n' read -d '' -a files <<< $(
+    find . -type f $(
+      for path in "${skip_paths[@]}"; do
+        printf "! -path %s " "${path// /\ }"
+      done
+    )
+  )
+  egrep "$@" -- "${files[@]}"
+}
+
 echo "******** sourced mybashrc ********" >&2
