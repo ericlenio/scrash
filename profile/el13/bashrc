@@ -83,13 +83,16 @@ fi
       './node_modules/*'
     )
   fi
-  IFS=$'\n' read -d '' -a files <<< $(
+  if ! IFS=$'\n' read -d '' -a files <<< $(
+    set -o noglob
     find . -type f $(
       for path in "${skip_paths[@]}"; do
         printf "! -path %s " "${path// /\ }"
       done
     )
-  )
+  ); then
+    :
+  fi
   egrep "$@" -- "${files[@]}"
 }
 

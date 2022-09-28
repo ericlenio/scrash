@@ -1,0 +1,30 @@
+# vim:filetype=bash
+random_string() {
+  echo $RANDOM-$RANDOM-$RANDOM-$RANDOM-$RANDOM
+}
+if [ $SCR_PROFILE = el13 ]; then
+  s1=test-grep-string-here
+  -grep $s1
+  s2=$(random_string)
+  s3=$(random_string)
+  s4=$(random_string)
+  ! -grep $s2
+  # handle files with a space in the name
+  t1="$SCR_TMPDIR/t1 file"
+  echo "$s1" > "$t1"
+  # by default, -grep skips node_modules subdir, except when using -a so test
+  # that
+  t2="$SCR_TMPDIR/node_modules/t2"
+  mkdir -p $(dirname $t2)
+  echo "$s2" > "$t2"
+  t3="$SCR_TMPDIR/node_modules/t3 file"
+  echo "$s3" > "$t3"
+  (
+    cd $SCR_TMPDIR
+    -grep $s1
+    ! -grep $s2
+    -grep -a $s2
+    ! -grep $s3
+    -grep -a $s3
+  )
+fi

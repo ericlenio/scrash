@@ -35,6 +35,7 @@ same as above, but also include test case file(s) matching on \"vim\":
   TEST_GROUPS=${TEST_GROUPS:=*}
   export SCR_PORT=$((50000+$RANDOM % 10000))
   export SCR_ENV=test
+  export SCR_PROFILE=$USER
   trap -- -on-error ERR
   trap -- -on-exit EXIT
   shopt -s gnu_errfmt
@@ -50,7 +51,7 @@ same as above, but also include test case file(s) matching on \"vim\":
 
   url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
   eval -- "$(curl -S -f -s --compressed $url)"
-  -shell-init
+  -shell-init -C
   # TEST_ERROR_FILE is a semaphore to stop -on-error from running more than
   # once; necessary due to "set -E"
   TEST_ERROR_FILE=$SCR_TMPDIR/err
