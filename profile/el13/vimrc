@@ -3,6 +3,13 @@ set nocompatible
 if has("autocmd")
   fu ScrSelectPassword()
     let l:lnum=line('.')
+    if !exists('g:scrPrevLine')
+      let g:scrPrevLine=-1
+    endif
+    if l:lnum==g:scrPrevLine
+      " only invoke the logic below if cursor has moved to a new line
+      return
+    endif
     let l:line=getline('.')
     let [l:pw,l:start,l:end]=matchstrpos(l:line,':[^:]*$')
     let l:pw=strpart(l:pw,1)
@@ -12,6 +19,7 @@ if has("autocmd")
     let @"=l:pw
     if len(l:pw)>0
       echo "press ctrl-c to copy the password on line" l:lnum
+      let g:scrPrevLine=l:lnum
     else
       echo
     endif
@@ -20,7 +28,7 @@ if has("autocmd")
   " when editing the passwords file, remap * to copy the current word to OS clipboard
   " use the expand() function to highlight the current word (cword)
   " nmap: "n" means we are mapping a key in vim's normal mode
-  autocmd BufReadPre,FileReadPre *.gpg nmap <buffer> * :let @/=expand("<cword>")<cr>:let @"=@/<cr>:call ScrSetClipboard()<cr>
+  "autocmd BufReadPre,FileReadPre *.gpg nmap <buffer> * :let @/=expand("<cword>")<cr>:let @"=@/<cr>:call ScrSetClipboard()<cr>
   autocmd BufReadPre,FileReadPre passwords.gpg nnoremap <c-c> :call ScrSetClipboard()<cr>
   autocmd CursorMoved passwords.gpg :call ScrSelectPassword()
 
