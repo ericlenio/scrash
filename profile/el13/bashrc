@@ -57,7 +57,7 @@ fi
 #
 # personal grep tool when working on projects
 #
--grep() {
+-grep() (
   local opts=":a" opt OPTIND all_files=0 skip_paths files
   skip_paths=(
     '**/.git/*'
@@ -83,18 +83,12 @@ fi
       './node_modules/*'
     )
   fi
-  local input=$(
-    set -o noglob
-    find . -type f $(
-      for path in "${skip_paths[@]}"; do
-        printf "! -path %s " "${path// /\ }"
-      done
-    )
-  )
-  if ! IFS=$'\n' read -d '' -a files <<<"$input"; then
-    :
-  fi
-  egrep "$@" -- "${files[@]}"
-}
+  set -o noglob
+  find . -type f $(
+    for path in "${skip_paths[@]}"; do
+      printf "! -path %s " "${path// /\ }"
+    done
+  ) | read f && echo "${f// /\ /}" | xargs egrep -- "$@"
+)
 
 echo "******** sourced mybashrc ********" >&2
