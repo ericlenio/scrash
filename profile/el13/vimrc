@@ -1,11 +1,28 @@
 set nocompatible
 
 if has("autocmd")
+  fu ScrSelectPassword()
+    let l:lnum=line('.')
+    let l:line=getline('.')
+    let [l:pw,l:start,l:end]=matchstrpos(l:line,':[^:]*$')
+    let l:pw=strpart(l:pw,1)
+    "call setpos("'<",[0,l:lnum,l:start+2,0])
+    "call setpos("'>",[0,l:lnum,l:end,0])
+    "normal! gv
+    let @"=l:pw
+    if len(l:pw)>0
+      echo "press ctrl-c to copy the password on line" l:lnum
+    else
+      echo
+    endif
+  endf
 
   " when editing the passwords file, remap * to copy the current word to OS clipboard
   " use the expand() function to highlight the current word (cword)
   " nmap: "n" means we are mapping a key in vim's normal mode
   autocmd BufReadPre,FileReadPre *.gpg nmap <buffer> * :let @/=expand("<cword>")<cr>:let @"=@/<cr>:call ScrSetClipboard()<cr>
+  autocmd BufReadPre,FileReadPre passwords.gpg nnoremap <c-c> :call ScrSetClipboard()<cr>
+  autocmd CursorMoved passwords.gpg :call ScrSelectPassword()
 
   " Transparent editing of gpg encrypted files.
   " By Wouter Hanegraaff
