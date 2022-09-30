@@ -97,4 +97,10 @@ fi
   } | xargs egrep -H "$@"
 )
 
+-pwgen() {
+  local length=${1:-32}
+  # skip colons, I use them in passwords.gpg as a delimeter
+  pwgen -cnyr : $length 1
+}
+
 echo "******** sourced mybashrc ********" >&2
