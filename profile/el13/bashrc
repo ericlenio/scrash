@@ -55,7 +55,9 @@ if [ "$SCR_HOME" ]; then
 fi
 
 #
-# personal grep tool when working on projects
+# personal grep tool when working with source code in some dev project: assumed
+# you are cd'd into the main project dir and wanting to recursively grep for
+# something
 #
 -grep() (
   local opts=":a" opt OPTIND all_files=0 skip_paths files
@@ -88,7 +90,11 @@ fi
     for path in "${skip_paths[@]}"; do
       printf "! -path %s " "${path// /\ }"
     done
-  ) | read f && echo "${f// /\ /}" | xargs egrep -- "$@"
+  ) | {
+    while read f; do
+      echo "${f// /\\ }"
+    done
+  } | xargs egrep -H "$@"
 )
 
 echo "******** sourced mybashrc ********" >&2

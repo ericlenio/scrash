@@ -5,9 +5,11 @@ random_string() {
 if [ $SCR_PROFILE = el13 ]; then
   s1=test-grep-string-here
   -grep $s1
+  -grep -w $s1
+  # strip off last char, now should not be grep-able on word boundary
+  ! -grep -w ${s1:0:${#s}-1}
   s2=$(random_string)
   s3=$(random_string)
-  s4=$(random_string)
   ! -grep $s2
   # handle files with a space in the name
   t1="$SCR_TMPDIR/t1 file"
@@ -19,12 +21,14 @@ if [ $SCR_PROFILE = el13 ]; then
   echo "$s2" > "$t2"
   t3="$SCR_TMPDIR/node_modules/t3 file"
   echo "$s3" > "$t3"
-  (
-    cd $SCR_TMPDIR
-    -grep $s1
-    ! -grep $s2
-    -grep -a $s2
-    ! -grep $s3
-    -grep -a $s3
-  )
+  cd $SCR_TMPDIR
+  -grep $s1
+  basename "$t1"
+  -grep $s1 | grep "$(basename \"$t1\")"
+  ! -grep $s2
+  -grep -a $s2
+  ! -grep $s3
+  -grep -a $s3
+  -grep -a $s3 | grep "$(basename \"$t3\")"
+  cd $OLDPWD
 fi
