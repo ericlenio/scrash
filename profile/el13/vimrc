@@ -1,15 +1,14 @@
 set nocompatible
 
 if has("autocmd")
+  let g:scrPrevLine=-1
   fu ScrSelectPassword()
     let l:lnum=line('.')
-    if !exists('g:scrPrevLine')
-      let g:scrPrevLine=-1
-    endif
     if l:lnum==g:scrPrevLine
       " only invoke the logic below if cursor has moved to a new line
       return
     endif
+    let g:scrPrevLine=l:lnum
     let l:line=getline('.')
     let [l:pw,l:start,l:end]=matchstrpos(l:line,':[^:]*$')
     let l:pw=strpart(l:pw,1)
@@ -19,7 +18,6 @@ if has("autocmd")
     let @"=l:pw
     if len(l:pw)>0
       echo "press ctrl-c to copy the password on line" l:lnum
-      let g:scrPrevLine=l:lnum
     else
       echo
     endif
