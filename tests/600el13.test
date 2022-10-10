@@ -7,9 +7,10 @@ if [ $SCR_PROFILE = el13 ]; then
   -grep $s1
   -grep -w $s1
   # strip off last char, now should not be grep-able on word boundary
-  ! -grep -w ${s1:0:${#s}-1}
+  ! -grep -w ${s1:0:${#s1}-1}
   s2=$(random_string)
   s3=$(random_string)
+  s4=$(random_string)
   ! -grep $s2
   # handle files with a space in the name
   t1="$SCR_TMPDIR/t1 file"
@@ -30,5 +31,10 @@ if [ $SCR_PROFILE = el13 ]; then
   ! -grep $s3
   -grep -a $s3
   -grep -a $s3 | grep "$(basename \"$t3\")"
+  t4="$SCR_TMPDIR/my-pkg/node_modules/t4"
+  mkdir -p $(dirname $t4)
+  echo "$s4" > "$t4"
+  ! -grep $s4
+  -grep -a $s4
   cd $OLDPWD
 fi

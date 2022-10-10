@@ -80,9 +80,9 @@ fi
   done
   if [ $all_files = 0 ]; then
     skip_paths+=(
-      './dist/*'
-      './build/*'
-      './node_modules/*'
+      '**/dist/*'
+      '**/build/*'
+      '**/node_modules/*'
     )
   fi
   set -o noglob
