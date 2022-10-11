@@ -1,3 +1,5 @@
+# periodically make sure vim script exists
+backtick 98 360 360 bash -c 'vim --version >/dev/null'
 backtick 99 999999999 0 bash -c 'if [ -z "$SSH_TTY" ]; then echo " v$SCR_VERSION:$SCR_ENV"; fi'
 # WARNING: keep this caption line first before any "screen" lines in this file
 # to make sure the proper window height is set, otherwise the window height

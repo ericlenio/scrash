@@ -321,28 +321,28 @@ vim() {
     echo "$FUNCNAME: EDITOR is not set" >&2
     return 1
   fi
-  local d=$(dirname $EDITOR)
-  [ ! -d $d ] && mkdir -p $d
-  if [ ! -e $EDITOR ]; then
+  local d=$(dirname "$EDITOR")
+  [ ! -d "$d" ] && mkdir -p "$d"
+  if [ ! -e "$EDITOR" ]; then
     local p='#!/usr/bin/env bash\n[ "$1" = "--version" ] && exec vim "$@"\n%s\n-shell-init\nexec vim "$@"\n'
     #local url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
     #eval "$(curl -S -f -s --compressed $url)"
-    printf "$p" "$(-shell-init -D)" > $EDITOR
-    chmod 755 $EDITOR || {
+    printf "$p" "$(-shell-init -D)" > "$EDITOR"
+    chmod 755 "$EDITOR" || {
       echo "ERROR: could not chmod $EDITOR: $?" >&2
       return 1
     }
   fi
-  if [ ! -d $SCR_VIMRUNTIME/plugin ]; then
-    if mkdir -p $SCR_VIMRUNTIME/plugin; then
-      -vim-plugin-clipboard > $SCR_VIMRUNTIME/plugin/clipboard.vim
+  if [ ! -d "$SCR_VIMRUNTIME/plugin" ]; then
+    if mkdir -p "$SCR_VIMRUNTIME/plugin"; then
+      -vim-plugin-clipboard > "$SCR_VIMRUNTIME/plugin/clipboard.vim"
     fi
   fi
-  if [ ! -e $SCR_VIMRC ]; then
+  if [ ! -e "$SCR_VIMRC" ]; then
     #-ws /scr-get-vimrc --compressed > $SCR_VIMRC
-    -vimrc > $SCR_VIMRC
+    -vimrc > "$SCR_VIMRC"
   fi
-  $EDITOR "$@"
+  "$EDITOR" "$@"
 }
 
 -shell-init() {
@@ -376,7 +376,7 @@ vim() {
     export SCR_VIMRUNTIME=$SCR_TMPDIR/vim
     export SCR_SCREENRC=$SCR_TMPDIR/screenrc
     pwfile="$SCR_HOME/profile/el13/passwords.gpg"
-    if [ -f $pwfile ]; then
+    if [ -f "$pwfile" ]; then
       export SCR_PASSWORD_FILE="$pwfile"
     fi
     export VIMINIT='source $SCR_VIMRC'
@@ -645,7 +645,7 @@ ssh() {
 # delimiter here
 -pw() {
   local pwkey="$1" delim=":" pwfile="$SCR_PASSWORD_FILE"
-  if [ ! -f $pwfile ]; then
+  if [ ! -f "$pwfile" ]; then
     echo "$FUNCNAME: no password file" >&2
     return 1
   fi
