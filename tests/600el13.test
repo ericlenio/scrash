@@ -36,7 +36,7 @@ if [ $SCR_PROFILE = el13 ]; then
   echo "$s4" > "$t4"
   ! -grep $s4
   -grep -a $s4
-  cd $OLDPWD
+  cd "$OLDPWD"
 
   ! -openssl_s_client_show_certs github.com
   -openssl_s_client_show_certs github.com:443

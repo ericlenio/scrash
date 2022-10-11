@@ -11,4 +11,4 @@ cp /etc/passwd "$f"
 basename=$(basename "$f")
 [ $(-md5 /etc/passwd) = $(-md5 "$basename") ]
 rm "$f"
-cd $OLDPWD
+cd "$OLDPWD"
