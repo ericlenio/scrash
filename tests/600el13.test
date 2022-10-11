@@ -37,4 +37,10 @@ if [ $SCR_PROFILE = el13 ]; then
   ! -grep $s4
   -grep -a $s4
   cd $OLDPWD
+
+  ! -openssl_s_client_show_certs github.com
+  -openssl_s_client_show_certs github.com:443
+  t5=$SCR_HOME/tests/test-certs
+  [ -f "$t5" ]
+  -openssl_s_client_show_certs "$t5"
 fi
