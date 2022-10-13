@@ -8,7 +8,8 @@ of this project. By default, the server picks the profile that matches the
 username of the server daemon process.
 
 # Supported operating systems
-Tested on Mac, Linux, and OpenBSD. Almost certainly would be fine with FreeBSD.
+Tested on Mac, Linux, Raspian, and OpenBSD. Almost certainly would be fine with
+FreeBSD.
 
 # Vim
 Put any desired vimrc settings in `./profile/MYPROFILE/vimrc` and they will be
@@ -17,10 +18,10 @@ then add this to your vimrc file:
 
     set runtimepath+=$SCR_VIMRUNTIME
 
-Copying to the OS clipboard is achieved by calling call function
-`ScrSetClipboard`; pasting from the clipboard is achieved with function
-`ScrPasteClipboard`. I like to use ctrl-c to copy whatever is currently
-highlighted in Visual mode, and ctrl-v to paste, like this:
+Copying to the OS clipboard is achieved by calling function `ScrSetClipboard`;
+pasting from the clipboard is achieved with function `ScrPasteClipboard`. I
+like to use ctrl-c to copy whatever is currently highlighted in Visual mode,
+and ctrl-v to paste, like this:
 
     vnoremap <c-c> y:call ScrSetClipboard()<cr>
     nnoremap <c-v> :call ScrPasteClipboard()<cr>
@@ -36,6 +37,8 @@ Tests are executed in several ways:
 
     # run all tests
     npm test
+    # run all tests with a custom profile
+    npm test -- -P MYPROFILE
     # run all tests with test files that match (glob style) on "basic"
     npm test -- -g basic
     # same as above, but also include test files that match on "vim"
