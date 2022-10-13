@@ -417,7 +417,7 @@ vim() {
   if [ ! -e $EDITOR ]; then
     # create the editor, might need it under sudo and sudo user will not be
     # able to create it
-    v --version >/dev/null
+    vim --version >/dev/null
   fi
   # we pass along STY so that -ws calls can properly detect when to run
   # -screen-env

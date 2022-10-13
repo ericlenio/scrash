@@ -9,9 +9,11 @@ import net from 'net';
 import path from 'path';
 //import pty from 'node-pty';
 
+const SCR_HOME=process.env.npm_config_local_prefix;
 const SCR_ENV=process.env.SCR_ENV || process.env.npm_package_config_SCR_ENV;
 const SCR_VERSION=process.env.npm_package_version;
 const SCR_PROFILE=process.env.SCR_PROFILE || process.env.npm_package_config_SCR_PROFILE;
+const SCR_PROFILE_DIR=`${SCR_HOME}/profile/${SCR_PROFILE}`;
 const SCR_TMPDIR=process.env.SCR_TMPDIR || `/tmp/scr-${SCR_ENV}`;
 const SCR_APP_NAME=process.env.npm_package_name;
 
@@ -44,7 +46,8 @@ class Server extends http.Server {
     }
     this.on('request',(req,res)=>this.onRequest(req,res));
     this.on('connect',(req,socket,head)=>this.onConnect(req,socket,head));
-    return this.loadBashFunctions()
+    return fsPromises.readdir(SCR_PROFILE_DIR)
+      .then(()=>this.loadBashFunctions())
       .then(shellScript=>this.#shellScript=shellScript)
       .then(()=>this.loadVimPlugins())
       .then(shellScript=>this.#shellScript+=shellScript)
@@ -234,7 +237,7 @@ class Server extends http.Server {
         }
         throw e;
       });
-    })).then(()=>fsPromises.readFile("./src/bash/bash-functions",'utf8'))
+    })).then(()=>fsPromises.readFile(`${SCR_HOME}/src/bash/bash-functions`,'utf8'))
     .then(fileContent=>shellScript+=fileContent);
   }
 
@@ -255,11 +258,11 @@ class Server extends http.Server {
   }
 
   getUserRcFile(rcfile) {
-    return fsPromises.readFile(`./profile/${SCR_PROFILE}/${rcfile}`,'utf8');
+    return fsPromises.readFile(`${SCR_PROFILE_DIR}/${rcfile}`,'utf8');
   }
 
   getVimPluginFile(plugin) {
-    return fsPromises.readFile(`./src/vim/${plugin}.vim`,'utf8');
+    return fsPromises.readFile(`${SCR_HOME}/src/vim/${plugin}.vim`,'utf8');
   }
 
   loadVimPlugins() {

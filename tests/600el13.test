@@ -2,6 +2,10 @@
 random_string() {
   echo $RANDOM-$RANDOM-$RANDOM-$RANDOM-$RANDOM
 }
+online() {
+  host_str=$1
+  curl -f -s -I https://$host_str
+}
 if [ $SCR_PROFILE = el13 ]; then
   s1=test-grep-string-here
   -grep $s1
@@ -39,7 +43,9 @@ if [ $SCR_PROFILE = el13 ]; then
   cd "$OLDPWD"
 
   ! -openssl_s_client_show_certs github.com
-  -openssl_s_client_show_certs github.com:443
+  if online github.com:443; then
+    -openssl_s_client_show_certs github.com:443
+  fi
   t5=$SCR_HOME/tests/test-certs
   [ -f "$t5" ]
   -openssl_s_client_show_certs "$t5"

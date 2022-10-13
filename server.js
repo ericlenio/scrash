@@ -27,4 +27,6 @@ const s=new Server();
 s.init({notify:FIFO,port:PORT}).then(()=>{
   //chroot(SCR_CHROOT_DIR,SCR_CHROOT_USER,SCR_CHROOT_GROUP);
   //console.log(`chroot successful to ${SCR_CHROOT_DIR} as ${SCR_CHROOT_USER}/${SCR_CHROOT_GROUP}`);
+}).catch(e=>{
+  console.error(e.toString());
 });

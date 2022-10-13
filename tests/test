@@ -7,6 +7,8 @@ this help:
   npm test -- -h
 run all test cases:
   npm test
+run all test cases using a custom profile:
+  npm test -- -P my_profile
 run test cases for those test case files that match the word \"basic\":
   npm test -- -g basic
 same as above, but also include test case file(s) matching on \"vim\":
@@ -15,7 +17,7 @@ same as above, but also include test case file(s) matching on \"vim\":
 }
 
 -init() {
-  local opts="hg:" opt OPTIND
+  local opts="hg:P:" opt OPTIND
   set -eE
   # force "set -e" to be inherited with "export SHELLOPTS"
   export SHELLOPTS
@@ -28,6 +30,9 @@ same as above, but also include test case file(s) matching on \"vim\":
       (g)
         TEST_GROUPS="$OPTARG"
         ;;
+      (P)
+        SCR_PROFILE="$OPTARG"
+        ;;
     esac
   done
 
@@ -35,7 +40,7 @@ same as above, but also include test case file(s) matching on \"vim\":
   TEST_GROUPS=${TEST_GROUPS:=*}
   export SCR_PORT=$((50000+$RANDOM % 10000))
   export SCR_ENV=test
-  export SCR_PROFILE=$USER
+  export SCR_PROFILE=${SCR_PROFILE:-$USER}
   export SCR_HOME="$npm_config_local_prefix"
   trap -- -on-error ERR
   trap -- -on-exit EXIT
@@ -49,18 +54,21 @@ same as above, but also include test case file(s) matching on \"vim\":
   # once this read is done, we know the server is up and listening
   read port<$fifo
   rm $fifo
+  if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+    exit 1
+  fi
 
   url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
   eval -- "$(curl -S -f -s --compressed $url)"
   -shell-init -C
   # TEST_ERROR_FILE is a semaphore to stop -on-error from running more than
   # once; necessary due to "set -E"
-  TEST_ERROR_FILE=$SCR_TMPDIR/err
+  TEST_ERROR_FILE="$SCR_TMPDIR/err"
   # TEST_CLEANUP_FILE will be sourced in the cleanup stage, append commands
   # here as needed to do any housekeeping (e.g. kill any started gnu screen
   # sessions)
-  TEST_CLEANUP_FILE=$SCR_TMPDIR/cleanup
-  rm -f $TEST_ERROR_FILE
+  TEST_CLEANUP_FILE="$SCR_TMPDIR/cleanup"
+  rm -f "$TEST_ERROR_FILE" "$TEST_CLEANUP_FILE"
 }
 
 -on-error() {
@@ -70,7 +78,9 @@ same as above, but also include test case file(s) matching on \"vim\":
     #return
   #fi
   trap - ERR
-  touch $TEST_ERROR_FILE
+  if [ "$TEST_ERROR_FILE" ]; then
+    touch "$TEST_ERROR_FILE"
+  fi
   echo "ERROR with command (subshell level: $BASH_SUBSHELL): $BASH_COMMAND" >&2
   if [ $BASH_SUBSHELL -gt 0 ]; then
     #echo "BASH_ARGV[${#BASH_ARGV[*]}]: ${BASH_ARGV[*]}" >&2
@@ -97,7 +107,7 @@ same as above, but also include test case file(s) matching on \"vim\":
     #-on-error
   #fi
   -cleanup
-  if [ $rc -gt 0 -o -e $TEST_ERROR_FILE ]; then
+  if [ $rc -gt 0 -o -e "$TEST_ERROR_FILE" ]; then
     echo "FAIL"
   else
     echo "SUCCESS"
@@ -105,8 +115,8 @@ same as above, but also include test case file(s) matching on \"vim\":
 }
 
 -cleanup() {
-  if [ -e $TEST_CLEANUP_FILE ]; then
-    . $TEST_CLEANUP_FILE
+  if [ -e "$TEST_CLEANUP_FILE" ]; then
+    . "$TEST_CLEANUP_FILE"
   fi
   curl -s http://127.0.0.1:$SCR_PORT/scr-shutdown
 }
@@ -150,7 +160,7 @@ same as above, but also include test case file(s) matching on \"vim\":
     esac
   done
   "${cmd[@]}"
-  printf "screen -S %s -X quit" $session_id >> $TEST_CLEANUP_FILE
+  printf "screen -S %s -X quit" $session_id >> "$TEST_CLEANUP_FILE"
   echo $session_id
 }
 

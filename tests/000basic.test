@@ -1,5 +1,6 @@
 # vim:filetype=bash
 -clear-cache
+-ws-about
 [[ $SCR_PORT =~ ^[0-9]+$ ]]
 len=100
 v=$(-random-string $len)
