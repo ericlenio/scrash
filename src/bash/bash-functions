@@ -222,13 +222,12 @@ screen() {
 
 -ws() {
   [ "$STY" ] && -screen-env
-  local base_url=http://127.0.0.1:$SCR_PORT endpoint=$1 url rc
+  local base_url=http://127.0.0.1:$SCR_PORT endpoint=$1 url rc=0
   shift
   printf -v url "%s%s" $base_url $endpoint
   set -- "$@" "$url"
-  curl --noproxy 127.0.0.1 -f -S -s "$@"
-  rc=$?
-  if [ $rc -gt 0 ]; then
+  if ! curl --noproxy 127.0.0.1 -f -S -s "$@"; then
+    rc=$?
     echo "curl failed with arguments: $@" >&2
     echo "stack trace: ${FUNCNAME[*]}" >&2
   fi
@@ -236,11 +235,11 @@ screen() {
 }
 
 -ws-about() {
-  -ws /scr-about -f -S "$@"
+  -ws /scr-about "$@"
 }
 
 -ws-hello-world() {
-  -ws /scr-hello-world -f -S "$@"
+  -ws /scr-hello-world "$@"
 }
 
 # runs a bash command in gnu screen, waiting for the command to finish

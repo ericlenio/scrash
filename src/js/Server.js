@@ -57,10 +57,22 @@ class Server extends http.Server {
 
   onRequest(req,res) {
     const url=new URL(req.url,`http://${req.headers.host}`);
+    const accepts=req.headers.accept
+      ? req.headers.accept.split(/,\s*/)
+      : ["text/plain"];
     switch(url.pathname) {
       case "/scr-about":
+        for (const accept of accepts) {
+          switch(accept) {
+            case 'text/json':
+              res.setHeader('Content-Type',accept);
+              return res.end(`{"appName":"${SCR_APP_NAME}","version":"${SCR_VERSION}","configuration":"${SCR_ENV}","profile":"${SCR_PROFILE}"}\n`);
+          }
+        }
+        res.setHeader('Content-Type',accepts[0]);
         return res.end(`${SCR_APP_NAME} ${SCR_VERSION}, configuration ${SCR_ENV}, profile ${SCR_PROFILE}\n`);
       case "/scr-get-bash-functions":
+        res.setHeader('Content-Type','application/x-shellscript');
         return this.getBashFunctions(url,res);
       //case "/scr-get-test-framework":
         //return this.getTestFramework(url,res);

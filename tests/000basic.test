@@ -1,6 +1,7 @@
 # vim:filetype=bash
 -clear-cache
--ws-about
+-ws-about | grep scrash
+-ws-about -H "Accept: text/json" | node -r fs -e 'const s=JSON.parse(fs.readFileSync(0,"utf8"));console.log(s.appName)'
 [[ $SCR_PORT =~ ^[0-9]+$ ]]
 len=100
 v=$(-random-string $len)
