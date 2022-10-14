@@ -226,7 +226,9 @@ screen() {
   shift
   printf -v url "%s%s" $base_url $endpoint
   set -- "$@" "$url"
-  if ! curl --noproxy 127.0.0.1 -f -S -s "$@"; then
+  if curl --noproxy 127.0.0.1 -f -S -s "$@"; then
+    :
+  else
     rc=$?
     echo "curl failed with arguments: $@" >&2
     echo "stack trace: ${FUNCNAME[*]}" >&2
@@ -531,8 +533,22 @@ ssh() {
   "${cmd[@]}"
 }
 
+# fetches clipboard contents
 -clipboard() {
-  -ws /scr-get-clipboard --compressed
+  local otp=$1
+  if [ -z "$otp" ]; then
+    if -ws /scr-set-clipboard-otp; then
+      read -p "OTP? " -n 6 otp </dev/tty || true
+      if ! [[ "$otp" =~ ^[0-9]+$ ]]; then
+        echo "$FUNCNAME: no OTP" >&2
+        return 1
+      fi
+    else
+      echo "$FUNCNAME: failed to set OTP" >&2
+      return 1
+    fi
+  fi
+  -ws /scr-get-clipboard --compressed -H "X-Scrash-Otp: $otp"
 }
 
 -md5() {

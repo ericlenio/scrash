@@ -8,6 +8,8 @@ import crypto from 'crypto';
 import net from 'net';
 import path from 'path';
 //import pty from 'node-pty';
+import Otp from './Otp.js';
+import ClipboardOtpCache from './ClipboardOtpCache.js';
 
 const SCR_HOME=process.env.npm_config_local_prefix;
 const SCR_ENV=process.env.SCR_ENV || process.env.npm_package_config_SCR_ENV;
@@ -37,9 +39,11 @@ const E_OS_PROG_ENUM={
 
 class Server extends http.Server {
   #shellScript;
+  #clipboardOtpCache;
 
   init({notify,port}) {
     console.log(`starting Server.js v${SCR_VERSION}, configuration: ${SCR_ENV}, profile: ${SCR_PROFILE}`);
+    this.#clipboardOtpCache=new ClipboardOtpCache();
     this.once('listening',()=>console.log("listening on port:",this.address().port));
     if (notify) {
       this.once('listening',()=>fsPromises.appendFile(notify,this.address().port+"\n").catch(e=>console.error(e)))
@@ -78,8 +82,10 @@ class Server extends http.Server {
         //return this.getTestFramework(url,res);
       case "/scr-set-clipboard":
         return this.setClipboardFromRequest(req,res);
+      case "/scr-set-clipboard-otp":
+        return this.setClipboardOtp(req,res);
       case "/scr-get-clipboard":
-        return this.getClipboard(req,res);
+        return this.sendClipboard(req,res);
       //case "/scr-get-vimrc":
         //return this.getVimrc(req,res);
       case "/scr-hello-world":
@@ -88,6 +94,8 @@ class Server extends http.Server {
         return this.shutdown(res);
       case "/scr-upload-file":
         return this.uploadFile(req,res);
+      default:
+        res.statusCode=404;
     }
     res.end();
   }
@@ -299,6 +307,31 @@ class Server extends http.Server {
       });
   }
 
+  setClipboardOtp(req,res) {
+    const self=this;
+    const otp=this.randomInteger(6);
+    const otpStream=new Otp(otp);
+    this.getClipboard().then(clipboard=>{
+      this.#clipboardOtpCache.add(otp,clipboard);
+      return this.setClipboard(otpStream)
+    }).catch(e=>{
+      res.statusCode=500;
+      res.statusMessage=e.toString();
+    }).finally(()=>res.end());
+  }
+
+  getClipboard() {
+    return new Promise((resolve,reject)=>{
+      let clipboard='';
+      const paste_prog=this.getOsProgram(E_OS_PROG_ENUM.PASTE);
+      const p=child_process.spawn(paste_prog[0],paste_prog.slice(1),
+        {stdio:['ignore','pipe',process.stderr]});
+      p.on("error",reject);
+      p.stdout.on('data',buf=>clipboard+=buf);
+      p.stdout.on('end',()=>resolve(clipboard));
+    });
+  }
+
   setClipboard(stream) {
     return new Promise((resolve,reject)=>{
       const cp_prog=this.getOsProgram(E_OS_PROG_ENUM.COPY);
@@ -321,26 +354,38 @@ class Server extends http.Server {
     });
   }
 
-  getClipboard(req,res) {
-    const paste_prog=this.getOsProgram(E_OS_PROG_ENUM.PASTE);
-    const p=child_process.spawn(paste_prog[0],paste_prog.slice(1),
-      {stdio:['ignore','pipe',process.stderr]});
-    p.on("error",e=>{
-      console.error("getClipboard:"+e);
+  sendClipboard(req,res) {
+    const self=this;
+    const otp='x-scrash-otp' in req.headers
+      ? req.headers['x-scrash-otp']
+      : null;
+    const errHandler=e=>{
+      console.error("sendClipboard:",e.toString());
       res.statusCode=500;
       res.statusMessage=e.toString();
       res.end();
-    });
-    const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
-    res.setHeader('Content-Type','text/plain');
-    res.setHeader('Content-Encoding','gzip');
-    p.stdout.pipe(gz).pipe(res);
+    };
+    (
+      Boolean(otp)
+        ? this.setClipboard(this.#clipboardOtpCache.getStream(otp))
+        : Promise.resolve()
+    ).then(()=>{
+      const paste_prog=this.getOsProgram(E_OS_PROG_ENUM.PASTE);
+      const p=child_process.spawn(paste_prog[0],paste_prog.slice(1),
+        {stdio:['ignore','pipe',process.stderr]});
+      p.on("error",errHandler);
+      const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
+      res.setHeader('Content-Type','text/plain');
+      res.setHeader('Content-Encoding','gzip');
+      p.stdout.pipe(gz).pipe(res);
+    }).catch(errHandler);
   }
 
   shutdown(res) {
     if (SCR_ENV==='test') {
       res.end();
       process.nextTick(()=>process.exit(0));
+      return;
     }
     res.statusCode=401;
     res.end();

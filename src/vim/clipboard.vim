@@ -11,7 +11,9 @@ endf
 fu ScrPasteClipboard()
   " paste contents of OS clipboard
   try
-    let [l:clipboard,l:stderr,l:rc]=ScrSystemcaller("-clipboard")
+    call system("-ws /scr-set-clipboard-otp")
+    let l:otp=inputsecret("OTP? ")
+    let [l:clipboard,l:stderr,l:rc]=ScrSystemcaller("-clipboard ".l:otp)
     if len(l:stderr) > 0
       echohl WarningMsg
       echon join(l:stderr," ")
@@ -32,7 +34,7 @@ fu ScrPasteClipboard()
       else
         call setline('.',l:leftPart.l:clipboard[0].l:rightPart)
       endif
-      echon "pasted " strlen(join(l:clipboard,'')) " characters"
+      echo "\rpasted" strlen(join(l:clipboard,'')) "characters"
     endif
   catch /.*/
     echo v:exception
