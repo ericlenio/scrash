@@ -536,17 +536,17 @@ ssh() {
 # fetches clipboard contents
 -clipboard() {
   local otp=$1
-  if [ -z "$otp" ]; then
-    if -ws /scr-set-clipboard-otp; then
+  if -ws /scr-set-clipboard-otp; then
+    if [ ${#otp} -eq 0 ]; then
       read -p "OTP? " -n 6 otp </dev/tty || true
-      if ! [[ "$otp" =~ ^[0-9]+$ ]]; then
-        echo "$FUNCNAME: no OTP" >&2
-        return 1
-      fi
-    else
-      echo "$FUNCNAME: failed to set OTP" >&2
+    fi
+    if ! [[ "$otp" =~ ^[0-9]+$ ]]; then
+      echo "$FUNCNAME: no OTP" >&2
       return 1
     fi
+  else
+    echo "$FUNCNAME: failed to set OTP" >&2
+    return 1
   fi
   -ws /scr-get-clipboard --compressed -H "X-Scrash-Otp: $otp"
 }

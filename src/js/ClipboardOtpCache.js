@@ -2,6 +2,7 @@ import {Readable} from 'stream';
 
 class ClipboardOtpCache {
   #timers={};
+
   add(otp,content) {
     this[otp]=content;
     this.#timers[otp]=setTimeout(()=>{
@@ -9,6 +10,10 @@ class ClipboardOtpCache {
       delete this[otp];
       delete this.#timers[otp];
     },20_000);
+  }
+
+  has(otp) {
+    return Boolean(this[otp]);
   }
 
   get(otp) {

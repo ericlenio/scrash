@@ -308,8 +308,9 @@ class Server extends http.Server {
   }
 
   setClipboardOtp(req,res) {
-    const self=this;
-    const otp=this.randomInteger(6);
+    const otp=SCR_ENV=="test"
+      ? process.env.SCR_TEST_OTP
+      : this.randomInteger(6);
     const otpStream=new Otp(otp);
     this.getClipboard().then(clipboard=>{
       this.#clipboardOtpCache.add(otp,clipboard);
@@ -355,7 +356,6 @@ class Server extends http.Server {
   }
 
   sendClipboard(req,res) {
-    const self=this;
     const otp='x-scrash-otp' in req.headers
       ? req.headers['x-scrash-otp']
       : null;
@@ -365,11 +365,10 @@ class Server extends http.Server {
       res.statusMessage=e.toString();
       res.end();
     };
-    (
-      Boolean(otp)
-        ? this.setClipboard(this.#clipboardOtpCache.getStream(otp))
-        : Promise.resolve()
-    ).then(()=>{
+    if (! this.#clipboardOtpCache.has(otp)) {
+      return errHandler(new Error("invalid/missing OTP"));
+    }
+    this.setClipboard(this.#clipboardOtpCache.getStream(otp)).then(()=>{
       const paste_prog=this.getOsProgram(E_OS_PROG_ENUM.PASTE);
       const p=child_process.spawn(paste_prog[0],paste_prog.slice(1),
         {stdio:['ignore','pipe',process.stderr]});

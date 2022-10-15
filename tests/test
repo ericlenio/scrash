@@ -42,6 +42,7 @@ same as above, but also include test case file(s) matching on \"vim\":
   export SCR_ENV=test
   export SCR_PROFILE=${SCR_PROFILE:-$USER}
   export SCR_HOME="$npm_config_local_prefix"
+  export SCR_TEST_OTP=123456
   trap -- -on-error ERR
   trap -- -on-exit EXIT
   shopt -s gnu_errfmt

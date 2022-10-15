@@ -4,27 +4,27 @@ len=8
 r=$(-random-string $len)
 [ $len = ${#r} ]
 echo $r | -copy-to-clipboard
-r2=$(-clipboard)
+r2=$(-clipboard $SCR_TEST_OTP)
 [ $r = $r2 ]
 # check that when copying from stdin that the last \n is chopped off
 t0=$SCR_TMPDIR/t0
--clipboard > $t0
+-clipboard $SCR_TEST_OTP > $t0
 IFS= read -d '' ans <$t0 || true
 [ "$ans" = "${ans%$'\n'}" ]
 # test copy a file
 -copy-to-clipboard /etc/passwd
-[ $(-clipboard | -md5) = $(-md5 /etc/passwd) ]
+[ $(-clipboard $SCR_TEST_OTP | -md5) = $(-md5 /etc/passwd) ]
 # clipboard over ssh
 t=$(mktemp)
 uname -a > $t
 -ssh-localhost -copy-to-clipboard $t
-[ $(-md5 $t) = $(-clipboard | -md5) ]
+[ $(-md5 $t) = $(-clipboard $SCR_TEST_OTP | -md5) ]
 rm $t
 echo $r | -copy-to-clipboard
-r2=$(-clipboard)
+r2=$(-clipboard $SCR_TEST_OTP)
 [ $r = $r2 ]
 # test file name containing a space
 t2="$SCR_TMPDIR/my file"
 uname -a > "$t2"
 -copy-to-clipboard "$t2"
-[ "$(-clipboard)" = "$(uname -a)" ]
+[ "$(-clipboard $SCR_TEST_OTP)" = "$(uname -a)" ]

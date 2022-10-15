@@ -8,11 +8,11 @@ fu ScrMktmpdir()
   endif
 endf
 
-fu ScrPasteClipboard()
+fu ScrPasteClipboard(...)
   " paste contents of OS clipboard
   try
-    call system("-ws /scr-set-clipboard-otp")
-    let l:otp=inputsecret("OTP? ")
+    " otp might have been passed as arg1, else prompt user for it
+    let l:otp=a:0==1 ? a:1 : inputsecret("OTP? ")
     let [l:clipboard,l:stderr,l:rc]=ScrSystemcaller("-clipboard ".l:otp)
     if len(l:stderr) > 0
       echohl WarningMsg
@@ -31,7 +31,7 @@ fu ScrPasteClipboard()
         call remove(l:clipboard,0)
         let l:clipboard[-1].=l:rightPart
         call append('.',l:clipboard)
-      else
+      elseif len(l:clipboard) == 1
         call setline('.',l:leftPart.l:clipboard[0].l:rightPart)
       endif
       echo "\rpasted" strlen(join(l:clipboard,'')) "characters"
