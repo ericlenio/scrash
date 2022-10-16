@@ -82,8 +82,8 @@ class Server extends http.Server {
         //return this.getTestFramework(url,res);
       case "/scr-set-clipboard":
         return this.setClipboardFromRequest(req,res);
-      case "/scr-set-clipboard-otp":
-        return this.setClipboardOtp(req,res);
+      case "/scr-set-otp":
+        return this.setOtp(req,res);
       case "/scr-get-clipboard":
         return this.sendClipboard(req,res);
       //case "/scr-get-vimrc":
@@ -307,7 +307,7 @@ class Server extends http.Server {
       });
   }
 
-  setClipboardOtp(req,res) {
+  setOtp(req,res) {
     const otp=SCR_ENV=="test"
       ? process.env.SCR_TEST_OTP
       : this.randomInteger(6);

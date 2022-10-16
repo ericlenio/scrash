@@ -533,19 +533,26 @@ ssh() {
   "${cmd[@]}"
 }
 
+-ws-set-otp() {
+  -ws /scr-set-otp
+}
+
 # fetches clipboard contents
 -clipboard() {
-  local otp=$1
-  if -ws /scr-set-clipboard-otp; then
+  local otp=$SCR_TEST_OTP erase_eol='\033[0K'
+  if -ws-set-otp; then
     if [ ${#otp} -eq 0 ]; then
-      read -p "OTP? " -n 6 otp </dev/tty || true
-    fi
-    if ! [[ "$otp" =~ ^[0-9]+$ ]]; then
-      echo "$FUNCNAME: no OTP" >&2
-      return 1
+      # using printf to display the prompt rather than "read -p ..." so that
+      # this can work when running inside vim
+      printf "${erase_eol}OTP? " >/dev/tty
+      read -n 6 otp </dev/tty
     fi
   else
-    echo "$FUNCNAME: failed to set OTP" >&2
+    echo "$FUNCNAME: failed to acquire OTP" >&2
+    return 1
+  fi
+  if ! [[ "$otp" =~ ^[0-9]+$ ]]; then
+    echo "$FUNCNAME: bad OTP" >&2
     return 1
   fi
   -ws /scr-get-clipboard --compressed -H "X-Scrash-Otp: $otp"

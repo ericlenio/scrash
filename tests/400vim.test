@@ -13,7 +13,7 @@ rm $EDITOR
 vim --version >/dev/null
 [ -e $EDITOR ]
 echo ok | -copy-to-clipboard
-[ ok = $(-clipboard $SCR_TEST_OTP) ]
+[ ok = $(-clipboard ) ]
 t1=$SCR_TMPDIR/t1
 t2=$SCR_TMPDIR/t2
 t3=$SCR_TMPDIR/t3
@@ -21,12 +21,12 @@ t3=$SCR_TMPDIR/t3
 printf "/^root\015vey:call ScrSetClipboard()\015:q\015" > $t1
 vim -s $t1 /etc/passwd
 #'rm $t1
-[ root = $(-clipboard $SCR_TEST_OTP) ]
+[ root = $(-clipboard) ]
 
 s="The quick brown fox jumps over the lazy dog"
 echo "$s" | -copy-to-clipboard
-[ "$s" = "$(-clipboard $SCR_TEST_OTP)" ]
-printf ":call ScrPasteClipboard(\"$SCR_TEST_OTP\")\015ZZ" > $t1
+[ "$s" = "$(-clipboard)" ]
+printf ":call ScrPasteClipboard()\015ZZ" > $t1
 vim -s $t1 $t2
 [ -e $t2 ]
 [ "$(<$t2)" = "$s" ]
@@ -34,14 +34,14 @@ vim -s $t1 $t2
 # test paste in middle of a line
 cp $t2 $t3
 echo cat | -copy-to-clipboard
-[ cat = $(-clipboard $SCR_TEST_OTP) ]
-printf "/fox\0153x:call ScrPasteClipboard(\"$SCR_TEST_OTP\")\015ZZ" > $t1
+[ cat = $(-clipboard) ]
+printf "/fox\0153x:call ScrPasteClipboard()\015ZZ" > $t1
 vim -s $t1 $t3
 [ "The quick brown cat jumps over the lazy dog" = "$(<$t3)" ]
 
 # test paste at end of a line
 cp $t2 $t3
-printf "$:call ScrPasteClipboard(\"$SCR_TEST_OTP\")\015ZZ" > $t1
+printf "$:call ScrPasteClipboard()\015ZZ" > $t1
 vim -s $t1 $t3
 [ "The quick brown fox jumps over the lazy dogcat" = "$(<$t3)" ]
 
@@ -51,7 +51,7 @@ line2"
 echo "$s2" > $t3
 printf -v s3 "The quick brown\nfox jumps over\nthe lazy dog"
 echo "$s3" | -copy-to-clipboard
-printf "/bb\015:call ScrPasteClipboard(\"$SCR_TEST_OTP\")\015ZZ" > $t1
+printf "/bb\015:call ScrPasteClipboard()\015ZZ" > $t1
 vim -s $t1 $t3
 [ $(wc -l <$t3) = 4 ]
 grep '^fox jumps over$' $t3 >/dev/null
