@@ -64,6 +64,11 @@ class Server extends http.Server {
     const accepts=req.headers.accept
       ? req.headers.accept.split(/,\s*/)
       : ["text/plain"];
+    //if ('x-scrash-otp' in req.headers) {
+      //const otp=req.headers['x-scrash-otp'];
+      //if (! this.#clipboardOtpCache.has(otp)) {
+      //}
+    //}
     switch(url.pathname) {
       case "/scr-about":
         for (const accept of accepts) {
