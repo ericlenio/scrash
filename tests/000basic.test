@@ -9,6 +9,14 @@ v=$(-random-string $len)
 [ $len = ${#v} ]
 [ "$EDITOR" ]
 -ws-hello-world | grep -q "hello world"
+# make sure curl web service calls properly ignores proxies that might
+# typically exist in $HOME/.curlrc
+curlrc="$SCR_TMPDIR/.curlrc"
+echo "proxy = http://no-such-host.example.private:8181" > "$curlrc"
+CURL_HOME=$(dirname "$curlrc") bash -c -- -ws-hello-world
+bootstr=$(-shell-boot-string $SCR_PORT hostname)
+h=$(CURL_HOME=$(dirname "$curlrc") bash -c "$bootstr")
+[ "$h" = $(hostname) ]
 session_id=$(screen --generate-session-id)
 [ ${#session_id} -gt 0 ]
 [[ $session_id =~ ^[-[:alnum:]]+$ ]]

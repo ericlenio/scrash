@@ -451,7 +451,7 @@ vim() {
   else
     start=1
   fi
-  printf 'eval -- "$(curl -S -f -s --compressed http://127.0.0.1:%s/scr-get-bash-functions?start=%s)"' $remote_port $start
+  printf 'eval -- "$(curl --noproxy 127.0.0.1 -S -f -s --compressed http://127.0.0.1:%s/scr-get-bash-functions?start=%s)"' $remote_port $start
 }
 
 ssh() {
