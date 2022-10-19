@@ -534,13 +534,8 @@ ssh() {
 }
 
 -ws-set-otp() {
-  -ws /scr-set-otp
-}
-
-# fetches clipboard contents
--clipboard() {
   local otp=$SCR_TEST_OTP erase_eol='\033[0K'
-  if -ws-set-otp; then
+  if -ws /scr-set-otp; then
     if [ ${#otp} -eq 0 ]; then
       # using printf to display the prompt rather than "read -p ..." so that
       # this can work when running inside vim
@@ -555,7 +550,15 @@ ssh() {
     echo "$FUNCNAME: bad OTP" >&2
     return 1
   fi
-  -ws /scr-get-clipboard --compressed -H "X-Scrash-Otp: $otp"
+  echo $otp
+}
+
+# fetches clipboard contents
+-clipboard() {
+  local otp
+  if otp=$(-ws-set-otp); then
+    -ws /scr-get-clipboard --compressed -H "X-Scrash-Otp: $otp"
+  fi
 }
 
 -md5() {
@@ -628,12 +631,14 @@ ssh() {
 }
 
 -sshtool-localhost() {
-  local sshtool=$1
+  local sshtool=$1 otp
   shift
   if [ "$STY" ]; then
     -screen-env
   fi
-  $sshtool -oProxyCommand="nc -X connect -x 127.0.0.1:$SCR_PORT localhost 22" "$@"
+  if otp=$(-ws-set-otp); then
+    $sshtool -oProxyCommand="nc -X connect -x 127.0.0.1:$SCR_PORT localhost $otp" "$@"
+  fi
 }
 
 -upload() {

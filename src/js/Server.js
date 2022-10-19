@@ -8,8 +8,8 @@ import crypto from 'crypto';
 import net from 'net';
 import path from 'path';
 //import pty from 'node-pty';
-import Otp from './Otp.js';
-import ClipboardOtpCache from './ClipboardOtpCache.js';
+import ReadableString from './ReadableString.js';
+import OtpCache from './OtpCache.js';
 
 const SCR_HOME=process.env.npm_config_local_prefix;
 const SCR_ENV=process.env.SCR_ENV || process.env.npm_package_config_SCR_ENV;
@@ -39,14 +39,14 @@ const E_OS_PROG_ENUM={
 
 class Server extends http.Server {
   #shellScript;
-  #clipboardOtpCache;
+  #otpCache;
 
   init({notify,port}) {
     console.log(`starting Server.js v${SCR_VERSION}, configuration: ${SCR_ENV}, profile: ${SCR_PROFILE}`);
-    this.#clipboardOtpCache=new ClipboardOtpCache();
+    this.#otpCache=new OtpCache();
     this.once('listening',()=>console.log("listening on port:",this.address().port));
     if (notify) {
-      this.once('listening',()=>fsPromises.appendFile(notify,this.address().port+"\n").catch(e=>console.error(e)))
+      this.once('listening',()=>fsPromises.appendFile(notify,this.address().port+"\n").catch(e=>console.error(e)));
     }
     this.on('request',(req,res)=>this.onRequest(req,res));
     this.on('connect',(req,socket,head)=>this.onConnect(req,socket,head));
@@ -60,15 +60,20 @@ class Server extends http.Server {
   }
 
   onRequest(req,res) {
+    req.isAuthorized=false;
     const url=new URL(req.url,`http://${req.headers.host}`);
     const accepts=req.headers.accept
       ? req.headers.accept.split(/,\s*/)
       : ["text/plain"];
-    //if ('x-scrash-otp' in req.headers) {
-      //const otp=req.headers['x-scrash-otp'];
-      //if (! this.#clipboardOtpCache.has(otp)) {
-      //}
-    //}
+    if ('x-scrash-otp' in req.headers) {
+      const otp=req.headers['x-scrash-otp'];
+      if (! this.#otpCache.has(otp)) {
+        res.statusCode=401;
+        return res.end();
+      }
+      req.otpData=this.#otpCache.get(otp);
+      req.isAuthorized=true;
+    }
     switch(url.pathname) {
       case "/scr-about":
         for (const accept of accepts) {
@@ -316,9 +321,9 @@ class Server extends http.Server {
     const otp=SCR_ENV=="test"
       ? process.env.SCR_TEST_OTP
       : this.randomInteger(6);
-    const otpStream=new Otp(otp);
+    const otpStream=new ReadableString(otp);
     this.getClipboard().then(clipboard=>{
-      this.#clipboardOtpCache.add(otp,clipboard);
+      this.#otpCache.add(otp,clipboard);
       return this.setClipboard(otpStream)
     }).catch(e=>{
       res.statusCode=500;
@@ -360,20 +365,18 @@ class Server extends http.Server {
     });
   }
 
+  createReadStream(s) {
+    return new ReadableString(s);
+  }
+
   sendClipboard(req,res) {
-    const otp='x-scrash-otp' in req.headers
-      ? req.headers['x-scrash-otp']
-      : null;
     const errHandler=e=>{
       console.error("sendClipboard:",e.toString());
       res.statusCode=500;
       res.statusMessage=e.toString();
       res.end();
     };
-    if (! this.#clipboardOtpCache.has(otp)) {
-      return errHandler(new Error("invalid/missing OTP"));
-    }
-    this.setClipboard(this.#clipboardOtpCache.getStream(otp)).then(()=>{
+    this.setClipboard(this.createReadStream(req.otpData)).then(()=>{
       const paste_prog=this.getOsProgram(E_OS_PROG_ENUM.PASTE);
       const p=child_process.spawn(paste_prog[0],paste_prog.slice(1),
         {stdio:['ignore','pipe',process.stderr]});

@@ -12,7 +12,7 @@ fu ScrPasteClipboard(...)
   " paste contents of OS clipboard
   try
     " otp might have been passed as arg1, else prompt user for it
-    "call ScrSystemcaller("-ws-set-otp")
+    "call ScrSystemcaller("-ws-set-clipboard-otp")
     "if a:0==0
       "let l:otp=inputsecret("OTP? ")
     "else

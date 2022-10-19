@@ -1,6 +1,6 @@
 import {Readable} from 'stream';
 
-class Otp extends Readable {
+class ReadableString extends Readable {
   #otp;
   constructor(otp) {
     super({encoding:'utf8'});
@@ -13,4 +13,4 @@ class Otp extends Readable {
   }
 }
 
-export default Otp;
+export default ReadableString;
