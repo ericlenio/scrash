@@ -60,75 +60,111 @@ class Server extends http.Server {
   }
 
   onRequest(req,res) {
-    req.isAuthorized=false;
-    const url=new URL(req.url,`http://${req.headers.host}`);
-    const accepts=req.headers.accept
-      ? req.headers.accept.split(/,\s*/)
-      : ["text/plain"];
-    if ('x-scrash-otp' in req.headers) {
-      const otp=req.headers['x-scrash-otp'];
-      if (! this.#otpCache.has(otp)) {
-        res.statusCode=401;
-        return res.end();
-      }
-      req.otpData=this.#otpCache.get(otp);
-      req.isAuthorized=true;
-    }
-    switch(url.pathname) {
-      case "/scr-about":
-        for (const accept of accepts) {
-          switch(accept) {
-            case 'text/json':
-              res.setHeader('Content-Type',accept);
-              return res.end(`{"appName":"${SCR_APP_NAME}","version":"${SCR_VERSION}","configuration":"${SCR_ENV}","profile":"${SCR_PROFILE}"}\n`);
+    this.authorizeRequest(req).then(()=>{
+      const url=new URL(req.url,`http://${req.headers.host}`);
+      const accepts=req.headers.accept
+        ? req.headers.accept.split(/,\s*/)
+        : ["text/plain"];
+      switch(url.pathname) {
+        case "/scr-about":
+          for (const accept of accepts) {
+            switch(accept) {
+              case 'text/json':
+                res.setHeader('Content-Type',accept);
+                return res.end(`{"appName":"${SCR_APP_NAME}","version":"${SCR_VERSION}","configuration":"${SCR_ENV}","profile":"${SCR_PROFILE}"}\n`);
+            }
           }
-        }
-        res.setHeader('Content-Type',accepts[0]);
-        return res.end(`${SCR_APP_NAME} ${SCR_VERSION}, configuration ${SCR_ENV}, profile ${SCR_PROFILE}\n`);
-      case "/scr-get-bash-functions":
-        res.setHeader('Content-Type','application/x-shellscript');
-        return this.getBashFunctions(url,res);
-      //case "/scr-get-test-framework":
-        //return this.getTestFramework(url,res);
-      case "/scr-set-clipboard":
-        return this.setClipboardFromRequest(req,res);
-      case "/scr-set-otp":
-        return this.setOtp(req,res);
-      case "/scr-get-clipboard":
-        return this.sendClipboard(req,res);
-      //case "/scr-get-vimrc":
-        //return this.getVimrc(req,res);
-      case "/scr-hello-world":
-        return res.end("hello world\n");
-      case "/scr-shutdown":
-        return this.shutdown(res);
-      case "/scr-upload-file":
-        return this.uploadFile(req,res);
-      default:
-        res.statusCode=404;
-    }
-    res.end();
+          res.setHeader('Content-Type',accepts[0]);
+          return res.end(`${SCR_APP_NAME} ${SCR_VERSION}, configuration ${SCR_ENV}, profile ${SCR_PROFILE}\n`);
+        case "/scr-get-bash-functions":
+          res.setHeader('Content-Type','application/x-shellscript');
+          return this.getBashFunctions(url,res);
+        //case "/scr-get-test-framework":
+          //return this.getTestFramework(url,res);
+        case "/scr-set-clipboard":
+          return this.setClipboardFromRequest(req,res);
+        case "/scr-set-otp":
+          return this.setOtp(req,res);
+        case "/scr-get-clipboard":
+          return this.sendClipboard(req,res);
+        //case "/scr-get-vimrc":
+          //return this.getVimrc(req,res);
+        case "/scr-hello-world":
+          return res.end("hello world\n");
+        case "/scr-shutdown":
+          return this.shutdown(res);
+        case "/scr-upload-file":
+          return this.uploadFile(req,res);
+        default:
+          res.statusCode=404;
+      }
+      res.end();
+    }).catch(e=>{
+      console.error("onRequest:",e.toString());
+      res.statusCode=500;
+      res.statusMessage=e.toString();
+      res.end();
+    });
   }
 
   randomInteger(length=4) {
     return Math.floor(Math.pow(10,length-1)+Math.random()*(Math.pow(10,length)-Math.pow(10,length-1)-1));
   }
 
+  authorizeRequest(req) {
+    req.hasValidOtp=false;
+    if ('x-scrash-otp' in req.headers) {
+      const otp=req.headers['x-scrash-otp'];
+      if (this.#otpCache.has(otp)) {
+        const otpData=this.#otpCache.get(otp);
+        req.hasValidOtp=true;
+        if (otpData) {
+          return this.setClipboard(this.createReadStream(otpData));
+        }
+      }
+    }
+    return Promise.resolve();
+  }
+
   onConnect(req,socket,head) {
-    const url=new URL(req.url);
+    console.log("onConnect:",req.url)
+    const m=req.url.match(/^localhost-otp-(\d+):22/);
+    if (m) {
+      // nc cannot set HTTP headers, so we fake it
+      req.headers['x-scrash-otp']=m[1];
+      req.url="localhost:22";
+    }
     const response={
-      statusLine:`HTTP/1.0 200 ${SCR_APP_NAME} Connection Established`,
+      statusCode:200,
+      statusMessage:{
+        "200":"OK",
+        "401":"Unauthorized",
+        "500":"Internal Error",
+      },
+      statusLine:()=>`HTTP/1.0 ${response.statusCode} ${SCR_APP_NAME} ${response.statusMessage[response.statusCode]}`,
       headers:[],
-      toString:()=>response.statusLine+"\r\n"+response.headers.join("\r\n")+"\r\n",
+      toString:()=>response.statusLine()+"\r\n"+response.headers.join("\r\n")+"\r\n",
       send:cb=>socket.write(response.toString(),cb),
     };
-    socket.on('error',e=>console.error("onConnect socket:",e));
-    switch(req.url) {
-      case "localhost:22":
-        return this.onSshConnect(req,response);
-      case "localhost:1234":
-        return this.onFileUpload(req,socket,response);
-    }
+    this.authorizeRequest(req).then(()=>{
+      if (!req.hasValidOtp) {
+        response.statusCode=401;
+        return response.send();
+      }
+      socket.on('error',e=>console.error("onConnect socket:",e));
+      switch(req.url) {
+        case "localhost:22":
+          return this.onSshConnect(req,response);
+        //case "localhost:1234":
+          //return this.onFileUpload(req,socket,response);
+        default:
+          response.send();
+      }
+    }).catch(e=>{
+      console.error("onConnect:",e.toString());
+      response.statusCode=500;
+      response.send();
+    });
   }
   
   /*
@@ -376,16 +412,15 @@ class Server extends http.Server {
       res.statusMessage=e.toString();
       res.end();
     };
-    this.setClipboard(this.createReadStream(req.otpData)).then(()=>{
-      const paste_prog=this.getOsProgram(E_OS_PROG_ENUM.PASTE);
-      const p=child_process.spawn(paste_prog[0],paste_prog.slice(1),
-        {stdio:['ignore','pipe',process.stderr]});
-      p.on("error",errHandler);
-      const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
-      res.setHeader('Content-Type','text/plain');
-      res.setHeader('Content-Encoding','gzip');
-      p.stdout.pipe(gz).pipe(res);
-    }).catch(errHandler);
+    const paste_prog=this.getOsProgram(E_OS_PROG_ENUM.PASTE);
+    const p=child_process.spawn(paste_prog[0],paste_prog.slice(1),
+      {stdio:['ignore','pipe',process.stderr]});
+    p.on("error",errHandler);
+    const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
+    gz.on("error",errHandler);
+    res.setHeader('Content-Type','text/plain');
+    res.setHeader('Content-Encoding','gzip');
+    p.stdout.pipe(gz).pipe(res);
   }
 
   shutdown(res) {

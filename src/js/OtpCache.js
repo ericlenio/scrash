@@ -19,7 +19,7 @@ class OtpCache {
   }
 
   has(otp) {
-    return Boolean(this[otp]);
+    return Boolean(String(otp) in this);
   }
 
   /**
@@ -28,6 +28,9 @@ class OtpCache {
    * @returns {object}
    */
   get(otp) {
+    if (!(String(otp) in this)) {
+      return null;
+    }
     const data=this[otp];
     delete this[otp];
     clearTimeout(this.#timers[otp])
