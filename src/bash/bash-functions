@@ -631,6 +631,7 @@ ssh() {
 }
 
 -NOT-USED-ioloop() {
+  # based on idea from https://unix.stackexchange.com/a/227981
   local fifo="$1"
   if [ ! -e $fifo ]; then
     mkfifo -m 0600 "$fifo"
