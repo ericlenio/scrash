@@ -713,20 +713,15 @@ echo "${line[*]}" >&2
 # limitation: password cannot contain a colon because that is assumed to be the
 # delimiter here
 -pw() {
-  local pwkey="$1" delim=":" pwfile="$SCR_PASSWORD_FILE"
-  if [ ! -f "$pwfile" ]; then
-    echo "$FUNCNAME: no password file" >&2
-    return 1
+  local pwkey="$1"
+  shift
+  if otp=$(-ws-set-otp); then
+    -ws /scr-get-password -d "key=$pwkey" -H "X-Scrash-Otp: $otp" "$@"
   fi
-  [ -z "$pwkey" -a ! -t 0 ] && read pwkey
-  [ -z "$pwkey" ] && return 1
-  local pwline=$(gpg -qd "$pwfile" | grep -- "$pwkey$delim" | head -1)
-  [ -z "$pwline" ] && return 1
-  [[ "$pwline" =~ ([^$delim]+)$ ]] && echo "${BASH_REMATCH[1]}" || return 1
 }
 
 #
-# This function greps "ps" output for a given string (case insensetively);
+# This function greps "ps" output for a given string (case insensitively);
 # similar to pgrep
 #
 # If stdout is the tty, the output highlights the search string in red

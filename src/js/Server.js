@@ -7,6 +7,7 @@ import {default as fs,promises as fsPromises} from 'fs';
 import crypto from 'crypto';
 import net from 'net';
 import path from 'path';
+import readline from 'readline';
 //import pty from 'node-pty';
 import ReadableString from './ReadableString.js';
 import OtpCache from './OtpCache.js';
@@ -95,6 +96,8 @@ class Server extends http.Server {
           return this.shutdown(res);
         case "/scr-upload-file":
           return this.uploadFile(req,res);
+        case "/scr-get-password":
+          return this.getPassword(req,res);
         default:
           res.statusCode=404;
       }
@@ -479,6 +482,33 @@ class Server extends http.Server {
     });
   }
 
+  getPassword(req,res) {
+    const rl0=readline.createInterface({input:req});
+    rl0.on('line',line=>{
+      const m=line.match(/^key=(.*)$/);
+      if (!m) {
+        return errHandler(new Error("no password key"),400);
+      }
+      const key=m[1];
+      const p=child_process.spawn("gpg",['-qd'],
+        {stdio:['ignore','pipe',process.stderr]});
+      p.on("error",errHandler);
+      res.setHeader('Content-Type','text/plain');
+      p.stdout.setEncoding('utf8');
+      readline.createInterface({input:p.stdout}).on('line',line=>{
+        const lineArray=line.split(':');
+        if (lineArray[0]===key) {
+          res.write(lineArray[-1]);
+        }
+      }).on('close',()=>res.end());
+    });
+    const errHandler=(e,statusCode)=>{
+      console.error("getPassword:",e.toString());
+      res.statusCode=statusCode || 500;
+      res.statusMessage="something failed";
+      res.end();
+    };
+  }
 }
 
 export default Server;
