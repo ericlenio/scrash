@@ -19,6 +19,7 @@ const SCR_PROFILE=process.env.SCR_PROFILE || process.env.npm_package_config_SCR_
 const SCR_PROFILE_DIR=`${SCR_HOME}/profile/${SCR_PROFILE}`;
 const SCR_TMPDIR=process.env.SCR_TMPDIR || `/tmp/scr-${SCR_ENV}`;
 const SCR_APP_NAME=process.env.npm_package_name;
+const SCR_PASSWORD_FILE=process.env.SCR_PASSWORD_FILE || `${SCR_PROFILE_DIR}/passwords.gpg`;
 
 const E_OS_PROG_ENUM={
   COPY:{
@@ -52,6 +53,7 @@ class Server extends http.Server {
     this.on('request',(req,res)=>this.onRequest(req,res));
     this.on('connect',(req,socket,head)=>this.onConnect(req,socket,head));
     return fsPromises.readdir(SCR_PROFILE_DIR)
+      //.then(()=>this.initEnvironmentVariables())
       .then(()=>this.loadBashFunctions())
       .then(shellScript=>this.#shellScript=shellScript)
       .then(()=>this.loadVimPlugins())
@@ -483,32 +485,57 @@ class Server extends http.Server {
   }
 
   getPassword(req,res) {
-    const rl0=readline.createInterface({input:req});
-    rl0.on('line',line=>{
-      const m=line.match(/^key=(.*)$/);
-      if (!m) {
-        return errHandler(new Error("no password key"),400);
-      }
-      const key=m[1];
-      const p=child_process.spawn("gpg",['-qd'],
-        {stdio:['ignore','pipe',process.stderr]});
-      p.on("error",errHandler);
-      res.setHeader('Content-Type','text/plain');
-      p.stdout.setEncoding('utf8');
-      readline.createInterface({input:p.stdout}).on('line',line=>{
-        const lineArray=line.split(':');
-        if (lineArray[0]===key) {
-          res.write(lineArray[-1]);
-        }
-      }).on('close',()=>res.end());
-    });
     const errHandler=(e,statusCode)=>{
       console.error("getPassword:",e.toString());
-      res.statusCode=statusCode || 500;
-      res.statusMessage="something failed";
+      if (!res.headersSent) {
+        res.statusCode=statusCode || 500;
+        res.statusMessage="something failed";
+      }
       res.end();
     };
+    if (!req.hasValidOtp) {
+      return errHandler(new Error("Unauthorized"),401);
+    }
+    if (!SCR_PASSWORD_FILE) {
+      return errHandler(new Error("no value for SCR_PASSWORD_FILE"),404);
+    }
+    fs.access(SCR_PASSWORD_FILE,fs.constants.F_OK,e=>{
+      if (e) {
+        return errHandler(e);
+      }
+      readline.createInterface({input:req}).on('line',line=>{
+        const m=line.match(/^key=(.*)$/);
+        if (!m) {
+          return errHandler(new Error("no password key"),400);
+        }
+        const key=m[1];
+        const p=child_process.spawn("/usr/bin/env",['gpg','-qd',SCR_PASSWORD_FILE],
+          {stdio:['ignore','pipe',process.stderr]});
+        p.on("error",errHandler);
+        res.setHeader('Content-Type','text/plain');
+        readline.createInterface({input:p.stdout}).on('line',line=>{
+          const lineArray=line.split(':');
+          if (lineArray[0]===key) {
+            res.write(lineArray[lineArray.length-1]+"\n");
+          }
+        }).on('close',()=>res.end());
+      });
+    });
   }
+
+  /*
+  initEnvironmentVariables() {
+    if (!process.env.STY) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve,reject)=>{
+      const p=child_process.spawn("/usr/bin/env",['screen','-X','setenv','SCR_PASSWORD_FILE',SCR_PASSWORD_FILE],
+        {stdio:['ignore','ignore',process.stderr]});
+      p.on('exit',resolve);
+      p.on('error',reject);
+    });
+  }
+  */
 }
 
 export default Server;

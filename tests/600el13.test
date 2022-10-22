@@ -4,7 +4,7 @@ random_string() {
 }
 online() {
   host_str=$1
-  curl -f -s -I https://$host_str
+  curl -f -s -I https://$host_str >/dev/null
 }
 if [ $SCR_PROFILE = el13 ]; then
   s1=test-grep-string-here
@@ -49,4 +49,17 @@ if [ $SCR_PROFILE = el13 ]; then
   t5=$SCR_HOME/tests/test-certs
   [ -f "$t5" ]
   -openssl_s_client_show_certs "$t5"
+
+  SCR_PASSWORD_FILE=$SCR_HOME/profile/$SCR_PROFILE/passwords.gpg
+  [ -e "$SCR_PASSWORD_FILE" ]
+  pwkey="github.com"
+  github_pw=$(-pw "$pwkey")
+  [ ${#github_pw} -gt 0 ]
+  # this next one should fail because no OTP is given
+  if -ws /scr-get-password -d "key=$pwkey" 2>/dev/null; then
+    rc=$?
+  else
+    rc=$?
+  fi
+  [ $rc = 22 ]
 fi

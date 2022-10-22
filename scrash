@@ -40,10 +40,10 @@ while builtin getopts "hCp:P:s" opt; do
 done
 
 if [ $client_server_mode = 1 ]; then
+  export SCR_PASSWORD_FILE="$SCR_HOME/profile/$SCR_PROFILE/passwords.gpg"
   export SCR_TMPDIR=/tmp/scr-$SCR_ENV-$SCR_PORT
-  source $SCR_HOME/src/bash/bash-functions
-  source $SCR_HOME/profile/$SCR_PROFILE/bashrc
-  for rcfile in $SCR_HOME/profile/$SCR_PROFILE/{screenrc,bashrc,vimrc}; do
+  source "$SCR_HOME/src/bash/bash-functions"
+  for rcfile in "$SCR_HOME"/profile/$SCR_PROFILE/{screenrc,bashrc,vimrc}; do
     rcfile_base=$(basename $rcfile)
     if [ -f $rcfile ]; then
       printf -v funcdef -- "-%s() { cat %s; }" $rcfile_base $rcfile
@@ -52,11 +52,12 @@ if [ $client_server_mode = 1 ]; then
     fi
     eval -- "$funcdef"
   done
+  eval -- "$(-bashrc)"
   -vim-plugin-clipboard() {
-    cat $SCR_HOME/src/vim/clipboard.vim
+    cat "$SCR_HOME/src/vim/clipboard.vim"
   }
   -scr-server() {
-    npm start --prefix=$SCR_HOME -- -p $SCR_PORT
+    npm start --prefix="$SCR_HOME" -- -p $SCR_PORT
     echo "$FUNCNAME: server has stopped" >&2
     exec bash
   }
