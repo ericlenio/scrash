@@ -4,6 +4,10 @@ len=8
 r=$(-random-string $len)
 [ $len = ${#r} ]
 echo $r | -copy-to-clipboard
+if -ws /scr-get-clipboard --compressed 2>/dev/null; then
+  echo "access to clipboard without a OTP: expected HTTP 401" >&2
+  false
+fi
 r2=$(-clipboard)
 [ $r = $r2 ]
 # check that when copying from stdin that the last \n is chopped off

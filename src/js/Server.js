@@ -411,12 +411,15 @@ class Server extends http.Server {
   }
 
   sendClipboard(req,res) {
-    const errHandler=e=>{
+    const errHandler=(e,statusCode=500)=>{
       console.error("sendClipboard:",e.toString());
-      res.statusCode=500;
+      res.statusCode=statusCode;
       res.statusMessage=e.toString();
       res.end();
     };
+    if (!req.hasValidOtp) {
+      return errHandler(new Error("Unauthorized"),401);
+    }
     const paste_prog=this.getOsProgram(E_OS_PROG_ENUM.PASTE);
     const p=child_process.spawn(paste_prog[0],paste_prog.slice(1),
       {stdio:['ignore','pipe',process.stderr]});
