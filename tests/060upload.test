@@ -1,4 +1,8 @@
 # vim:filetype=bash
+-clear-cache
+[ "$SCR_SSH_USER" ]
+[ "$SCR_SSH_USER_KNOWN_HOSTS" ]
+[ ! -f "$SCR_SSH_USER_KNOWN_HOSTS" ]
 cd $SCR_TMPDIR
 -upload /etc/passwd
 [ $(-md5 /etc/passwd) = $(-md5 passwd) ]
@@ -12,3 +16,4 @@ basename=$(basename "$f")
 [ $(-md5 /etc/passwd) = $(-md5 "$basename") ]
 rm "$f"
 cd "$OLDPWD"
+[ -s "$SCR_SSH_USER_KNOWN_HOSTS" ]

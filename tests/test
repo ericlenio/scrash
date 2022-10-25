@@ -43,6 +43,7 @@ same as above, but also include test case file(s) matching on \"vim\":
   export SCR_PROFILE=${SCR_PROFILE:-$USER}
   export SCR_HOME="$npm_config_local_prefix"
   export SCR_TEST_OTP=123456
+  export SCR_SSH_USER=$USER
   trap -- -on-error ERR
   trap -- -on-exit EXIT
   shopt -s gnu_errfmt
@@ -70,6 +71,7 @@ same as above, but also include test case file(s) matching on \"vim\":
   # sessions)
   TEST_CLEANUP_FILE="$SCR_TMPDIR/cleanup"
   rm -f "$TEST_ERROR_FILE" "$TEST_CLEANUP_FILE"
+  export SCR_SSH_USER_KNOWN_HOSTS=$SCR_TMPDIR/ssh-$SCR_SSH_USER-known-hosts
 }
 
 -on-error() {

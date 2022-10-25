@@ -416,6 +416,7 @@ vim() {
     # able to create it
     vim --version >/dev/null
   fi
+  -sshtool-localhost-known-hosts
   # we pass along STY so that -ws calls can properly detect when to run
   # -screen-env
   sudo -H -u $user bash -c "STY='$STY' $bootstr"
@@ -670,21 +671,35 @@ echo "${line[*]}" >&2
   }
 }
 
+-sshtool-localhost-known-hosts() {
+  if [ ! -f "$SCR_SSH_USER_KNOWN_HOSTS" ]; then
+    -ws /scr-ssh-user-known-hosts > "$SCR_SSH_USER_KNOWN_HOSTS"
+  fi
+}
+
 -sshtool-localhost() {
   local sshtool=$1 otp
   shift
   if otp=$(-ws-set-otp); then
-    $sshtool -oProxyCommand="nc -X connect -x 127.0.0.1:$SCR_PORT localhost-otp-$otp 22" "$@"
+    -sshtool-localhost-known-hosts
+    cmd=(
+      $sshtool
+      -oProxyCommand="nc -X connect -x 127.0.0.1:$SCR_PORT localhost-otp-$otp 22"
+      -oUserKnownHostsFile="$SCR_SSH_USER_KNOWN_HOSTS"
+    )
+    "${cmd[@]}" "$@"
     #$sshtool -vvv -oProxyCommand="bash -c -- \"-ssh-proxy-command $otp\"" "$@"
+  else
+    return 1
   fi
 }
 
 -upload() {
   local upload_file="$1"
   if [ "$upload_file" ]; then
-    -sshtool-localhost scp localhost:"${upload_file// /\ }" .
+    -sshtool-localhost scp $SCR_SSH_USER@localhost:"${upload_file// /\ }" .
   else
-    -sshtool-localhost sftp localhost
+    -sshtool-localhost sftp $SCR_SSH_USER@localhost
   fi
 }
 
@@ -700,7 +715,7 @@ echo "${line[*]}" >&2
       return 1
     fi
   done
-  -sshtool-localhost scp "$@" localhost:/tmp
+  -sshtool-localhost scp "$@" $SCR_SSH_USER@localhost:/tmp
 }
 
 # -pw retrieves a password based on the given key, which can be supplied as arg

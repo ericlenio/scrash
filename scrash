@@ -3,6 +3,7 @@
 export SCR_PORT=4553
 export SCR_ENV=${SCR_ENV:=dev}
 export SCR_PROFILE=$USER
+export SCR_SSH_USER=$USER
 eval $(node -r fs -r path -e 'const h=path.join(fs.realpathSync(process.argv[1]),".."); const p=require(path.join(h,"package.json")); console.log(`export SCR_HOME="${h}" SCR_VERSION=${p.version}`);' -- $0)
 client_server_mode=0
 shell_init_args=()
@@ -42,6 +43,7 @@ done
 if [ $client_server_mode = 1 ]; then
   export SCR_PASSWORD_FILE="$SCR_HOME/profile/$SCR_PROFILE/passwords.gpg"
   export SCR_TMPDIR=/tmp/scr-$SCR_ENV-$SCR_PORT
+  export SCR_SSH_USER_KNOWN_HOSTS=$SCR_TMPDIR/ssh-$SCR_SSH_USER-known-hosts
   source "$SCR_HOME/src/bash/bash-functions"
   for rcfile in "$SCR_HOME"/profile/$SCR_PROFILE/{screenrc,bashrc,vimrc}; do
     rcfile_base=$(basename $rcfile)

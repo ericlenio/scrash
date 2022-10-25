@@ -20,6 +20,8 @@ const SCR_PROFILE_DIR=`${SCR_HOME}/profile/${SCR_PROFILE}`;
 const SCR_TMPDIR=process.env.SCR_TMPDIR || `/tmp/scr-${SCR_ENV}`;
 const SCR_APP_NAME=process.env.npm_package_name;
 const SCR_PASSWORD_FILE=process.env.SCR_PASSWORD_FILE || `${SCR_PROFILE_DIR}/passwords.gpg`;
+const SCR_SSH_USER=process.env.SCR_SSH_USER;
+const SCR_SSH_USER_KNOWN_HOSTS=process.env.SCR_SSH_USER_KNOWN_HOSTS;
 
 const E_OS_PROG_ENUM={
   COPY:{
@@ -100,6 +102,8 @@ class Server extends http.Server {
           return this.uploadFile(req,res);
         case "/scr-get-password":
           return this.getPassword(req,res);
+        case "/scr-ssh-user-known-hosts":
+          return this.getSshUserKnownHosts(req,res);
         default:
           res.statusCode=404;
       }
@@ -323,6 +327,8 @@ class Server extends http.Server {
       gz.write(`export SCR_ENV=${SCR_ENV}\n`);
       gz.write(`export SCR_VERSION=${SCR_VERSION}\n`);
       gz.write(`export SCR_TMPDIR=${SCR_TMPDIR}\n`);
+      gz.write(`export SCR_SSH_USER=${SCR_SSH_USER}\n`);
+      gz.write(`export SCR_SSH_USER_KNOWN_HOSTS=${SCR_SSH_USER_KNOWN_HOSTS}\n`);
       gz.write(`-shell-init -s ${start}\n`);
     }
     gz.end();
@@ -539,6 +545,48 @@ class Server extends http.Server {
     });
   }
   */
+
+  loadSshUserKnownHosts() {
+    return new Promise((resolve,reject)=>{
+      let userKnownHosts='';
+      const p=child_process.spawn("/usr/bin/env",['ssh-keyscan','-H','localhost'],
+        {stdio:['ignore','pipe',process.stderr]});
+      p.on('exit',(code,sig)=>(code>0 ? reject(new Error("ssh-keyscan non-zero return code")) : null));
+      p.on('error',reject);
+      readline.createInterface({input:p.stdout}).on('line',line=>{
+        if (line.match(/^#/)) {
+          return;
+        }
+        if (userKnownHosts.length>0) {
+          userKnownHosts+="\n";
+        }
+        userKnownHosts+=line;
+      }).on('close',()=>userKnownHosts.length==0 ? reject(new Error("no output from ssh-keyscan")) : resolve(userKnownHosts));
+    });
+
+  }
+
+  sendErrorResponse(res,e,statusCode=500) {
+    if (typeof(e)=='string') {
+      e=new Error(e);
+    }
+    // ignoring e.stack here, because it will not typically show the calling
+    // method (which is what I really want)
+    const stackTrace={};
+    Error.captureStackTrace(stackTrace);
+    console.error(e.toString(),stackTrace.stack);
+    if (!res.headersSent) {
+      res.statusCode=statusCode;
+      res.statusMessage="something failed";
+    }
+    res.end();
+  }
+
+  getSshUserKnownHosts(req,res) {
+    this.loadSshUserKnownHosts()
+      .then(userKnownHosts=>res.end(userKnownHosts))
+      .catch(e=>this.sendErrorResponse(res,e));
+  }
 }
 
 export default Server;

@@ -1,10 +1,14 @@
 # vim:filetype=bash
 -clear-cache
+[ "$SCR_SSH_USER" ]
+[ "$SCR_SSH_USER_KNOWN_HOSTS" ]
+[ ! -f "$SCR_SSH_USER_KNOWN_HOSTS" ]
 t1=$SCR_TMPDIR/t1
 len=1000
 -random-string $len > $t1
 [ -s $t1 ]
 -download $t1
+[ -s "$SCR_SSH_USER_KNOWN_HOSTS" ]
 [ -e /tmp/t1 ]
 [ $(-md5 $t1) = $(-md5 /tmp/t1) ]
 rm $t1
