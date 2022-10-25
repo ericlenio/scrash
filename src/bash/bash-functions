@@ -724,7 +724,7 @@ echo "${line[*]}" >&2
 # limitation: password cannot contain a colon because that is assumed to be the
 # delimiter here
 -pw() {
-  local opt OPTIND pwkey no_network=0 pw_line otp
+  local opt OPTIND pwkey no_network=0 pw_line otp pw n
   while builtin getopts "N" opt; do
     case $opt in
       (N) # handle edge case when server is not running
@@ -736,8 +736,11 @@ echo "${line[*]}" >&2
   pwkey="$1"
   shift
   if [ $no_network = 1 ]; then
-    IFS=: read -a pw_line <<<$(gpg -qd "$SCR_PASSWORD_FILE" | grep "$pwkey" | head -1)
-    echo "${pw_line[-1]}"
+    pw_line=$(gpg -qd "$SCR_PASSWORD_FILE" | grep "$pwkey" | head -1)
+    IFS=: builtin read -r -a pw_line <<<"$pw_line"
+    let n=${#pw_line[*]}
+    pw="${pw_line[$n-1]}"
+    echo "$pw"
   elif otp=$(-ws-set-otp); then
     -ws /scr-get-password -d "key=$pwkey" -H "X-Scrash-Otp: $otp" "$@"
   else

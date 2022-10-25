@@ -55,6 +55,9 @@ if [ $SCR_PROFILE = el13 ]; then
   pwkey="github.com"
   github_pw=$(-pw "$pwkey")
   [ ${#github_pw} -gt 0 ]
+  github_pw2=$(-pw -N "$pwkey")
+  [ ${#github_pw2} -gt 0 ]
+  [ "$github_pw" = "$github_pw2" ]
   # this next one should fail because no OTP is given
   if -ws /scr-get-password -d "key=$pwkey" 2>/dev/null; then
     rc=$?
