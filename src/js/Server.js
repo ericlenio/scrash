@@ -571,7 +571,8 @@ class Server extends http.Server {
       e=new Error(e);
     }
     // ignoring e.stack here, because it will not typically show the calling
-    // method (which is what I really want)
+    // method (which is what I really want); might want to switch to
+    // async/await: https://mathiasbynens.be/notes/async-stack-traces
     const stackTrace={};
     Error.captureStackTrace(stackTrace);
     console.error(e.toString(),stackTrace.stack);
