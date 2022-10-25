@@ -32,7 +32,7 @@ export -f v l c
 -totp() {
   local key_idx=${1:-0} otp key_id base32_key
   local key_ids=(
-    "TOTP Amazon Web Services:lenio@556585969992"
+    "TOTP Amazon Web Services"
     "TOTP LincWare OPS"
     "TOTP lw-401-main-st"
   )
@@ -41,10 +41,18 @@ export -f v l c
     echo "$FUNCNAME: could not acquire base32_key using key_idx=$key_idx" >&2
     return 1
   fi
-  base32_key=$(-pw "$key_id")
-  otp=$(oathtool --totp -b $base32_key)
-  printf "%s:%s\n" "$key_id" $otp
-  printf $otp | -copy-to-clipboard
+  if base32_key=$(-pw "$key_id"); then
+    if otp=$(oathtool --totp -b $base32_key); then
+      #printf "%s:%s\n" "$key_id" $otp
+      printf $otp | -copy-to-clipboard
+    else
+      echo "$FUNCNAME: oathtool failed key: $key_id" >&2
+      return 1
+    fi
+  else
+    echo "$FUNCNAME: failed to acquire secret for key: $key_id" >&2
+    return 1
+  fi
 }
 
 if [ "$SCR_HOME" ]; then

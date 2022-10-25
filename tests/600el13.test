@@ -65,4 +65,9 @@ if [ $SCR_PROFILE = el13 ]; then
     rc=$?
   fi
   [ $rc = 22 ]
+
+  -totp
+  otp=$(-clipboard)
+  [ ${#otp} -eq 6 ]
+  [[ "$otp" =~ ^[0-9]{6}$ ]]
 fi
