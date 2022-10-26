@@ -74,7 +74,6 @@ main() {
         exec bash
       }
       -clear-cache
-      read -p ok
       shell_init_args+=(-s $(-ssh-serialize-cmd screen bash -c -- -scr-server))
       ;;
     (test)
