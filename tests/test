@@ -1,5 +1,7 @@
 #! /usr/bin/env bash
-# this script launches the test cases
+# this script launches the test cases. Do not run this directly, it should be
+# launched by running "$SCR_HOME/scrash -t" because the scrash script will set
+# up the environment
 
 -usage() {
   echo "usage:
@@ -7,8 +9,6 @@ this help:
   npm test -- -h
 run all test cases:
   npm test
-run all test cases using a custom profile:
-  npm test -- -P my_profile
 run test cases for those test case files that match the word \"basic\":
   npm test -- -g basic
 same as above, but also include test case file(s) matching on \"vim\":
@@ -17,7 +17,7 @@ same as above, but also include test case file(s) matching on \"vim\":
 }
 
 -init() {
-  local opts="hg:P:" opt OPTIND
+  local opts="hg:" opt OPTIND
   set -eE
   # force "set -e" to be inherited with "export SHELLOPTS"
   export SHELLOPTS
@@ -30,20 +30,11 @@ same as above, but also include test case file(s) matching on \"vim\":
       (g)
         TEST_GROUPS="$OPTARG"
         ;;
-      (P)
-        SCR_PROFILE="$OPTARG"
-        ;;
     esac
   done
 
   TEST_SOURCE_FILE=''
   TEST_GROUPS=${TEST_GROUPS:=*}
-  export SCR_PORT=$((50000+$RANDOM % 10000))
-  export SCR_ENV=test
-  export SCR_PROFILE=${SCR_PROFILE:-$USER}
-  export SCR_HOME="$npm_config_local_prefix"
-  export SCR_TEST_OTP=123456
-  export SCR_SSH_USER=$USER
   trap -- -on-error ERR
   trap -- -on-exit EXIT
   shopt -s gnu_errfmt
@@ -71,7 +62,6 @@ same as above, but also include test case file(s) matching on \"vim\":
   # sessions)
   TEST_CLEANUP_FILE="$SCR_TMPDIR/cleanup"
   rm -f "$TEST_ERROR_FILE" "$TEST_CLEANUP_FILE"
-  export SCR_SSH_USER_KNOWN_HOSTS=$SCR_TMPDIR/ssh-$SCR_SSH_USER-known-hosts
 }
 
 -on-error() {

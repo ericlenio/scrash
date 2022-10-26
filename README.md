@@ -48,10 +48,7 @@ If the last line of output is `SUCCESS`, then all test cases (in theory) were
 successful.
 
 # Running
-Run `./scrash -s` to start both the server and client inside a new gnu screen
+Run `./scrash` to start both the server and client inside a new gnu screen
 session.
-
-Alternatively, start the server with `npm start`. Then in another window launch
-the client shell with `./scrash`.
 
 Run `./scrash -h` for other command line options.

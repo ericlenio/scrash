@@ -1,72 +1,99 @@
 #! /usr/bin/env bash
 
-export SCR_PORT=4553
-export SCR_ENV=${SCR_ENV:=dev}
-export SCR_PROFILE=$USER
-export SCR_SSH_USER=$USER
-eval $(node -r fs -r path -e 'const h=path.join(fs.realpathSync(process.argv[1]),".."); const p=require(path.join(h,"package.json")); console.log(`export SCR_HOME="${h}" SCR_VERSION=${p.version}`);' -- $0)
-client_server_mode=0
 shell_init_args=()
+mode=client_server
 
 usage() {
-  echo "Usage: $0 [-h][-C][-p port][-s][-P profile]
-Options:
+  echo "Usage: $0 [-h][-p port][-P profile][-t][-g test_groups]
+options:
 -h           this help
--C           clear the cache
 -p port      port number of the Server.js process, default is $SCR_PORT
 -s           client/server mode: start a server process inside a new gnu screen session
 -P profile   select a custom scrash profile, defaults to \$USER
+
+developer options:
+-t           test mode (runs all the test cases)
+-g           in test mode, specifies a particular test group to be run
 "
 }
 
-while builtin getopts "hCp:P:s" opt; do
-  case $opt in
-    (h)
-      usage
-      exit
-      ;;
-    (p)
-      SCR_PORT=$OPTARG
-      ;;
-    (P)
-      SCR_PROFILE=$OPTARG
-      ;;
-    (C)
-      shell_init_args+=(-C)
-      ;;
-    (s)
-      client_server_mode=1
-      ;;
-  esac
-done
-
-if [ $client_server_mode = 1 ]; then
+init() {
+  eval $(node -r fs -r path -e 'const h=path.join(fs.realpathSync(process.argv[1]),".."); const p=require(path.join(h,"package.json")); console.log(`export SCR_HOME="${h}" SCR_VERSION=${p.version}`);' -- $0)
+  export SCR_PORT=4553
+  export SCR_PROFILE=$USER
+  export SCR_SSH_USER=$USER
+  export SCR_ENV=${SCR_ENV:=dev}
+  while builtin getopts "hp:P:tg:" opt; do
+    case $opt in
+      (h)
+        usage
+        exit
+        ;;
+      (p)
+        SCR_PORT=$OPTARG
+        ;;
+      (P)
+        SCR_PROFILE=$OPTARG
+        ;;
+      (t)
+        mode=test
+        SCR_ENV=test
+        SCR_PORT=$((50000+$RANDOM % 10000))
+        export SCR_TEST_OTP=123456
+        ;;
+      (g)
+        test_groups="$OPTARG"
+        ;;
+    esac
+  done
   export SCR_PASSWORD_FILE="$SCR_HOME/profile/$SCR_PROFILE/passwords.gpg"
   export SCR_TMPDIR=/tmp/scr-$SCR_ENV-$SCR_PORT
   export SCR_SSH_USER_KNOWN_HOSTS=$SCR_TMPDIR/ssh-$SCR_SSH_USER-known-hosts
-  source "$SCR_HOME/src/bash/bash-functions"
-  for rcfile in "$SCR_HOME"/profile/$SCR_PROFILE/{screenrc,bashrc,vimrc}; do
-    rcfile_base=$(basename $rcfile)
-    if [ -f $rcfile ]; then
-      printf -v funcdef -- "-%s() { cat %s; }" $rcfile_base $rcfile
-    else
-      printf -v funcdef -- "-%s() { :; }" $rcfile_base
-    fi
-    eval -- "$funcdef"
-  done
-  eval -- "$(-bashrc)"
-  -vim-plugin-clipboard() {
-    cat "$SCR_HOME/src/vim/clipboard.vim"
-  }
-  -scr-server() {
-    npm start --prefix="$SCR_HOME" -- -p $SCR_PORT
-    echo "$FUNCNAME: server has stopped" >&2
-    exec bash
-  }
-  shell_init_args+=(-s $(-ssh-serialize-cmd screen bash -c -- -scr-server))
-else
-  shell_init_args+=(-s 1)
-  url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
-  eval -- "$(curl -S -f -s --compressed $url)"
-fi
--shell-init "${shell_init_args[@]}"
+}
+
+main() {
+  case $mode in
+    (client_server)
+      source "$SCR_HOME/src/bash/bash-functions"
+      for rcfile in "$SCR_HOME"/profile/$SCR_PROFILE/{screenrc,bashrc,vimrc}; do
+        rcfile_base=$(basename $rcfile)
+        if [ -f $rcfile ]; then
+          printf -v funcdef -- "-%s() { cat %s; }" $rcfile_base $rcfile
+        else
+          printf -v funcdef -- "-%s() { :; }" $rcfile_base
+        fi
+        eval -- "$funcdef"
+      done
+      eval -- "$(-bashrc)"
+      -vim-plugin-clipboard() {
+        cat "$SCR_HOME/src/vim/clipboard.vim"
+      }
+      -scr-server() {
+        npm start --prefix="$SCR_HOME" -- -p $SCR_PORT
+        echo "$FUNCNAME: server has stopped" >&2
+        exec bash
+      }
+      -clear-cache
+      read -p ok
+      shell_init_args+=(-s $(-ssh-serialize-cmd screen bash -c -- -scr-server))
+      ;;
+    (test)
+      cd $SCR_HOME
+      cmd=(exec ./tests/test)
+      if [ "$test_groups" ]; then
+        cmd+=(-g "$test_groups")
+      fi
+      "${cmd[@]}"
+      ;;
+    (*)
+      # client mode, not really used a lot
+      shell_init_args+=(-s 1)
+      url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
+      eval -- "$(curl -S -f -s --compressed $url)"
+      ;;
+  esac
+  -shell-init "${shell_init_args[@]}"
+}
+
+init "$@"
+main
