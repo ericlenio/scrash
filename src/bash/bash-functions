@@ -8,17 +8,12 @@
 }
 
 -vars() {
-  {
-    set | grep ^EDITOR
-    set | grep ^SCR
-    set | grep ^STY
-    set | grep ^VIM
-  } | sort
+  set | egrep '^(EDITOR|SCR|STY|VIM)' | sort
 }
 
 -clear-cache() {
   if [[ "$SCR_TMPDIR" =~ ^/tmp/ ]]; then
-    rm -rf $SCR_TMPDIR/*
+    rm -rf "$SCR_TMPDIR"/*
     echo "cleaned out $SCR_TMPDIR"
   fi
 }
@@ -684,11 +679,11 @@ echo "${line[*]}" >&2
     -sshtool-localhost-known-hosts
     cmd=(
       $sshtool
+      #-oProxyCommand="bash -c -- \"-ssh-proxy-command $otp\""
       -oProxyCommand="nc -X connect -x 127.0.0.1:$SCR_PORT localhost-otp-$otp 22"
       -oUserKnownHostsFile="$SCR_SSH_USER_KNOWN_HOSTS"
     )
     "${cmd[@]}" "$@"
-    #$sshtool -vvv -oProxyCommand="bash -c -- \"-ssh-proxy-command $otp\"" "$@"
   else
     return 1
   fi
