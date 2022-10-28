@@ -137,12 +137,14 @@ class Server extends http.Server {
 
   onConnect(req,socket,head) {
     console.log("onConnect:",req.url)
+    /*
     const m=req.url.match(/^localhost-otp-(\d+):22/);
     if (m) {
       // nc cannot set HTTP headers, so we fake it
       req.headers['x-scrash-otp']=m[1];
       req.url="localhost:22";
     }
+    */
     const response={
       statusCode:200,
       statusMessage:{

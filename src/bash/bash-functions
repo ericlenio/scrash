@@ -622,33 +622,22 @@ ssh() {
   fi
 }
 
--NOT-USED-ioloop() {
-  # based on idea from https://unix.stackexchange.com/a/227981
-  local fifo="$1"
-  if [ ! -e $fifo ]; then
-    mkfifo -m 0600 "$fifo"
-  fi
-  ( : <"$fifo" & )
-  exec >"$fifo" <"$fifo"
-}
-
--NOT-USED-ssh-proxy-command() {
-  local otp=$1 fifo=/tmp/f line status_code header
+-ssh-proxy-command() {
+  local otp=$1 line status_code header
+  #pcmd=(node -e 'process.stdin.pipe(process.stdout)')
+  pcmd=(perl -e 'BEGIN{$|=1}while(sysread(STDIN,$_,1)){print}')
   #-ioloop $fifo
   {
     printf "CONNECT localhost:22 HTTP/1.0\r\n"
     printf "X-Scrash-Otp: %s\r\n" $otp
     printf "\r\n"
-    #PERLIO=:raw perl -p -e 'printf STDERR "se0:%s\n",$_;printf $_'
-    #PERLIO=:raw perl -p -e 1
-    PERLIO=:raw perl -p -e 'BEGIN{$|=1}'
-    #-ioloop $fifo
+    exec "${pcmd[@]}"
   } | nc 127.0.0.1 $SCR_PORT | {
     read -a line
     status_code=${line[1]}
-echo "${line[*]}" >&2
+    echo "${line[*]}" >&2
     if [ "$status_code" != 200 ]; then
-      echo "${line[*]}" >&2
+      kill $$
       exit 1
     fi
     while read header; do
@@ -658,11 +647,7 @@ echo "${line[*]}" >&2
         echo "header:${#header}:$header" >&2
       fi
     done
-    echo "FINISHED headers" >&2
-    #PERLIO=:raw perl -p -e 'printf STDERR "se1:%s\n",$_;printf $_'
-    PERLIO=:raw perl -p -e 'BEGIN{$|=1}'
-    #PERLIO=:raw perl -p -e 1
-    #-ioloop $fifo
+    exec "${pcmd[@]}"
   }
 }
 
@@ -679,8 +664,9 @@ echo "${line[*]}" >&2
     -sshtool-localhost-known-hosts
     cmd=(
       $sshtool
-      #-oProxyCommand="bash -c -- \"-ssh-proxy-command $otp\""
-      -oProxyCommand="nc -X connect -x 127.0.0.1:$SCR_PORT localhost-otp-$otp 22"
+      -oConnectTimeout=10
+      -oProxyCommand="bash -c -- \"-ssh-proxy-command $otp\""
+      #-oProxyCommand="nc -X connect -x 127.0.0.1:$SCR_PORT localhost-otp-$otp 22"
       -oUserKnownHostsFile="$SCR_SSH_USER_KNOWN_HOSTS"
     )
     "${cmd[@]}" "$@"
