@@ -622,17 +622,33 @@ ssh() {
   fi
 }
 
+-stream() {
+  # stream stdin to stdout
+  local opt OPTIND cmd=(perl -e 'BEGIN{$|=1}while(sysread(STDIN,$_,1)){print}')
+  while builtin getopts "e" opt; do
+    case $opt in
+      (e)
+        cmd=(exec "${cmd[@]}")
+        ;;
+    esac
+  done
+  "${cmd[@]}"
+}
+
 -ssh-proxy-command() {
-  local otp=$1 line status_code header
-  #pcmd=(node -e 'process.stdin.pipe(process.stdout)')
-  pcmd=(perl -e 'BEGIN{$|=1}while(sysread(STDIN,$_,1)){print}')
-  #-ioloop $fifo
+  local otp=$1 line status_code header req_headers
+  req_headers=(
+    "CONNECT localhost:22 HTTP/1.0"
+    "X-Scrash-Otp: $otp"
+  )
   {
-    printf "CONNECT localhost:22 HTTP/1.0\r\n"
-    printf "X-Scrash-Otp: %s\r\n" $otp
+    for header in "${req_headers[@]}"; do
+      printf "%s\r\n" "$header"
+    done
     printf "\r\n"
-    exec "${pcmd[@]}"
+    -stream -e
   } | nc 127.0.0.1 $SCR_PORT | {
+    # consume the response headers first, then go into streaming mode
     read -a line
     status_code=${line[1]}
     echo "${line[*]}" >&2
@@ -647,7 +663,7 @@ ssh() {
         echo "header:${#header}:$header" >&2
       fi
     done
-    exec "${pcmd[@]}"
+    -stream -e
   }
 }
 
@@ -696,7 +712,7 @@ ssh() {
       return 1
     fi
   done
-  -sshtool-localhost scp "$@" $SCR_SSH_USER@localhost:/tmp
+  -sshtool-localhost scp "$@" $SCR_SSH_USER@$SCR_SSH_HOST:/tmp
 }
 
 # -pw retrieves a password based on the given key, which can be supplied as arg

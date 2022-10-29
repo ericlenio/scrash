@@ -22,6 +22,7 @@ init() {
   export SCR_PORT=4553
   export SCR_PROFILE=$USER
   export SCR_SSH_USER=$USER
+  export SCR_SSH_HOST=$(hostname)
   export SCR_ENV=${SCR_ENV:=dev}
   while builtin getopts "hp:P:tg:" opt; do
     case $opt in

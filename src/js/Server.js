@@ -21,6 +21,7 @@ const SCR_TMPDIR=process.env.SCR_TMPDIR || `/tmp/scr-${SCR_ENV}`;
 const SCR_APP_NAME=process.env.npm_package_name;
 const SCR_PASSWORD_FILE=process.env.SCR_PASSWORD_FILE || `${SCR_PROFILE_DIR}/passwords.gpg`;
 const SCR_SSH_USER=process.env.SCR_SSH_USER;
+const SCR_SSH_HOST=process.env.SCR_SSH_HOST;
 const SCR_SSH_USER_KNOWN_HOSTS=process.env.SCR_SSH_USER_KNOWN_HOSTS;
 
 const E_OS_PROG_ENUM={
@@ -150,6 +151,7 @@ class Server extends http.Server {
       statusMessage:{
         "200":"OK",
         "401":"Unauthorized",
+        "404":"Not Found",
         "500":"Internal Error",
       },
       statusLine:()=>`HTTP/1.0 ${response.statusCode} ${SCR_APP_NAME} ${response.statusMessage[response.statusCode]}`,
@@ -165,10 +167,14 @@ class Server extends http.Server {
       socket.on('error',e=>console.error("onConnect socket:",e));
       switch(req.url) {
         case "localhost:22":
-          return this.onSshConnect(req,response);
+          const m=req.url.match(/^([-\.\w]+):(\d+)$/);
+          const sshHost=m[1];
+          const sshPort=m[2];
+          return this.onSshConnect(req,response,sshHost,sshPort);
         //case "localhost:1234":
           //return this.onFileUpload(req,socket,response);
         default:
+          response.statusCode=404;
           response.send();
       }
     }).catch(e=>{
@@ -237,10 +243,14 @@ class Server extends http.Server {
   }
   */
 
-  onSshConnect(req,response) {
+  onSshConnect(req,response,sshHost,sshPort) {
     const socket=new net.Socket();
-    socket.on('error',e=>console.log("onSshConnect socket: "+e));
-    socket.connect(22,'127.0.0.1',()=>{
+    socket.on('error',e=>{
+      console.log("onSshConnect socket: "+e);
+      response.statusCode=500;
+      response.send();
+    });
+    socket.connect(sshPort,sshHost,()=>{
       response.send(()=>{
         socket.pipe(req.socket);
         req.socket.pipe(socket);
@@ -330,7 +340,11 @@ class Server extends http.Server {
       gz.write(`export SCR_VERSION=${SCR_VERSION}\n`);
       gz.write(`export SCR_TMPDIR=${SCR_TMPDIR}\n`);
       gz.write(`export SCR_SSH_USER=${SCR_SSH_USER}\n`);
+      gz.write(`export SCR_SSH_HOST=${SCR_SSH_HOST}\n`);
       gz.write(`export SCR_SSH_USER_KNOWN_HOSTS=${SCR_SSH_USER_KNOWN_HOSTS}\n`);
+      if (SCR_ENV==='test') {
+        gz.write(`export SCR_TEST_OTP=${process.env.SCR_TEST_OTP}\n`);
+      }
       gz.write(`-shell-init -s ${start}\n`);
     }
     gz.end();
@@ -367,7 +381,7 @@ class Server extends http.Server {
   }
 
   setOtp(req,res) {
-    const otp=SCR_ENV=="test"
+    const otp=SCR_ENV==="test"
       ? process.env.SCR_TEST_OTP
       : this.randomInteger(6);
     const otpStream=new ReadableString(otp);
@@ -551,7 +565,7 @@ class Server extends http.Server {
   loadSshUserKnownHosts() {
     return new Promise((resolve,reject)=>{
       let userKnownHosts='';
-      const p=child_process.spawn("/usr/bin/env",['ssh-keyscan','-H','localhost'],
+      const p=child_process.spawn("/usr/bin/env",['ssh-keyscan','-H',SCR_SSH_HOST],
         {stdio:['ignore','pipe',process.stderr]});
       p.on('exit',(code,sig)=>(code>0 ? reject(new Error("ssh-keyscan non-zero return code")) : null));
       p.on('error',reject);
