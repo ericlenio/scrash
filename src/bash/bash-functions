@@ -694,9 +694,9 @@ ssh() {
 -upload() {
   local upload_file="$1"
   if [ "$upload_file" ]; then
-    -sshtool-localhost scp $SCR_SSH_USER@localhost:"${upload_file// /\ }" .
+    -sshtool-localhost scp $SCR_SSH_USER@$SCR_SSH_HOST:"${upload_file// /\ }" .
   else
-    -sshtool-localhost sftp $SCR_SSH_USER@localhost
+    -sshtool-localhost sftp $SCR_SSH_USER@$SCR_SSH_HOST
   fi
 }
 

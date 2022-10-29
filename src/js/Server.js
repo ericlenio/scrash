@@ -66,6 +66,8 @@ class Server extends http.Server {
   }
 
   onRequest(req,res) {
+    req.on('error',e=>this.sendErrorResponse(res,e));
+    res.on('error',e=>this.sendErrorResponse(res,e));
     this.authorizeRequest(req).then(()=>{
       const url=new URL(req.url,`http://${req.headers.host}`);
       const accepts=req.headers.accept
@@ -83,7 +85,6 @@ class Server extends http.Server {
           res.setHeader('Content-Type',accepts[0]);
           return res.end(`${SCR_APP_NAME} ${SCR_VERSION}, configuration ${SCR_ENV}, profile ${SCR_PROFILE}\n`);
         case "/scr-get-bash-functions":
-          res.setHeader('Content-Type','application/x-shellscript');
           return this.getBashFunctions(url,res);
         //case "/scr-get-test-framework":
           //return this.getTestFramework(url,res);
@@ -99,8 +100,8 @@ class Server extends http.Server {
           return res.end("hello world\n");
         case "/scr-shutdown":
           return this.shutdown(res);
-        case "/scr-upload-file":
-          return this.uploadFile(req,res);
+        //case "/scr-upload-file":
+          //return this.uploadFile(req,res);
         case "/scr-get-password":
           return this.getPassword(req,res);
         case "/scr-ssh-user-known-hosts":
@@ -109,12 +110,7 @@ class Server extends http.Server {
           res.statusCode=404;
       }
       res.end();
-    }).catch(e=>{
-      console.error("onRequest:",e.toString());
-      res.statusCode=500;
-      res.statusMessage=e.toString();
-      res.end();
-    });
+    }).catch(e=>this.sendErrorResponse(res,e));
   }
 
   randomInteger(length=4) {
@@ -329,25 +325,29 @@ class Server extends http.Server {
   }
 
   getBashFunctions(url,res) {
-    res.writeHead(200,{'Content-Encoding':'gzip'});
-    const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
-    gz.pipe(res);
-    gz.write(this.#shellScript);
-    const start=url.searchParams.get('start');
-    if (start) {
-      gz.write(`export SCR_PORT=${url.port}\n`);
-      gz.write(`export SCR_ENV=${SCR_ENV}\n`);
-      gz.write(`export SCR_VERSION=${SCR_VERSION}\n`);
-      gz.write(`export SCR_TMPDIR=${SCR_TMPDIR}\n`);
-      gz.write(`export SCR_SSH_USER=${SCR_SSH_USER}\n`);
-      gz.write(`export SCR_SSH_HOST=${SCR_SSH_HOST}\n`);
-      gz.write(`export SCR_SSH_USER_KNOWN_HOSTS=${SCR_SSH_USER_KNOWN_HOSTS}\n`);
-      if (SCR_ENV==='test') {
-        gz.write(`export SCR_TEST_OTP=${process.env.SCR_TEST_OTP}\n`);
+    return new Promise((resolve,reject)=>{
+      const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
+      gz.on('error',reject);
+      res.setHeader('Content-Encoding','gzip');
+      res.setHeader('Content-Type','application/x-shellscript');
+      gz.pipe(res);
+      gz.write(this.#shellScript);
+      const start=url.searchParams.get('start');
+      if (start) {
+        gz.write(`export SCR_PORT=${url.port}\n`);
+        gz.write(`export SCR_ENV=${SCR_ENV}\n`);
+        gz.write(`export SCR_VERSION=${SCR_VERSION}\n`);
+        gz.write(`export SCR_TMPDIR=${SCR_TMPDIR}\n`);
+        gz.write(`export SCR_SSH_USER=${SCR_SSH_USER}\n`);
+        gz.write(`export SCR_SSH_HOST=${SCR_SSH_HOST}\n`);
+        gz.write(`export SCR_SSH_USER_KNOWN_HOSTS=${SCR_SSH_USER_KNOWN_HOSTS}\n`);
+        if (SCR_ENV==='test') {
+          gz.write(`export SCR_TEST_OTP=${process.env.SCR_TEST_OTP}\n`);
+        }
+        gz.write(`-shell-init -s ${start}\n`);
       }
-      gz.write(`-shell-init -s ${start}\n`);
-    }
-    gz.end();
+      gz.end(resolve);
+    });
   }
 
   getUserRcFile(rcfile) {
@@ -371,13 +371,8 @@ class Server extends http.Server {
   }
 
   setClipboardFromRequest(req,res) {
-    this.setClipboard(req)
-      .then(()=>res.end())
-      .catch(e=>{
-        res.statusCode=500;
-        res.statusMessage=e.toString();
-        res.end();
-      });
+    return this.setClipboard(req)
+      .then(()=>res.end());
   }
 
   setOtp(req,res) {
@@ -385,13 +380,10 @@ class Server extends http.Server {
       ? process.env.SCR_TEST_OTP
       : this.randomInteger(6);
     const otpStream=new ReadableString(otp);
-    this.getClipboard().then(clipboard=>{
+    return this.getClipboard().then(clipboard=>{
       this.#otpCache.add(otp,clipboard);
-      return this.setClipboard(otpStream)
-    }).catch(e=>{
-      res.statusCode=500;
-      res.statusMessage=e.toString();
-    }).finally(()=>res.end());
+      return this.setClipboard(otpStream).then(()=>res.end());
+    });
   }
 
   getClipboard() {
@@ -433,117 +425,109 @@ class Server extends http.Server {
   }
 
   sendClipboard(req,res) {
-    const errHandler=(e,statusCode=500)=>{
-      console.error("sendClipboard:",e.toString());
-      res.statusCode=statusCode;
-      res.statusMessage=e.toString();
-      res.end();
-    };
     if (!req.hasValidOtp) {
-      return errHandler(new Error("Unauthorized"),401);
+      return Promise.reject(new Error("Unauthorized"));
     }
-    const paste_prog=this.getOsProgram(E_OS_PROG_ENUM.PASTE);
-    const p=child_process.spawn(paste_prog[0],paste_prog.slice(1),
-      {stdio:['ignore','pipe',process.stderr]});
-    p.on("error",errHandler);
-    const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
-    gz.on("error",errHandler);
-    res.setHeader('Content-Type','text/plain');
-    res.setHeader('Content-Encoding','gzip');
-    p.stdout.pipe(gz).pipe(res);
+    return new Promise((resolve,reject)=>{
+      const paste_prog=this.getOsProgram(E_OS_PROG_ENUM.PASTE);
+      const p=child_process.spawn(paste_prog[0],paste_prog.slice(1),
+        {stdio:['ignore','pipe',process.stderr]});
+      p.on("error",reject);
+      const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
+      gz.on("error",reject);
+      res.setHeader('Content-Type','text/plain');
+      res.setHeader('Content-Encoding','gzip');
+      p.stdout.pipe(gz).pipe(res);
+      res.on('close',resolve);
+    });
   }
 
   shutdown(res) {
     if (SCR_ENV==='test') {
       res.end();
       process.nextTick(()=>process.exit(0));
-      return;
+      return Promise.resolve();
     }
     res.statusCode=401;
-    res.end();
+    const e=new Error("Unauthorized");
+    return Promise.reject(e);
   }
 
   /**
    * handles an uploaded file from the client (using the <code>-download</code>
    * bash function)
    */
+  /*
   uploadFile(req,res) {
-    const filename=req.headers['x-file-name'];
-    const md5=req.headers['x-file-md5'];
-    if (!filename || !md5) {
-      res.statusCode=400;
-      res.statusMessage="missing headers";
-      return res.end();
-    }
-    if (! /^[- \+\.\w\(\)%]+$/.test(filename)) {
-      res.statusCode=400;
-      res.statusMessage="illegal filename";
-      return res.end();
-    }
-    const endRequest=e=>{
-      res.statusCode=500;
-      res.end();
-    };
-    const localPath=`/tmp/${path.basename(filename)}`;
-    const hash=crypto.createHash('md5');
-    const stream=fs.createWriteStream(localPath);
-    let filesize=0;
-    stream.on('error',e=>console.log("uploadFile stream:",e));
-    stream.on('error',e=>endRequest(e));
-    req.on('error',e=>console.error("uploadFile req:",e));
-    req.on('error',e=>endRequest(e));
-    req.on('data',buf=>{
-      hash.update(buf,'utf8');
-      stream.write(buf,'utf8');
-      filesize+=buf.length;
-    });
-    req.on('end',()=>{
-      const localMd5=hash.digest('hex').toLowerCase();
-      if (md5===localMd5) {
-        console.log("wrote file:",localPath,`(${filesize} bytes)`);
-        return res.end();
+    return new Promise((resolve,reject)=>{
+      const filename=req.headers['x-file-name'];
+      const md5=req.headers['x-file-md5'];
+      if (!filename || !md5) {
+        const e=new Error("uploadFile: missing headers");
+        return reject(e);
       }
-      res.statusCode=500;
-      res.statusMessage=`md5 check failed for ${filename}`;
-      res.end();
+      if (! /^[- \+\.\w\(\)%]+$/.test(filename)) {
+        const e=new Error("uploadFile: illegal filename");
+        return reject(e);
+      }
+      const localPath=`/tmp/${path.basename(filename)}`;
+      const hash=crypto.createHash('md5');
+      const stream=fs.createWriteStream(localPath);
+      let filesize=0;
+      stream.on('error',e=>console.log("uploadFile stream:",e));
+      stream.on('error',reject);
+      req.on('error',e=>console.error("uploadFile req:",e));
+      req.on('error',reject);
+      req.on('data',buf=>{
+        hash.update(buf,'utf8');
+        stream.write(buf,'utf8');
+        filesize+=buf.length;
+      });
+      req.on('end',()=>{
+        const localMd5=hash.digest('hex').toLowerCase();
+        if (md5===localMd5) {
+          console.log("wrote file:",localPath,`(${filesize} bytes)`);
+          res.end();
+          return resolve();
+        }
+        const e=new Error(`uploadFile: md5 check failed for ${filename}`);
+        reject(e);
+      });
     });
   }
+  */
 
   getPassword(req,res) {
-    const errHandler=(e,statusCode)=>{
-      console.error("getPassword:",e.toString());
-      if (!res.headersSent) {
-        res.statusCode=statusCode || 500;
-        res.statusMessage="something failed";
-      }
-      res.end();
-    };
     if (!req.hasValidOtp) {
-      return errHandler(new Error("Unauthorized"),401);
+      res.statusCode=401;
+      return Promise.reject(new Error("Unauthorized"));
     }
     if (!SCR_PASSWORD_FILE) {
-      return errHandler(new Error("no value for SCR_PASSWORD_FILE"),404);
+      res.statusCode=404;
+      return Promise.reject(new Error("no value for SCR_PASSWORD_FILE"));
     }
-    fs.access(SCR_PASSWORD_FILE,fs.constants.F_OK,e=>{
-      if (e) {
-        return errHandler(e);
-      }
-      readline.createInterface({input:req}).on('line',line=>{
-        const m=line.match(/^key=(.*)$/);
-        if (!m) {
-          return errHandler(new Error("no password key"),400);
+    return new Promise((resolve,reject)=>{
+      fs.access(SCR_PASSWORD_FILE,fs.constants.F_OK,e=>{
+        if (e) {
+          return reject(e);
         }
-        const key=m[1];
-        const p=child_process.spawn("/usr/bin/env",['gpg','-qd',SCR_PASSWORD_FILE],
-          {stdio:['ignore','pipe',process.stderr]});
-        p.on("error",errHandler);
-        res.setHeader('Content-Type','text/plain');
-        readline.createInterface({input:p.stdout}).on('line',line=>{
-          const lineArray=line.split(':');
-          if (lineArray[0]===key) {
-            res.write(lineArray[lineArray.length-1]+"\n");
+        readline.createInterface({input:req}).on('line',line=>{
+          const m=line.match(/^key=(.*)$/);
+          if (!m) {
+            return reject(new Error("no password key"));
           }
-        }).on('close',()=>res.end());
+          const key=m[1];
+          const p=child_process.spawn("/usr/bin/env",['gpg','-qd',SCR_PASSWORD_FILE],
+            {stdio:['ignore','pipe',process.stderr]});
+          p.on("error",reject);
+          res.setHeader('Content-Type','text/plain');
+          readline.createInterface({input:p.stdout}).on('line',line=>{
+            const lineArray=line.split(':');
+            if (lineArray[0]===key) {
+              res.write(lineArray[lineArray.length-1]+"\n");
+            }
+          }).on('close',()=>res.end(resolve));
+        });
       });
     });
   }
@@ -600,9 +584,8 @@ class Server extends http.Server {
   }
 
   getSshUserKnownHosts(req,res) {
-    this.loadSshUserKnownHosts()
-      .then(userKnownHosts=>res.end(userKnownHosts))
-      .catch(e=>this.sendErrorResponse(res,e));
+    return this.loadSshUserKnownHosts()
+      .then(userKnownHosts=>res.end(userKnownHosts));
   }
 }
 
