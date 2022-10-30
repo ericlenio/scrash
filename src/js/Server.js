@@ -599,7 +599,7 @@ class Server extends http.Server {
       response.statusCode=500;
       response.send();
     });
-    socket.connect(process.env.SSH_AUTH_SOCK,()=>{
+    socket.connect(process.env.SCR_SSH_AUTH_SOCK,()=>{
       response.send(()=>{
         socket.pipe(req.socket);
         req.socket.pipe(socket);
