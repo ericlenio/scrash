@@ -23,6 +23,7 @@ const SCR_PASSWORD_FILE=process.env.SCR_PASSWORD_FILE || `${SCR_PROFILE_DIR}/pas
 const SCR_SSH_USER=process.env.SCR_SSH_USER;
 const SCR_SSH_HOST=process.env.SCR_SSH_HOST;
 const SCR_SSH_USER_KNOWN_HOSTS=process.env.SCR_SSH_USER_KNOWN_HOSTS;
+const SCR_SSH_AUTH_SOCK=process.env.SCR_SSH_AUTH_SOCK;
 
 const E_OS_PROG_ENUM={
   COPY:{
@@ -162,13 +163,15 @@ class Server extends http.Server {
       }
       socket.on('error',e=>console.error("onConnect socket:",e));
       switch(req.url) {
-        case "localhost:22":
+        case `${SCR_SSH_HOST}:22`:
           const m=req.url.match(/^([-\.\w]+):(\d+)$/);
           const sshHost=m[1];
           const sshPort=m[2];
           return this.onSshConnect(req,response,sshHost,sshPort);
         //case "localhost:1234":
           //return this.onFileUpload(req,socket,response);
+        case SCR_SSH_AUTH_SOCK:
+          return this.onSshAuthSockConnect(req,response);
         default:
           response.statusCode=404;
           response.send();
@@ -341,6 +344,7 @@ class Server extends http.Server {
         gz.write(`export SCR_SSH_USER=${SCR_SSH_USER}\n`);
         gz.write(`export SCR_SSH_HOST=${SCR_SSH_HOST}\n`);
         gz.write(`export SCR_SSH_USER_KNOWN_HOSTS=${SCR_SSH_USER_KNOWN_HOSTS}\n`);
+        gz.write(`export SCR_SSH_AUTH_SOCK=${SCR_SSH_AUTH_SOCK}\n`);
         if (SCR_ENV==='test') {
           gz.write(`export SCR_TEST_OTP=${process.env.SCR_TEST_OTP}\n`);
         }
@@ -586,6 +590,21 @@ class Server extends http.Server {
   getSshUserKnownHosts(req,res) {
     return this.loadSshUserKnownHosts()
       .then(userKnownHosts=>res.end(userKnownHosts));
+  }
+
+  onSshAuthSockConnect(req,response) {
+    const socket=new net.Socket();
+    socket.on('error',e=>{
+      console.log("onSshAuthSockConnect socket: "+e);
+      response.statusCode=500;
+      response.send();
+    });
+    socket.connect(process.env.SSH_AUTH_SOCK,()=>{
+      response.send(()=>{
+        socket.pipe(req.socket);
+        req.socket.pipe(socket);
+      });
+    });
   }
 }
 

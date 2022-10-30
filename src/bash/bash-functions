@@ -635,10 +635,10 @@ ssh() {
   "${cmd[@]}"
 }
 
--ssh-proxy-command() {
-  local otp=$1 line status_code header req_headers
+-http-proxy-connect() {
+  local otp=$1 connect_dest=$2 line status_code header req_headers
   req_headers=(
-    "CONNECT localhost:22 HTTP/1.0"
+    "CONNECT $connect_dest HTTP/1.0"
     "X-Scrash-Otp: $otp"
   )
   {
@@ -681,7 +681,7 @@ ssh() {
     cmd=(
       $sshtool
       -oConnectTimeout=10
-      -oProxyCommand="bash -c -- \"-ssh-proxy-command $otp\""
+      -oProxyCommand="bash -c -- \"-http-proxy-connect $otp $SCR_SSH_HOST:22\""
       #-oProxyCommand="nc -X connect -x 127.0.0.1:$SCR_PORT localhost-otp-$otp 22"
       -oUserKnownHostsFile="$SCR_SSH_USER_KNOWN_HOSTS"
     )
@@ -689,6 +689,54 @@ ssh() {
   else
     return 1
   fi
+}
+
+-ssh1() {
+  local SSH_AUTH_SOCK=/tmp/s1 fifo=/tmp/f
+  rm -f $SSH_AUTH_SOCK $fifo
+  mkfifo $fifo
+  if otp=$(-ws-set-otp); then
+    -sshtool-localhost-known-hosts
+    -http-proxy-connect $otp $SCR_SSH_AUTH_SOCK <$fifo | nc -l -U $SSH_AUTH_SOCK >$fifo &
+    while [ ! -S $SSH_AUTH_SOCK ]; do
+      sleep 0.2
+    done
+    ssh -oUserKnownHostsFile="$SCR_SSH_USER_KNOWN_HOSTS" $SCR_SSH_USER@$SCR_SSH_HOST hostname
+  else
+    return 1
+  fi
+}
+
+-ssh-auth-sock() {
+  local otp=$1 line status_code header req_headers
+  req_headers=(
+    "CONNECT SSH_AUTH_SOCK HTTP/1.0"
+    "X-Scrash-Otp: $otp"
+  )
+  {
+    for header in "${req_headers[@]}"; do
+      printf "%s\r\n" "$header"
+    done
+    printf "\r\n"
+    -stream -e
+  } | nc 127.0.0.1 $SCR_PORT | {
+    # consume the response headers first, then go into streaming mode
+    read -a line
+    status_code=${line[1]}
+    echo "${line[*]}" >&2
+    if [ "$status_code" != 200 ]; then
+      kill $$
+      exit 1
+    fi
+    while read header; do
+      if [ ${#header} -eq 1 ]; then
+        break
+      else
+        echo "header:${#header}:$header" >&2
+      fi
+    done
+    -stream -e
+  }
 }
 
 -upload() {
