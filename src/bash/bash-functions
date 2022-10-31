@@ -525,9 +525,15 @@ ssh() {
   "${cmd[@]}"
 }
 
+-create-otp() {
+  if [ $SCR_ENV = test ]; then
+    printf %06d $(($RANDOM+$RANDOM+$RANDOM+$RANDOM+$RANDOM))
+  fi
+}
+
 -ws-set-otp() {
-  local otp=$SCR_TEST_OTP erase_eol='\033[0K'
-  if -ws /scr-set-otp; then
+  local otp=$(-create-otp) erase_eol='\033[0K'
+  if -ws /scr-set-otp?otp=$otp; then
     if [ ${#otp} -eq 0 ]; then
       # using printf to display the prompt rather than "read -p ..." so that
       # this can work when running inside vim
@@ -674,7 +680,7 @@ ssh() {
 }
 
 -sshtool-localhost() {
-  local sshtool=$1 otp
+  local sshtool=$1 otp cmd
   shift
   if otp=$(-ws-set-otp); then
     -sshtool-localhost-known-hosts
@@ -693,7 +699,7 @@ ssh() {
 }
 
 -ssh-auth-sock() {
-  local SSH_AUTH_SOCK fifo umask
+  local SSH_AUTH_SOCK fifo umask otp
   if otp=$(-ws-set-otp); then
     umask=$(umask)
     umask 077

@@ -1,7 +1,6 @@
 import child_process from 'child_process';
 import http from 'http';
 import os from 'os';
-//import querystring from 'querystring';
 import zlib from 'zlib';
 import {default as fs,promises as fsPromises} from 'fs';
 import crypto from 'crypto';
@@ -381,7 +380,7 @@ class Server extends http.Server {
 
   setOtp(req,res) {
     const otp=SCR_ENV==="test"
-      ? process.env.SCR_TEST_OTP
+      ? new URL(req.url,`http://${req.headers.host}`).searchParams.get('otp')
       : this.randomInteger(6);
     const otpStream=new ReadableString(otp);
     return this.getClipboard().then(clipboard=>{

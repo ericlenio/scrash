@@ -5,21 +5,32 @@
 [ ! -f "$SCR_SSH_USER_KNOWN_HOSTS" ]
 t1=$SCR_TMPDIR/t1
 len=1000
+download_dir=/tmp
 -random-string $len > $t1
 [ -s $t1 ]
 -download $t1
 [ -s "$SCR_SSH_USER_KNOWN_HOSTS" ]
-[ -e /tmp/t1 ]
-[ $(-md5 $t1) = $(-md5 /tmp/t1) ]
-rm $t1
+[ -e $download_dir/t1 ]
+[ $(-md5 $t1) = $(-md5 $download_dir/t1) ]
+rm $download_dir/t1
+# test download under sudo user
+-s nobody -download $t1
+[ -s $download_dir/t1 ]
+[ $(-md5 $t1) = $(-md5 $download_dir/t1) ]
 # test file with space in the name
 t2="$SCR_TMPDIR/t2 file"
 -random-string $len > "$t2"
 [ -s "$t2" ]
 -download "$t2"
-downloaded_file=/tmp/$(basename "$t2")
+downloaded_file=$download_dir/$(basename "$t2")
 [ -e "$downloaded_file" ]
 [ $(-md5 "$t2") = $(-md5 "$downloaded_file") ]
+rm "$downloaded_file"
+# test file with space in the name, under sudo
+-s nobody -download "$t2"
+[ -e "$downloaded_file" ]
+[ $(-md5 "$t2") = $(-md5 "$downloaded_file") ]
+rm "$downloaded_file"
 rm "$t2"
 ! -download
 ! -download /no-such-file
