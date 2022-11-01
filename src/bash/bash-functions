@@ -449,7 +449,7 @@ vim() {
 ssh() {
   local SCR_PORT_FORWARD bootstr OPTIND \
     ssh_legal_opts="1246ab:c:e:fgi:kl:m:no:p:qstvxACD:E:F:GI:J:KL:MNO:PQ:R:S:TVw:W:XYy" \
-    opt ssh_user_host cmd=(env ssh) start=1 N_flag=0 rc cmdline_ssh_host
+    opt ssh_user_host cmd=(-ssh-auth-sock env ssh) start=1 N_flag=0 rc cmdline_ssh_host
   while builtin getopts $ssh_legal_opts opt; do
     #case $opt in
     #  f|N|M|V)
@@ -699,21 +699,42 @@ ssh() {
 }
 
 -ssh-auth-sock() {
-  local SSH_AUTH_SOCK fifo umask otp
+  local SSH_AUTH_SOCK fifo umask otp proxy_pid arg i
   if otp=$(-ws-set-otp); then
     umask=$(umask)
     umask 077
     SSH_AUTH_SOCK=$(mktemp -u)
     fifo=$(mktemp -u)
-    trap "trap - RETURN;umask $umask;rm -f $SSH_AUTH_SOCK $fifo;echo $FUNCNAME: unlink $SSH_AUTH_SOCK, $fifo >&2" RETURN
+    trap "trap - RETURN INT;umask $umask;rm -f $SSH_AUTH_SOCK $fifo;echo $FUNCNAME: unlink $SSH_AUTH_SOCK, $fifo >&2" RETURN
     mkfifo $fifo
     -http-proxy-connect $otp $SCR_SSH_AUTH_SOCK <$fifo | nc -l -U $SSH_AUTH_SOCK >$fifo &
+    proxy_pid=$!
+    trap "trap - INT;kill $proxy_pid;echo KILLED $proxy_pid >&2" INT
     sleep 0.1
     while [ ! -S $SSH_AUTH_SOCK ]; do
       sleep 0.1
     done
     umask $umask
+    #for ((i=0;i<$#;i++)); do
+      #arg="${!i}"
+      #case "$arg" in
+        #(ssh|scp|sftp)
+          #set -- "${@:1:$i}" -oPermitLocalCommand=yes -oLocalCommand="kill $proxy_pid" "${@:$i+1}"
+          #echo "cmd:$@" >&2
+          #break
+          #;;
+      #esac
+    #done
     SSH_AUTH_SOCK=$SSH_AUTH_SOCK "$@"
+    if kill -0 $proxy_pid 2>/dev/null; then
+      kill -KILL $proxy_pid
+    fi
+    if [ -S $SSH_AUTH_SOCK ]; then
+      echo "$FUNCNAME: warning: $SSH_AUTH_SOCK still exists" >&2
+    fi
+    if [ -e $fifo ]; then
+      echo "$FUNCNAME: warning: $fifo still exists" >&2
+    fi
   else
     return 1
   fi
