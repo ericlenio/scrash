@@ -699,42 +699,38 @@ ssh() {
 }
 
 -ssh-auth-sock() {
-  local SSH_AUTH_SOCK fifo umask otp proxy_pid arg i
+  local SSH_AUTH_SOCK fifo umask otp proxy_pid arg i rc
   if otp=$(-ws-set-otp); then
     umask=$(umask)
     umask 077
     SSH_AUTH_SOCK=$(mktemp -u)
     fifo=$(mktemp -u)
-    trap "trap - RETURN INT;umask $umask;rm -f $SSH_AUTH_SOCK $fifo;echo $FUNCNAME: unlink $SSH_AUTH_SOCK, $fifo >&2" RETURN
+    #trap "trap - RETURN;umask $umask;rm -f $SSH_AUTH_SOCK $fifo;echo $FUNCNAME: unlink $SSH_AUTH_SOCK, $fifo >&2" RETURN
     mkfifo $fifo
     -http-proxy-connect $otp $SCR_SSH_AUTH_SOCK <$fifo | nc -l -U $SSH_AUTH_SOCK >$fifo &
     proxy_pid=$!
-    trap "trap - INT;kill $proxy_pid;echo KILLED $proxy_pid >&2" INT
+    #trap "trap - INT;kill $proxy_pid;echo KILLED $proxy_pid >&2" INT
     sleep 0.1
     while [ ! -S $SSH_AUTH_SOCK ]; do
       sleep 0.1
     done
     umask $umask
-    #for ((i=0;i<$#;i++)); do
-      #arg="${!i}"
-      #case "$arg" in
-        #(ssh|scp|sftp)
-          #set -- "${@:1:$i}" -oPermitLocalCommand=yes -oLocalCommand="kill $proxy_pid" "${@:$i+1}"
-          #echo "cmd:$@" >&2
-          #break
-          #;;
-      #esac
-    #done
+    for ((i=0;i<$#;i++)); do
+      arg="${!i}"
+      case "$arg" in
+        (ssh|scp|sftp)
+          set -- "${@:1:$i}" -oPermitLocalCommand=yes -oLocalCommand="rm $SSH_AUTH_SOCK $fifo" "${@:$i+1}"
+          break
+          ;;
+      esac
+    done
     SSH_AUTH_SOCK=$SSH_AUTH_SOCK "$@"
+    rc=$?
     if kill -0 $proxy_pid 2>/dev/null; then
       kill -KILL $proxy_pid
     fi
-    if [ -S $SSH_AUTH_SOCK ]; then
-      echo "$FUNCNAME: warning: $SSH_AUTH_SOCK still exists" >&2
-    fi
-    if [ -e $fifo ]; then
-      echo "$FUNCNAME: warning: $fifo still exists" >&2
-    fi
+    rm -f $SSH_AUTH_SOCK $fifo
+    return $rc
   else
     return 1
   fi

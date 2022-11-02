@@ -116,7 +116,7 @@ same as above, but also include test case file(s) matching on \"vim\":
 
 -ssh-not-strict() {
   # confirm ssh-agent is running so we can automatically do some ssh stuff
-  if [ -z "$SSH_AUTH_SOCK" ]; then
+  if [ -z "$SCR_SSH_AUTH_SOCK" ]; then
     echo "$FUNCNAME: expected SSH_AUTH_SOCK to be set for password-less ssh" >&2
     return 1
   fi
