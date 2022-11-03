@@ -22,8 +22,12 @@ init() {
   export SCR_PORT=4553
   export SCR_PROFILE=$USER
   export SCR_SSH_USER=$USER
+  # force lowercase hostname for SCR_SSH_HOST because ssh-keyscan forces
+  # lowercase hostnames in it's output
   export SCR_SSH_HOST=$(hostname|tr "[:upper:]" "[:lower:]")
-  export SCR_SSH_AUTH_SOCK=$SSH_AUTH_SOCK
+  if [ "$SSH_AUTH_SOCK" ]; then
+    export SCR_SSH_AUTH_SOCK=$SSH_AUTH_SOCK
+  fi
   unset SSH_AUTH_SOCK
   export SCR_ENV=${SCR_ENV:=dev}
   while builtin getopts "hp:P:tg:" opt; do
@@ -42,7 +46,6 @@ init() {
         mode=test
         SCR_ENV=test
         SCR_PORT=$((50000+$RANDOM % 10000))
-        export SCR_TEST_OTP=123456
         ;;
       (g)
         test_groups="$OPTARG"

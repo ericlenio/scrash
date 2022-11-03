@@ -343,9 +343,8 @@ class Server extends http.Server {
         gz.write(`export SCR_SSH_USER=${SCR_SSH_USER}\n`);
         gz.write(`export SCR_SSH_HOST=${SCR_SSH_HOST}\n`);
         gz.write(`export SCR_SSH_USER_KNOWN_HOSTS=${SCR_SSH_USER_KNOWN_HOSTS}\n`);
-        gz.write(`export SCR_SSH_AUTH_SOCK=${SCR_SSH_AUTH_SOCK}\n`);
-        if (SCR_ENV==='test') {
-          gz.write(`export SCR_TEST_OTP=${process.env.SCR_TEST_OTP}\n`);
+        if (SCR_SSH_AUTH_SOCK) {
+          gz.write(`export SCR_SSH_AUTH_SOCK=${SCR_SSH_AUTH_SOCK}\n`);
         }
         gz.write(`-shell-init -s ${start}\n`);
       }
@@ -379,13 +378,16 @@ class Server extends http.Server {
   }
 
   setOtp(req,res) {
-    const otp=SCR_ENV==="test"
-      ? new URL(req.url,`http://${req.headers.host}`).searchParams.get('otp')
-      : this.randomInteger(6);
+    const otpLength=6;
+    let otp=this.randomInteger(otpLength);
+    while (this.#otpCache.has(otp)) {
+      otp=this.randomInteger(otpLength);
+    }
     const otpStream=new ReadableString(otp);
     return this.getClipboard().then(clipboard=>{
       this.#otpCache.add(otp,clipboard);
-      return this.setClipboard(otpStream).then(()=>res.end());
+      // in test mode, we send the OTP back to the requester
+      return this.setClipboard(otpStream).then(()=>res.end(SCR_ENV==='test' ? String(otp) : ""));
     });
   }
 

@@ -380,7 +380,7 @@ vim() {
     [ $clear_cache = 1 ] && -clear-cache
   fi
   eval -- "$(-bashrc)"
-  fcns=($(compgen -A function "-") screen ssh vim)
+  fcns=($(compgen -A function "-") screen ssh vim ssh-add scp sftp)
   if [ $declare_mode = 1 ]; then
     declare -f -- ${fcns[*]}
     return
@@ -444,6 +444,18 @@ vim() {
     start=1
   fi
   printf 'eval -- "$(curl --noproxy 127.0.0.1 -S -f -s --compressed http://127.0.0.1:%s/scr-get-bash-functions?start=%s)"' $remote_port $start
+}
+
+ssh-add() {
+  -ssh-auth-sock env $FUNCNAME "$@"
+}
+
+sftp() {
+  -ssh-auth-sock env $FUNCNAME "$@"
+}
+
+scp() {
+  -ssh-auth-sock env $FUNCNAME "$@"
 }
 
 ssh() {
@@ -525,26 +537,20 @@ ssh() {
   "${cmd[@]}"
 }
 
--create-otp() {
-  if [ $SCR_ENV = test ]; then
-    printf %06d $(($RANDOM+$RANDOM+$RANDOM+$RANDOM+$RANDOM))
-  fi
-}
-
 -ws-set-otp() {
-  local otp=$(-create-otp) erase_eol='\033[0K'
-  if -ws /scr-set-otp?otp=$otp; then
+  local otp erase_eol='\033[0K' otp_length=6
+  if otp=$(-ws /scr-set-otp); then
     if [ ${#otp} -eq 0 ]; then
       # using printf to display the prompt rather than "read -p ..." so that
       # this can work when running inside vim
       printf "${erase_eol}OTP? " >/dev/tty
-      read -n 6 otp </dev/tty
+      read -n $otp_length otp </dev/tty
     fi
   else
     echo "$FUNCNAME: failed to acquire OTP" >&2
     return 1
   fi
-  if ! [[ "$otp" =~ ^[0-9]+$ ]]; then
+  if ! [[ "$otp" =~ ^[0-9]{$otp_length}$ ]]; then
     echo "$FUNCNAME: bad OTP" >&2
     return 1
   fi
@@ -685,7 +691,6 @@ ssh() {
   if otp=$(-ws-set-otp); then
     -sshtool-localhost-known-hosts
     cmd=(
-      -ssh-auth-sock
       $sshtool
       -oConnectTimeout=10
       -oUserKnownHostsFile="$SCR_SSH_USER_KNOWN_HOSTS"
@@ -700,6 +705,10 @@ ssh() {
 
 -ssh-auth-sock() {
   local SSH_AUTH_SOCK fifo umask otp proxy_pid arg i rc
+  if [ -z "$SCR_SSH_AUTH_SOCK" ]; then
+    echo "$FUNCNAME: SCR_SSH_AUTH_SOCK is not set" >&2
+    return 1
+  fi
   if otp=$(-ws-set-otp); then
     umask=$(umask)
     umask 077
