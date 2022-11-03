@@ -634,31 +634,25 @@ ssh() {
   fi
 }
 
--stream() {
-  # stream stdin to stdout
-  local opt OPTIND cmd=(perl -e 'BEGIN{$|=1}while(sysread(STDIN,$_,1)){print}')
-  while builtin getopts "e" opt; do
-    case $opt in
-      (e)
-        cmd=(exec "${cmd[@]}")
-        ;;
-    esac
-  done
-  "${cmd[@]}"
-}
-
 -http-proxy-connect() {
   local otp=$1 connect_dest=$2 line status_code header req_headers
   req_headers=(
     "CONNECT $connect_dest HTTP/1.0"
     "X-Scrash-Otp: $otp"
   )
+  -stream() {
+    # stream stdin to stdout
+    local cmd=(exec perl -e 'BEGIN{$|=1}END{printf STDERR "BYE:'$1'\n"}while(sysread(STDIN,$_,1)){print}')
+    # attach last arg purely for debugging purposes when inspecting ps output
+    cmd+=(-- "$1")
+    "${cmd[@]}"
+  }
   {
     for header in "${req_headers[@]}"; do
       printf "%s\r\n" "$header"
     done
     printf "\r\n"
-    -stream -e
+    -stream nc-stdin-stream
   } | nc 127.0.0.1 $SCR_PORT | {
     # consume the response headers first, then go into streaming mode
     read -a line
@@ -675,7 +669,7 @@ ssh() {
         echo "header:${#header}:$header" >&2
       fi
     done
-    -stream -e
+    -stream nc-stdout-stream
   }
 }
 
@@ -712,7 +706,11 @@ ssh() {
   if otp=$(-ws-set-otp); then
     umask=$(umask)
     umask 077
-    SSH_AUTH_SOCK=$(mktemp -u)
+    if ! SSH_AUTH_SOCK=$(mktemp -u); then
+      echo "$FUNCNAME: failed to create temp $SSH_AUTH_SOCK" >&2
+      umask $umask
+      return 1
+    fi
     fifo=$(mktemp -u)
     #trap "trap - RETURN;umask $umask;rm -f $SSH_AUTH_SOCK $fifo;echo $FUNCNAME: unlink $SSH_AUTH_SOCK, $fifo >&2" RETURN
     mkfifo $fifo

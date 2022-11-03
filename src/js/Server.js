@@ -161,6 +161,9 @@ class Server extends http.Server {
         return response.send();
       }
       socket.on('error',e=>console.error("onConnect socket:",e));
+      if (head) {
+        socket.unshift(head);
+      }
       switch(req.url) {
         case `${SCR_SSH_HOST}:22`:
           const m=req.url.match(/^([-\.\w]+):(\d+)$/);
