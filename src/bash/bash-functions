@@ -673,7 +673,7 @@ while (chomp(my $hdr=readline($sock1))) {
 my $c;
 if (my $pid=fork) {
   while (1) {
-    my $n=sysread(STDIN,$c,1);
+    my $n=sysread(STDIN,$c,512);
     if ($n==0) {
       last;
     }
@@ -682,7 +682,7 @@ if (my $pid=fork) {
   kill("TERM",$pid);
 } else {
   while (1) {
-    my $n=sysread($sock1,$c,1);
+    my $n=sysread($sock1,$c,512);
     if ($n==0) {
       last;
     }
@@ -776,7 +776,7 @@ while (my $hdr=readline($sock1)) {
 # connect sockets bi-directionally
 if (my $pid=fork) {
   while (1) {
-    my $n=sysread($sock0,$_,1);
+    my $n=sysread($sock0,$_,512);
     if ($n==0) {
       last;
     }
@@ -785,7 +785,7 @@ if (my $pid=fork) {
   kill("TERM",$pid);
 } else {
   while (1) {
-    my $n=sysread($sock1,$_,1);
+    my $n=sysread($sock1,$_,512);
     if ($n==0) {
       exit(0);
     }
