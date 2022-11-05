@@ -634,43 +634,63 @@ ssh() {
   fi
 }
 
--http-proxy-connect() {
-  local otp=$1 connect_dest=$2 line status_code header req_headers
-  req_headers=(
-    "CONNECT $connect_dest HTTP/1.0"
-    "X-Scrash-Otp: $otp"
-  )
-  -stream() {
-    # stream stdin to stdout
-    local cmd=(exec perl -e 'BEGIN{$|=1}END{printf STDERR "BYE:'$1'\n"}while(sysread(STDIN,$_,1)){print}')
-    # attach last arg purely for debugging purposes when inspecting ps output
-    cmd+=(-- "$1")
-    "${cmd[@]}"
+-ssh-proxy-connect() {
+  local otp=$1 connect_dest=$2 pl_file
+  if ! pl_file=$(mktemp); then
+    echo "$FUNCNAME: mktemp failed" >&2
+    return 1
+  fi
+  echo '
+BEGIN {
+  $|=1;
+  unlink $0;
+}
+my ($SCR_PORT,$otp,$connect_dest)=@ARGV;
+
+my $sock1=IO::Socket::INET->new(
+  Proto=>"tcp",
+  Blocking=>1,
+  PeerAddr=>"127.0.0.1",
+  PeerPort=>$SCR_PORT) or die "Cannot create socket - $IO::Socket::errstr\n";
+#$sock1->autoflush(1);
+
+# send request headers
+$sock1->send(sprintf("CONNECT %s HTTP/1.0\r\n",$connect_dest));
+$sock1->send(sprintf("X-Scrash-Otp: %s\r\n",$otp));
+$sock1->send("\r\n");
+
+# read response headers
+chomp(my $status_line=readline($sock1));
+printf STDERR "%s\n",$status_line;
+while (chomp(my $hdr=readline($sock1))) {
+  if ($hdr eq "\r") {
+    last;
   }
-  {
-    for header in "${req_headers[@]}"; do
-      printf "%s\r\n" "$header"
-    done
-    printf "\r\n"
-    -stream nc-stdin-stream
-  } | nc 127.0.0.1 $SCR_PORT | {
-    # consume the response headers first, then go into streaming mode
-    read -a line
-    status_code=${line[1]}
-    echo "${line[*]}" >&2
-    if [ "$status_code" != 200 ]; then
-      kill $$
-      exit 1
-    fi
-    while read header; do
-      if [ ${#header} -eq 1 ]; then
-        break
-      else
-        echo "header:${#header}:$header" >&2
-      fi
-    done
-    -stream nc-stdout-stream
+  #printf STDERR "header:<%s>\n",$hdr;
+}
+
+# connect socket bi-directionally to stdin/stdout
+my $c;
+if (my $pid=fork) {
+  while (1) {
+    my $n=sysread(STDIN,$c,1);
+    if ($n==0) {
+      last;
+    }
+    print $sock1 $c;
   }
+  kill("TERM",$pid);
+} else {
+  while (1) {
+    my $n=sysread($sock1,$c,1);
+    if ($n==0) {
+      last;
+    }
+    print STDOUT $c;
+  }
+}
+' > $pl_file
+  exec perl -mIO::Socket $pl_file $SCR_PORT $otp $connect_dest
 }
 
 -sshtool-localhost-known-hosts() {
@@ -688,7 +708,7 @@ ssh() {
       $sshtool
       -oConnectTimeout=10
       -oUserKnownHostsFile="$SCR_SSH_USER_KNOWN_HOSTS"
-      -oProxyCommand="bash -c -- \"-http-proxy-connect $otp $SCR_SSH_HOST:22\""
+      -oProxyCommand="bash -c -- \"-ssh-proxy-connect $otp $SCR_SSH_HOST:22\""
       #-oProxyCommand="nc -X connect -x 127.0.0.1:$SCR_PORT localhost-otp-$otp 22"
     )
     "${cmd[@]}" "$@"
@@ -698,49 +718,104 @@ ssh() {
 }
 
 -ssh-auth-sock() {
-  local SSH_AUTH_SOCK fifo umask otp proxy_pid arg i rc
+  local SSH_AUTH_SOCK umask otp arg i rc pid pl_file
   if [ -z "$SCR_SSH_AUTH_SOCK" ]; then
     echo "$FUNCNAME: SCR_SSH_AUTH_SOCK is not set" >&2
     return 1
   fi
-  if otp=$(-ws-set-otp); then
-    umask=$(umask)
-    umask 077
-    if ! SSH_AUTH_SOCK=$(mktemp -u); then
-      echo "$FUNCNAME: failed to create temp $SSH_AUTH_SOCK" >&2
-      umask $umask
-      return 1
-    fi
-    fifo=$(mktemp -u)
-    #trap "trap - RETURN;umask $umask;rm -f $SSH_AUTH_SOCK $fifo;echo $FUNCNAME: unlink $SSH_AUTH_SOCK, $fifo >&2" RETURN
-    mkfifo $fifo
-    -http-proxy-connect $otp $SCR_SSH_AUTH_SOCK <$fifo | nc -l -U $SSH_AUTH_SOCK >$fifo &
-    proxy_pid=$!
-    #trap "trap - INT;kill $proxy_pid;echo KILLED $proxy_pid >&2" INT
-    sleep 0.1
-    while [ ! -S $SSH_AUTH_SOCK ]; do
-      sleep 0.1
-    done
-    umask $umask
-    for ((i=0;i<$#;i++)); do
-      arg="${!i}"
-      case "$arg" in
-        (ssh|scp|sftp)
-          set -- "${@:1:$i}" -oPermitLocalCommand=yes -oLocalCommand="rm $SSH_AUTH_SOCK $fifo" "${@:$i+1}"
-          break
-          ;;
-      esac
-    done
-    SSH_AUTH_SOCK=$SSH_AUTH_SOCK "$@"
-    rc=$?
-    if kill -0 $proxy_pid 2>/dev/null; then
-      kill -KILL $proxy_pid
-    fi
-    rm -f $SSH_AUTH_SOCK $fifo
-    return $rc
-  else
+  if ! otp=$(-ws-set-otp); then
     return 1
   fi
+  umask=$(umask)
+  umask 077
+  if ! SSH_AUTH_SOCK=$(mktemp -u); then
+    echo "$FUNCNAME: failed to create temp $SSH_AUTH_SOCK" >&2
+    umask $umask
+    return 1
+  fi
+  if ! pl_file=$(mktemp); then
+    echo "$FUNCNAME: failed to create pl_file" >&2
+    umask $umask
+    return 1
+  fi
+  echo '
+BEGIN {
+  $|=1;
+  unlink $0;
+}
+my ($SCR_PORT,$otp,$connect_dest,$SSH_AUTH_SOCK)=@ARGV;
+
+my $svr=IO::Socket::UNIX->new(
+  Listen=>1,
+  Local=>$SSH_AUTH_SOCK,
+) || die "IO::Socket error creating svr: $IO::Socket::errstr\n";
+
+my $sock0=$svr->accept();
+
+my $sock1=IO::Socket::INET->new(
+  Proto=>"tcp",
+  Blocking=>1,
+  PeerAddr=>"127.0.0.1",
+  PeerPort=>$SCR_PORT) or die "Cannot create socket - $IO::Socket::errstr\n";
+
+# send request headers
+$sock1->send(sprintf("CONNECT %s HTTP/1.0\r\n",$connect_dest));
+$sock1->send(sprintf("X-Scrash-Otp: %s\r\n",$otp));
+$sock1->send("\r\n");
+
+# read response headers
+chomp(my $status_line=readline($sock1));
+printf STDERR "%s\n",$status_line;
+while (my $hdr=readline($sock1)) {
+  if ($hdr eq "\r\n") {
+    last;
+  }
+  #printf STDERR "header:<%s>\n",$hdr;
+}
+
+# connect sockets bi-directionally
+if (my $pid=fork) {
+  while (1) {
+    my $n=sysread($sock0,$_,1);
+    if ($n==0) {
+      last;
+    }
+    print $sock1 $_;
+  }
+  kill("TERM",$pid);
+} else {
+  while (1) {
+    my $n=sysread($sock1,$_,1);
+    if ($n==0) {
+      exit(0);
+    }
+    print $sock0 $_;
+  }
+}
+' > $pl_file
+  perl -mIO::Socket $pl_file $SCR_PORT $otp $SCR_SSH_AUTH_SOCK $SSH_AUTH_SOCK &
+  pid=$!
+  for ((i=0;i<$#;i++)); do
+    arg="${!i}"
+    case "$arg" in
+      (ssh|scp|sftp)
+        set -- "${@:1:$i}" -oPermitLocalCommand=yes -oLocalCommand="rm -f $SSH_AUTH_SOCK" "${@:$i+1}"
+        break
+        ;;
+    esac
+  done
+  sleep 0.1
+  while [ ! -S $SSH_AUTH_SOCK ]; do
+    sleep 0.1
+  done
+  SSH_AUTH_SOCK=$SSH_AUTH_SOCK "$@"
+  rc=$?
+  rm -f $SSH_AUTH_SOCK
+  umask $umask
+  if kill -0 $pid 2>/dev/null; then
+    kill $pid
+  fi
+  return $rc
 }
 
 -upload() {
