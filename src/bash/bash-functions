@@ -640,6 +640,16 @@ ssh() {
     echo "$FUNCNAME: SCR_SSH_AUTH_SOCK is not set" >&2
     return 1
   fi
+  if [ ${SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION:-0} = 1 ]; then
+    echo "$FUNCNAME: force skip optimization" >&2
+  else
+    if [ -S $SCR_SSH_AUTH_SOCK ]; then
+      # optimization: skip proxy ssh auth socket logic because we are local to
+      # the scrash server
+      SSH_AUTH_SOCK=$SCR_SSH_AUTH_SOCK "$@"
+      return $?
+    fi
+  fi
   if ! otp=$(-ws-set-otp); then
     return 1
   fi

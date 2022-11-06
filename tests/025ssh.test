@@ -1,10 +1,16 @@
 -clear-cache
+export SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION=1
 if [ "$SCR_SSH_AUTH_SOCK" ]; then
-  #-ra ltc.admitplus.work hostname
-  #ssh localhost -download /etc/passwd
   hostname=$(ssh localhost hostname)
   [ "$hostname" ]
   [ "$hostname" = $(hostname) ]
+  ssh-add -l
+  rm -f /tmp/passwd
+  -download /etc/passwd
+  [ -f /tmp/passwd ]
+  [ $(-md5 /tmp/passwd) = $(-md5 /etc/passwd) ]
+  rm /tmp/passwd
 else
   echo 'WARNING: skipping tests, no value for $SCR_SSH_AUTH_SOCK' >&2
 fi
+SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION=0

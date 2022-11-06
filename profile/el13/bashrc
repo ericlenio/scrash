@@ -279,7 +279,7 @@ fi
       echo "$FUNCNAME: failed to read $endpoint" >&2
       return 1
     fi
-    IFS=$'\n' read -d '' -a agents <<< "$raw"
+    IFS=$'\n' read -d '' -a agents <<< "$raw" || true
 
     IFS='|' read -a header <<< "${agents[0]}"
 
@@ -339,7 +339,10 @@ fi
         echo "Passing extra params to ssh: $extra_params"
       fi
       if c=($(curl -k -f -s -S -b "$cookie_jar" -H "$ldap_auth_hdr" -H "X-Ra-Agent-Id: $raAgentId" $RA_SERVER_BASE_URL/ra-get-shell-ctx)); then
-        RA_SSH_USE_EVAL=1 SSH_STY_LBL=$raHostname ssh -t -oProxyJump=remoteadmin@$RA_SSH_PROXY_JUMP_HOST -p $raSshPort $extra_params "$@" $RA_SSH_USER@127.0.0.1 "${c[@]}" exec bash
+        if [ $# -eq 0 ]; then
+          set -- exec bash
+        fi
+        RA_SSH_USE_EVAL=1 SSH_STY_LBL=$raHostname ssh -a -t -oProxyJump=remoteadmin@$RA_SSH_PROXY_JUMP_HOST -p $raSshPort $extra_params $RA_SSH_USER@127.0.0.1 "${c[@]}" "$@"
       fi
       ;;
     psql)

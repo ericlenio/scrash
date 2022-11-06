@@ -34,7 +34,7 @@ same as above, but also include test case file(s) matching on \"vim\":
   done
 
   TEST_SOURCE_FILE=''
-  TEST_GROUPS=${TEST_GROUPS:=*}
+  TEST_GROUPS=${TEST_GROUPS:=.}
   trap -- -on-error ERR
   trap -- -on-exit EXIT
   shopt -s gnu_errfmt
@@ -131,7 +131,7 @@ same as above, but also include test case file(s) matching on \"vim\":
 -run-tests() {
   for TEST_SOURCE_FILE in $(find $(dirname $0) -name *.test | sort); do
     for test_group in $TEST_GROUPS; do
-      if [[ $TEST_SOURCE_FILE =~ $test_group ]]; then
+      if [[ $(basename $TEST_SOURCE_FILE) =~ $test_group ]]; then
         echo "START $TEST_SOURCE_FILE"
         source $TEST_SOURCE_FILE
         echo "END $TEST_SOURCE_FILE"

@@ -1,73 +1,89 @@
 # vim:filetype=bash
+if [ $SCR_PROFILE != el13 ]; then
+  return
+fi
 random_string() {
   echo $RANDOM-$RANDOM-$RANDOM-$RANDOM-$RANDOM
 }
 online() {
   host_str=$1
-  curl -f -s -I https://$host_str >/dev/null
+  curl -f -s -S -k -I https://$host_str >/dev/null
 }
-if [ $SCR_PROFILE = el13 ]; then
-  s1=test-grep-string-here
-  -grep $s1
-  -grep -w $s1
-  # strip off last char, now should not be grep-able on word boundary
-  ! -grep -w ${s1:0:${#s1}-1}
-  s2=$(random_string)
-  s3=$(random_string)
-  s4=$(random_string)
-  ! -grep $s2
-  # handle files with a space in the name
-  t1="$SCR_TMPDIR/t1 file"
-  echo "$s1" > "$t1"
-  # by default, -grep skips node_modules subdir, except when using -a so test
-  # that
-  t2="$SCR_TMPDIR/node_modules/t2"
-  mkdir -p $(dirname $t2)
-  echo "$s2" > "$t2"
-  t3="$SCR_TMPDIR/node_modules/t3 file"
-  echo "$s3" > "$t3"
-  cd $SCR_TMPDIR
-  -grep $s1
-  basename "$t1"
-  -grep $s1 | grep "$(basename \"$t1\")"
-  ! -grep $s2
-  -grep -a $s2
-  ! -grep $s3
-  -grep -a $s3
-  -grep -a $s3 | grep "$(basename \"$t3\")"
-  t4="$SCR_TMPDIR/my-pkg/node_modules/t4"
-  mkdir -p $(dirname $t4)
-  echo "$s4" > "$t4"
-  ! -grep $s4
-  -grep -a $s4
-  cd "$OLDPWD"
+s1=test-grep-string-here
+-grep $s1
+-grep -w $s1
+# strip off last char, now should not be grep-able on word boundary
+! -grep -w ${s1:0:${#s1}-1}
+s2=$(random_string)
+s3=$(random_string)
+s4=$(random_string)
+! -grep $s2
+# handle files with a space in the name
+t1="$SCR_TMPDIR/t1 file"
+echo "$s1" > "$t1"
+# by default, -grep skips node_modules subdir, except when using -a so test
+# that
+t2="$SCR_TMPDIR/node_modules/t2"
+mkdir -p $(dirname $t2)
+echo "$s2" > "$t2"
+t3="$SCR_TMPDIR/node_modules/t3 file"
+echo "$s3" > "$t3"
+cd $SCR_TMPDIR
+-grep $s1
+basename "$t1"
+-grep $s1 | grep "$(basename \"$t1\")"
+! -grep $s2
+-grep -a $s2
+! -grep $s3
+-grep -a $s3
+-grep -a $s3 | grep "$(basename \"$t3\")"
+t4="$SCR_TMPDIR/my-pkg/node_modules/t4"
+mkdir -p $(dirname $t4)
+echo "$s4" > "$t4"
+! -grep $s4
+-grep -a $s4
+cd "$OLDPWD"
 
-  ! -openssl_s_client_show_certs github.com
-  if online github.com:443; then
-    -openssl_s_client_show_certs github.com:443
-  fi
-  t5=$SCR_HOME/tests/test-certs
-  [ -f "$t5" ]
-  -openssl_s_client_show_certs "$t5"
+! -openssl_s_client_show_certs github.com
+if online github.com:443; then
+  -openssl_s_client_show_certs github.com:443
+fi
+t5=$SCR_HOME/tests/test-certs
+[ -f "$t5" ]
+-openssl_s_client_show_certs "$t5"
 
-  SCR_PASSWORD_FILE=$SCR_HOME/profile/$SCR_PROFILE/passwords.gpg
-  [ -e "$SCR_PASSWORD_FILE" ]
-  pwkey="github.com"
-  github_pw=$(-pw "$pwkey")
-  [ ${#github_pw} -gt 0 ]
-  github_pw2=$(-pw -N "$pwkey")
-  [ ${#github_pw2} -gt 0 ]
-  [ "$github_pw" = "$github_pw2" ]
-  # this next one should fail because no OTP is given
-  if -ws /scr-get-password -d "key=$pwkey" 2>/dev/null; then
-    rc=$?
-  else
-    rc=$?
-  fi
-  [ $rc = 22 ]
+SCR_PASSWORD_FILE=$SCR_HOME/profile/$SCR_PROFILE/passwords.gpg
+[ -e "$SCR_PASSWORD_FILE" ]
+pwkey="github.com"
+github_pw=$(-pw "$pwkey")
+[ ${#github_pw} -gt 0 ]
+github_pw2=$(-pw -N "$pwkey")
+[ ${#github_pw2} -gt 0 ]
+[ "$github_pw" = "$github_pw2" ]
+# this next one should fail because no OTP is given
+if -ws /scr-get-password -d "key=$pwkey" 2>/dev/null; then
+  rc=$?
+else
+  rc=$?
+fi
+[ $rc = 22 ]
 
-  -totp
-  otp=$(-clipboard)
-  [ ${#otp} -eq 6 ]
-  [[ "$otp" =~ ^[0-9]{6}$ ]]
+-totp
+otp=$(-clipboard)
+[ ${#otp} -eq 6 ]
+[[ "$otp" =~ ^[0-9]{6}$ ]]
+
+if [ "$RA_USER_PASSWORD_64" ] && online remoteadmin.private:3333; then
+  ra_host=ltc.admitplus.work
+  echo "testing remoteadmin simple command to $ra_host ..."
+  h=$(-ra $ra_host hostname)
+  [ "$h" ]
+  # h will have some banner stuff, so just check that it ends with the hostname
+  [[ "$h" =~ $ra_host[[:space:]]*$ ]]
+  rm -f /tmp/passwd
+  echo "testing remoteadmin file download from $ra_host ..."
+  -ra $ra_host bash -c -- "'-download /etc/passwd'"
+  [ -f /tmp/passwd ]
+else
+  echo "WARNING: skipping tests for remoteadmin" >&2
 fi
