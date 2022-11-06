@@ -411,7 +411,7 @@ vim() {
     # able to create it
     vim --version >/dev/null
   fi
-  -sshtool-localhost-known-hosts
+  -sxx-scr-server-known-hosts
   # we pass along STY so that -ws calls can properly detect when to run
   # -screen-env
   sudo -H -u $user bash -c "STY='$STY' $bootstr"
@@ -783,6 +783,10 @@ while (chomp(my $hdr=readline($sock1))) {
 # connect socket bi-directionally to stdin/stdout
 my $c;
 if (my $pid=fork) {
+  $SIG{HUP}=sub {
+    kill("HUP",$pid);
+    exit(0);
+  };
   while (1) {
     my $n=sysread(STDIN,$c,512);
     if ($n==0) {
@@ -804,19 +808,20 @@ if (my $pid=fork) {
   exec perl -mIO::Socket $pl_file $SCR_PORT $otp $connect_dest
 }
 
--sshtool-localhost-known-hosts() {
+-sxx-scr-server-known-hosts() {
   if [ ! -f "$SCR_SSH_USER_KNOWN_HOSTS" ]; then
     -ws /scr-ssh-user-known-hosts > "$SCR_SSH_USER_KNOWN_HOSTS"
   fi
 }
 
--sshtool-localhost() {
-  local sshtool=$1 otp cmd
+# run one of ssh, sftp, scp, etc. connecting back to the scrash server
+-sxx-scr-server() {
+  local sxx=$1 otp cmd
   shift
   if otp=$(-ws-set-otp); then
-    -sshtool-localhost-known-hosts
+    -sxx-scr-server-known-hosts
     cmd=(
-      $sshtool
+      $sxx
       -oConnectTimeout=10
       -oUserKnownHostsFile="$SCR_SSH_USER_KNOWN_HOSTS"
       -oProxyCommand="bash -c -- \"-ssh-proxy-connect $otp $SCR_SSH_HOST:22\""
@@ -831,9 +836,9 @@ if (my $pid=fork) {
 -upload() {
   local upload_file="$1"
   if [ "$upload_file" ]; then
-    -sshtool-localhost scp $SCR_SSH_USER@$SCR_SSH_HOST:"${upload_file// /\ }" .
+    -sxx-scr-server scp $SCR_SSH_USER@$SCR_SSH_HOST:"${upload_file// /\ }" .
   else
-    -sshtool-localhost sftp $SCR_SSH_USER@$SCR_SSH_HOST
+    -sxx-scr-server sftp $SCR_SSH_USER@$SCR_SSH_HOST
   fi
 }
 
@@ -849,7 +854,7 @@ if (my $pid=fork) {
       return 1
     fi
   done
-  -sshtool-localhost scp "$@" $SCR_SSH_USER@$SCR_SSH_HOST:/tmp
+  -sxx-scr-server scp "$@" $SCR_SSH_USER@$SCR_SSH_HOST:/tmp
 }
 
 # -pw retrieves a password based on the given key, which can be supplied as arg
