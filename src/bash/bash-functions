@@ -635,7 +635,7 @@ ssh() {
 }
 
 -ssh-auth-sock() {
-  local SSH_AUTH_SOCK umask otp arg i rc pid pl_file
+  local SSH_AUTH_SOCK umask otp arg i rc pid pl_file start=$SECONDS elapsed
   if [ -z "$SCR_SSH_AUTH_SOCK" ]; then
     echo "$FUNCNAME: SCR_SSH_AUTH_SOCK is not set" >&2
     return 1
@@ -685,12 +685,12 @@ my $sock1=IO::Socket::INET->new(
   PeerAddr=>"127.0.0.1",
   PeerPort=>$SCR_PORT) or die "Cannot create socket - $IO::Socket::errstr\n";
 
-# send request headers
+# send HTTP CONNECT request headers
 $sock1->send(sprintf("CONNECT %s HTTP/1.0\r\n",$connect_dest));
 $sock1->send(sprintf("X-Scrash-Otp: %s\r\n",$otp));
 $sock1->send("\r\n");
 
-# read response headers
+# read HTTP CONNECT response headers
 chomp(my $status_line=readline($sock1));
 printf STDERR "%s\n",$status_line;
 while (my $hdr=readline($sock1)) {
@@ -722,6 +722,15 @@ if (my $pid=fork) {
 ' > $pl_file
   perl -mIO::Socket $pl_file $SCR_PORT $otp $SCR_SSH_AUTH_SOCK $SSH_AUTH_SOCK &
   pid=$!
+  sleep 0.1
+  while [ ! -S $SSH_AUTH_SOCK ]; do
+    sleep 0.1
+    let elapsed=$SECONDS-$start
+    if [ $elapsed -ge 10 ]; then
+      echo "WARNING: $FUNCNAME failed to detect SSH_AUTH_SOCK, you may need to kill perl process $pid" >&2
+      break
+    fi
+  done
   for ((i=0;i<$#;i++)); do
     arg="${!i}"
     case "$arg" in
@@ -730,10 +739,6 @@ if (my $pid=fork) {
         break
         ;;
     esac
-  done
-  sleep 0.1
-  while [ ! -S $SSH_AUTH_SOCK ]; do
-    sleep 0.1
   done
   SSH_AUTH_SOCK=$SSH_AUTH_SOCK "$@"
   rc=$?
