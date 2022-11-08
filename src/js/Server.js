@@ -86,8 +86,6 @@ class Server extends http.Server {
           return res.end(`${SCR_APP_NAME} ${SCR_VERSION}, configuration ${SCR_ENV}, profile ${SCR_PROFILE}\n`);
         case "/scr-get-bash-functions":
           return this.getBashFunctions(url,res);
-        //case "/scr-get-test-framework":
-          //return this.getTestFramework(url,res);
         case "/scr-set-clipboard":
           return this.setClipboardFromRequest(req,res);
         case "/scr-set-otp":
@@ -267,45 +265,6 @@ class Server extends http.Server {
       return progtype[platform];
     }
   }
-
-  /*
-  getTestFramework(url,res) {
-    const files=[
-      "./tests/test-framework",
-      //"./tests/assertions",
-      //"./tests/gnu-screen-assertions",
-    ];
-    let shellScript='';
-    Promise.all(files.map(file=>fsPromises.readFile(file,'utf8')
-      .then(text=>shellScript+=text))).then(()=>{
-      res.writeHead(200,{'Content-Encoding':'gzip'});
-      const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
-      gz.write(`export SCR_PORT=${url.port}\n`);
-      gz.pipe(res);
-      gz.end(shellScript);
-    }).catch(e=>{
-      res.statusCode=500;
-      res.statusMessage=e.toString();
-      res.end();
-    });
-  }
-  */
-
-  /*
-  getVimrc(url,res) {
-    fsPromises.readFile("./src/vim/vimrc",'utf8')
-      .then(vimrc=>{
-        res.writeHead(200,{'Content-Encoding':'gzip'});
-        const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
-        gz.pipe(res);
-        gz.end(vimrc);
-      })
-      .catch(e=>{
-        res.statusCode=500;
-        res.end(e.toString());
-      });
-  }
-  */
 
   loadBashFunctions() {
     let shellScript="";
