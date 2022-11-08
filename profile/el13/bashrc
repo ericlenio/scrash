@@ -41,10 +41,11 @@ export -f v l c
     echo "$FUNCNAME: could not acquire base32_key using key_idx=$key_idx" >&2
     return 1
   fi
-  if base32_key=$(-pw "$key_id"); then
+  if base32_key=$(-pw -N "$key_id"); then
     if otp=$(oathtool --totp -b $base32_key); then
       #printf "%s:%s\n" "$key_id" $otp
       printf $otp | -copy-to-clipboard
+      echo "TOTP for \"$key_id\" was copied to the OS clipboard"
     else
       echo "$FUNCNAME: oathtool failed key: $key_id" >&2
       return 1
