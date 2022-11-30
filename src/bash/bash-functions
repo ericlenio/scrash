@@ -508,7 +508,7 @@ ssh() {
       cmdline_ssh_host=${ssh_user_host##*@}
       h=$cmdline_ssh_host
       [ "$SSH_STY_LBL" ] && h=$SSH_STY_LBL
-      [ "$STY" ] && printf "\033k$h\033\134"
+      [ "$STY" ] && printf "\033k$h\033\134" >/dev/tty
     else
       # display for forwarded port, might have a use for this someday
       printf "SCR_PORT_FORWARD=%s\n" $SCR_PORT_FORWARD
@@ -517,7 +517,7 @@ ssh() {
   "${cmd[@]}"
   rc=$?
   if [ $N_flag = 0 ]; then
-    [ "$STY" ] && printf "\033k${HOSTNAME}\033\134"
+    [ "$STY" ] && printf "\033k${HOSTNAME}\033\134" >/dev/tty
   fi
   return $rc
 }
