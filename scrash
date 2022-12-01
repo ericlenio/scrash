@@ -53,7 +53,7 @@ init() {
     esac
   done
   export SCR_PASSWORD_FILE="$SCR_HOME/profile/$SCR_PROFILE/passwords.gpg"
-  export SCR_TMPDIR=/tmp/scr-$SCR_ENV-$SCR_PORT
+  export SCR_TMPDIR=/tmp/scr-$USER-$SCR_ENV-$SCR_PORT
   export SCR_SSH_USER_KNOWN_HOSTS=$SCR_TMPDIR/ssh-$SCR_SSH_USER-$SCR_SSH_HOST-known-hosts
 }
 
