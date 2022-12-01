@@ -75,6 +75,10 @@ SCR_PORT1=$(-get-scr-port)
 [ $SCR_PORT != $SCR_PORT0 ]
 [ $SCR_PORT0 != $SCR_PORT1 ]
 
+# this is a test for running ssh inside gnu screen, and that any gnu screen
+# dynamic window title output from ssh does not get captured in stdout
+ans=$(-ssh-localhost -screen-pipe -u -S $session_id -- ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null localhost uname)
+[[ "$ans" = $(uname) ]]
 
 
 rm $t1
