@@ -635,7 +635,7 @@ ssh() {
 }
 
 -ssh-auth-sock() {
-  local SSH_AUTH_SOCK umask otp arg i rc pid pl_file start=$SECONDS elapsed
+  local SSH_AUTH_SOCK umask otp arg i rc pid perl_code start=$SECONDS elapsed
   if [ -z "$SCR_SSH_AUTH_SOCK" ]; then
     echo "$FUNCNAME: SCR_SSH_AUTH_SOCK is not set" >&2
     return 1
@@ -660,15 +660,9 @@ ssh() {
     umask $umask
     return 1
   fi
-  if ! pl_file=$(mktemp); then
-    echo "$FUNCNAME: failed to create pl_file" >&2
-    umask $umask
-    return 1
-  fi
-  echo '
+  perl_code='
 BEGIN {
   $|=1;
-  unlink $0;
 }
 my ($SCR_PORT,$otp,$connect_dest,$SSH_AUTH_SOCK)=@ARGV;
 
@@ -719,8 +713,8 @@ if (my $pid=fork) {
     print $sock0 $_;
   }
 }
-' > $pl_file
-  perl -mIO::Socket $pl_file $SCR_PORT $otp $SCR_SSH_AUTH_SOCK $SSH_AUTH_SOCK &
+'
+  perl -mIO::Socket -e "$perl_code" $SCR_PORT $otp $SCR_SSH_AUTH_SOCK $SSH_AUTH_SOCK &
   pid=$!
   sleep 0.1
   while [ ! -S $SSH_AUTH_SOCK ]; do
@@ -751,15 +745,10 @@ if (my $pid=fork) {
 }
 
 -ssh-proxy-connect() {
-  local otp=$1 connect_dest=$2 pl_file
-  if ! pl_file=$(mktemp); then
-    echo "$FUNCNAME: mktemp failed" >&2
-    return 1
-  fi
-  echo '
+  local otp=$1 connect_dest=$2 perl_code
+  perl_code='
 BEGIN {
   $|=1;
-  unlink $0;
 }
 my ($SCR_PORT,$otp,$connect_dest)=@ARGV;
 
@@ -809,8 +798,8 @@ if (my $pid=fork) {
     print STDOUT $c;
   }
 }
-' > $pl_file
-  exec perl -mIO::Socket $pl_file $SCR_PORT $otp $connect_dest
+'
+  exec perl -mIO::Socket -e "$perl_code" $SCR_PORT $otp $connect_dest
 }
 
 -sxx-scr-server-known-hosts() {
