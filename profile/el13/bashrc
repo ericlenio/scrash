@@ -443,7 +443,7 @@ fi
       fi
       host=${BASH_REMATCH[1]}
       port=${BASH_REMATCH[2]}
-      exec 0< <(echo | openssl s_client -showcerts -connect $host:$port 2>/dev/null)
+      exec 0< <(echo | openssl s_client -showcerts -servername $host -connect $host:$port 2>/dev/null)
     fi
   fi
   while read line; do
