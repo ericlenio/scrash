@@ -63,8 +63,8 @@ main() {
       source "$SCR_HOME/src/bash/bash-functions"
       for rcfile in "$SCR_HOME"/profile/$SCR_PROFILE/{screenrc,bashrc,vimrc}; do
         rcfile_base=$(basename $rcfile)
-        if [ -f $rcfile ]; then
-          printf -v funcdef -- "-%s() { cat %s; }" $rcfile_base $rcfile
+        if [ -f "$rcfile" ]; then
+          printf -v funcdef -- "-%s() { cat %s; }" $rcfile_base "$rcfile"
         else
           printf -v funcdef -- "-%s() { :; }" $rcfile_base
         fi
