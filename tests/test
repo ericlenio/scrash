@@ -112,6 +112,9 @@ same as above, but also include test case file(s) matching on \"vim\":
     . "$TEST_CLEANUP_FILE"
   fi
   curl -s http://127.0.0.1:$SCR_PORT/scr-shutdown
+  # node leaves terminal in odd state on Mac, so call stty sane
+  # https://github.com/nodejs/node/issues/41143
+  stty sane
 }
 
 -ssh-not-strict() {

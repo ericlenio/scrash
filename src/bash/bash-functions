@@ -366,11 +366,12 @@ vim() {
     # SCR_ENV is like node's NODE_ENV, we can use it to create a separate name
     # space for run time files and such
     export SCR_ENV=${SCR_ENV:-dev}
-    export SCR_TMPDIR=${SCR_TMPDIR:-/tmp/scr-$SCR_ENV}
+    export SCR_TMPDIR=/tmp/scr-${SUDO_USER:-$USER}-$SCR_ENV-$SCR_PORT_0
     export EDITOR=$SCR_TMPDIR/editor
     export SCR_VIMRC=$SCR_TMPDIR/vimrc
     export SCR_VIMRUNTIME=$SCR_TMPDIR/vim
     export SCR_SCREENRC=$SCR_TMPDIR/screenrc
+    export SCR_SSH_USER_KNOWN_HOSTS=$SCR_TMPDIR/ssh-$SCR_SSH_USER-$SCR_SSH_HOST-known-hosts
     export VIMINIT='source $SCR_VIMRC'
     # for sudo users, if they use vim and SHELL is /bin/false (or similar) then
     # rvim is used (at least on macos)
@@ -379,7 +380,9 @@ vim() {
     [ ! -d $SCR_TMPDIR ] && mkdir -p $SCR_TMPDIR
     [ $clear_cache = 1 ] && -clear-cache
   fi
-  eval -- "$(-bashrc)"
+  if [ "$(type -t -- -bashrc)" = function ]; then
+    eval -- "$(-bashrc)"
+  fi
   fcns=($(compgen -A function "-") screen ssh vim ssh-add scp sftp)
   if [ $declare_mode = 1 ]; then
     declare -f -- ${fcns[*]}
@@ -636,14 +639,10 @@ ssh() {
 
 -ssh-auth-sock() {
   local SSH_AUTH_SOCK umask otp arg i rc pid perl_code start=$SECONDS elapsed
-  if [ -z "$SCR_SSH_AUTH_SOCK" ]; then
-    echo "$FUNCNAME: SCR_SSH_AUTH_SOCK is not set" >&2
-    return 1
-  fi
   if [ ${SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION:-0} = 1 ]; then
     echo "$FUNCNAME: force skip optimization" >&2
   else
-    if [ -S $SCR_SSH_AUTH_SOCK ]; then
+    if [ -S "$SCR_SSH_AUTH_SOCK" ]; then
       # optimization: skip proxy ssh auth socket logic because we are local to
       # the scrash server
       SSH_AUTH_SOCK=$SCR_SSH_AUTH_SOCK "$@"
@@ -714,7 +713,7 @@ if (my $pid=fork) {
   }
 }
 '
-  perl -mIO::Socket -e "$perl_code" $SCR_PORT $otp $SCR_SSH_AUTH_SOCK $SSH_AUTH_SOCK &
+  perl -mIO::Socket -e "$perl_code" $SCR_PORT $otp SCR_SSH_AUTH_SOCK_REQUEST $SSH_AUTH_SOCK &
   pid=$!
   sleep 0.1
   while [ ! -S $SSH_AUTH_SOCK ]; do

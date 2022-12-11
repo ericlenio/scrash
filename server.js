@@ -5,9 +5,9 @@ if (!process.env.SCR_ENV) {
   process.env.SCR_ENV='dev';
 }
 
-const SCR_CHROOT_DIR="/var/scrash-chroot";
-const SCR_CHROOT_USER="nobody";
-const SCR_CHROOT_GROUP="nobody";
+//const SCR_CHROOT_DIR="/var/scrash-chroot";
+//const SCR_CHROOT_USER="nobody";
+//const SCR_CHROOT_GROUP="nobody";
 const DEFAULT_PORT=4553;
 let PORT=DEFAULT_PORT;
 let FIFO;

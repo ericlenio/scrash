@@ -16,12 +16,11 @@ const SCR_ENV=process.env.SCR_ENV || process.env.npm_package_config_SCR_ENV;
 const SCR_VERSION=process.env.npm_package_version;
 const SCR_PROFILE=process.env.SCR_PROFILE || process.env.npm_package_config_SCR_PROFILE;
 const SCR_PROFILE_DIR=`${SCR_HOME}/profile/${SCR_PROFILE}`;
-const SCR_TMPDIR=process.env.SCR_TMPDIR || `/tmp/scr-${SCR_ENV}`;
 const SCR_APP_NAME=process.env.npm_package_name;
+const SCR_PORT_0=process.env.SCR_PORT_0;
 const SCR_PASSWORD_FILE=process.env.SCR_PASSWORD_FILE || `${SCR_PROFILE_DIR}/passwords.gpg`;
 const SCR_SSH_USER=process.env.SCR_SSH_USER;
 const SCR_SSH_HOST=process.env.SCR_SSH_HOST;
-const SCR_SSH_USER_KNOWN_HOSTS=process.env.SCR_SSH_USER_KNOWN_HOSTS;
 const SCR_SSH_AUTH_SOCK=process.env.SCR_SSH_AUTH_SOCK;
 
 const E_OS_PROG_ENUM={
@@ -170,7 +169,7 @@ class Server extends http.Server {
           return this.onSshConnect(req,response,sshHost,sshPort);
         //case "localhost:1234":
           //return this.onFileUpload(req,socket,response);
-        case SCR_SSH_AUTH_SOCK:
+        case "SCR_SSH_AUTH_SOCK_REQUEST":
           return this.onSshAuthSockConnect(req,response);
         default:
           response.statusCode=404;
@@ -299,15 +298,11 @@ class Server extends http.Server {
       const start=url.searchParams.get('start');
       if (start) {
         gz.write(`export SCR_PORT=${url.port}\n`);
+        gz.write(`export SCR_PORT_0=${SCR_PORT_0}\n`);
         gz.write(`export SCR_ENV=${SCR_ENV}\n`);
         gz.write(`export SCR_VERSION=${SCR_VERSION}\n`);
-        gz.write(`export SCR_TMPDIR=${SCR_TMPDIR}\n`);
         gz.write(`export SCR_SSH_USER=${SCR_SSH_USER}\n`);
         gz.write(`export SCR_SSH_HOST=${SCR_SSH_HOST}\n`);
-        gz.write(`export SCR_SSH_USER_KNOWN_HOSTS=${SCR_SSH_USER_KNOWN_HOSTS}\n`);
-        if (SCR_SSH_AUTH_SOCK) {
-          gz.write(`export SCR_SSH_AUTH_SOCK=${SCR_SSH_AUTH_SOCK}\n`);
-        }
         gz.write(`-shell-init -s ${start}\n`);
       }
       gz.end(resolve);
@@ -411,9 +406,12 @@ class Server extends http.Server {
 
   shutdown(res) {
     if (SCR_ENV==='test') {
-      res.end();
-      process.nextTick(()=>process.exit(0));
-      return Promise.resolve();
+      return new Promise(resolve=>{
+        res.end(()=>{
+          process.nextTick(()=>process.exit(0));
+          resolve();
+        });
+      });
     }
     res.statusCode=401;
     const e=new Error("Unauthorized");
@@ -562,7 +560,7 @@ class Server extends http.Server {
       response.statusCode=500;
       response.send();
     });
-    socket.connect(process.env.SCR_SSH_AUTH_SOCK,()=>{
+    socket.connect(SCR_SSH_AUTH_SOCK,()=>{
       response.send(()=>{
         socket.pipe(req.socket);
         req.socket.pipe(socket);

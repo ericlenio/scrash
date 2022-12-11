@@ -53,18 +53,18 @@ init() {
     esac
   done
   export SCR_PASSWORD_FILE="$SCR_HOME/profile/$SCR_PROFILE/passwords.gpg"
-  export SCR_TMPDIR=/tmp/scr-$USER-$SCR_ENV-$SCR_PORT
-  export SCR_SSH_USER_KNOWN_HOSTS=$SCR_TMPDIR/ssh-$SCR_SSH_USER-$SCR_SSH_HOST-known-hosts
+  export SCR_PORT_0=$SCR_PORT
 }
 
 main() {
   case $mode in
     (client_server)
       source "$SCR_HOME/src/bash/bash-functions"
+      -shell-init -C
       for rcfile in "$SCR_HOME"/profile/$SCR_PROFILE/{screenrc,bashrc,vimrc}; do
         rcfile_base=$(basename $rcfile)
         if [ -f "$rcfile" ]; then
-          printf -v funcdef -- "-%s() { cat %s; }" $rcfile_base "$rcfile"
+          printf -v funcdef -- "-%s() { cat '%s'; }" $rcfile_base "$rcfile"
         else
           printf -v funcdef -- "-%s() { :; }" $rcfile_base
         fi
@@ -79,7 +79,6 @@ main() {
         echo "$FUNCNAME: server has stopped" >&2
         exec bash
       }
-      -clear-cache
       shell_init_args+=(-s $(-ssh-serialize-cmd screen bash -c -- -scr-server))
       ;;
     (test)
