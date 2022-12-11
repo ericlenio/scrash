@@ -553,11 +553,11 @@ ssh() {
     echo "$FUNCNAME: failed to acquire OTP" >&2
     return 1
   fi
-  if ! [[ "$otp" =~ ^[0-9]{$otp_length}$ ]]; then
-    echo "$FUNCNAME: bad OTP" >&2
-    return 1
-  fi
-  echo $otp
+  #if ! [[ "$otp" =~ ^[0-9]{$otp_length}$ ]]; then
+    #echo "$FUNCNAME: bad OTP" >&2
+    #return 1
+  #fi
+  echo -n "$otp" | openssl enc -a -A
 }
 
 # fetches clipboard contents
@@ -637,6 +637,10 @@ ssh() {
   fi
 }
 
+#
+# take a ssh|scp|sftp command and add arguments to it such that it can
+# authenticate with ssh-agent running on the scrash server
+#
 -ssh-auth-sock() {
   local SSH_AUTH_SOCK umask otp arg i rc pid perl_code start=$SECONDS elapsed
   if [ ${SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION:-0} = 1 ]; then
@@ -713,7 +717,7 @@ if (my $pid=fork) {
   }
 }
 '
-  perl -mIO::Socket -e "$perl_code" $SCR_PORT $otp SCR_SSH_AUTH_SOCK_REQUEST $SSH_AUTH_SOCK &
+  perl -mIO::Socket -e "$perl_code" $SCR_PORT "$otp" SCR_SSH_AUTH_SOCK_REQUEST $SSH_AUTH_SOCK &
   pid=$!
   sleep 0.1
   while [ ! -S $SSH_AUTH_SOCK ]; do
@@ -744,7 +748,7 @@ if (my $pid=fork) {
 }
 
 -ssh-proxy-connect() {
-  local otp=$1 connect_dest=$2 perl_code
+  local otp="$1" connect_dest=$2 perl_code
   perl_code='
 BEGIN {
   $|=1;
@@ -798,7 +802,7 @@ if (my $pid=fork) {
   }
 }
 '
-  exec perl -mIO::Socket -e "$perl_code" $SCR_PORT $otp $connect_dest
+  exec perl -mIO::Socket -e "$perl_code" $SCR_PORT "$otp" $connect_dest
 }
 
 -sxx-scr-server-known-hosts() {

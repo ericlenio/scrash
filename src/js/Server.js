@@ -110,14 +110,20 @@ class Server extends http.Server {
     }).catch(e=>this.sendErrorResponse(res,e));
   }
 
-  randomInteger(length=4) {
-    return Math.floor(Math.pow(10,length-1)+Math.random()*(Math.pow(10,length)-Math.pow(10,length-1)-1));
+  randomString(length=4) {
+    let result='';
+    const characters='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789~!@#$%^&*()-_=+;:,<.>/?\'"\\';
+    const charactersLength = characters.length;
+    for (let i=0;i<length;i++) {
+      result+=characters.charAt(Math.floor(Math.random() * charactersLength));
+    }
+    return result;
   }
 
   authorizeRequest(req) {
     req.hasValidOtp=false;
-    if ('x-scrash-otp' in req.headers) {
-      const otp=req.headers['x-scrash-otp'];
+    if ('x-scrash-otp' in req.headers && req.headers['x-scrash-otp']) {
+      const otp=Buffer.from(req.headers['x-scrash-otp'],'base64').toString();
       if (this.#otpCache.has(otp)) {
         const otpData=this.#otpCache.get(otp);
         req.hasValidOtp=true;
@@ -191,7 +197,7 @@ class Server extends http.Server {
       let uploadFile;
       const accessCode=process.env.SCR_ENV=='test'
         ? 'test'
-        : this.randomInteger(4);
+        : this.randomString(4);
       socket.on('data',buf=>{
         readLines+=buf;
         // see if user specified the upload file directly, and access code
@@ -336,9 +342,9 @@ class Server extends http.Server {
 
   setOtp(req,res) {
     const otpLength=6;
-    let otp=this.randomInteger(otpLength);
+    let otp=this.randomString(otpLength);
     while (this.#otpCache.has(otp)) {
-      otp=this.randomInteger(otpLength);
+      otp=this.randomString(otpLength);
     }
     const otpStream=new ReadableString(otp);
     return this.getClipboard().then(clipboard=>{
