@@ -637,6 +637,67 @@ ssh() {
   fi
 }
 
+# we use perl to handle proxy connections back to the scrash server; this bash
+# function acts as the perl source
+-perl-proxying-subroutines() {
+echo '
+use IO::Socket;
+sub create_proxy_socket {
+  my ($SCR_PORT,$otp,$connect_dest)=@_;
+  my $socket=IO::Socket::INET->new(
+    Proto=>"tcp",
+    Blocking=>1,
+    PeerAddr=>"127.0.0.1",
+    PeerPort=>$SCR_PORT) or die "Cannot create socket - $IO::Socket::errstr\n";
+  #$socket->autoflush(1);
+
+  # send request headers
+  $socket->send(sprintf("CONNECT %s HTTP/1.0\r\n",$connect_dest));
+  $socket->send(sprintf("X-Scrash-Otp: %s\r\n",$otp));
+  $socket->send("\r\n");
+
+  # read response headers
+  chomp(my $status_line=readline($socket));
+  printf STDERR "%s\n",$status_line;
+  while (chomp(my $hdr=readline($socket))) {
+    if ($hdr eq "\r") {
+      last;
+    }
+    #printf STDERR "header:<%s>\n",$hdr;
+  }
+  return $socket;
+}
+
+# connect socket bi-directionally to stdin/stdout
+sub bi_directional_pipe {
+  my ($stdin,$stdout,$socket)=@_;
+  $|=1;
+  my $c;
+  if (my $pid=fork) {
+    $SIG{HUP}=sub {
+      kill("HUP",$pid);
+      exit(0);
+    };
+    while (1) {
+      my $n=sysread($stdin,$c,512);
+      if ($n==0) {
+        last;
+      }
+      print $socket $c;
+    }
+    kill("TERM",$pid);
+  } else {
+    while (1) {
+      my $n=sysread($socket,$c,512);
+      if ($n==0) {
+        last;
+      }
+      print $stdout $c;
+    }
+  }
+}
+'
+}
 #
 # take a ssh|scp|sftp command and add arguments to it such that it can
 # authenticate with ssh-agent running on the scrash server
@@ -663,61 +724,23 @@ ssh() {
     umask $umask
     return 1
   fi
-  perl_code='
-BEGIN {
-  $|=1;
-}
+  perl_code=$(-perl-proxying-subroutines)'
 my ($SCR_PORT,$otp,$connect_dest,$SSH_AUTH_SOCK)=@ARGV;
-
-my $svr=IO::Socket::UNIX->new(
-  Listen=>1,
-  Local=>$SSH_AUTH_SOCK,
-) || die "IO::Socket error creating svr: $IO::Socket::errstr\n";
-
-my $sock0=$svr->accept();
-
-my $sock1=IO::Socket::INET->new(
-  Proto=>"tcp",
-  Blocking=>1,
-  PeerAddr=>"127.0.0.1",
-  PeerPort=>$SCR_PORT) or die "Cannot create socket - $IO::Socket::errstr\n";
-
-# send HTTP CONNECT request headers
-$sock1->send(sprintf("CONNECT %s HTTP/1.0\r\n",$connect_dest));
-$sock1->send(sprintf("X-Scrash-Otp: %s\r\n",$otp));
-$sock1->send("\r\n");
-
-# read HTTP CONNECT response headers
-chomp(my $status_line=readline($sock1));
-printf STDERR "%s\n",$status_line;
-while (my $hdr=readline($sock1)) {
-  if ($hdr eq "\r\n") {
-    last;
-  }
-  #printf STDERR "header:<%s>\n",$hdr;
+# create a 1-time use ssh-agent unix domain socket
+sub create_unix_domain_socket {
+  my ($SSH_AUTH_SOCK)=@_;
+  my $svr=IO::Socket::UNIX->new(
+    Listen=>1,
+    Local=>$SSH_AUTH_SOCK,
+  ) || die "IO::Socket error creating svr: $IO::Socket::errstr\n";
+  my $socket=$svr->accept();
+  return $socket;
 }
-
-# connect sockets bi-directionally
-if (my $pid=fork) {
-  while (1) {
-    my $n=sysread($sock0,$_,512);
-    if ($n==0) {
-      last;
-    }
-    print $sock1 $_;
-  }
-  kill("TERM",$pid);
-} else {
-  while (1) {
-    my $n=sysread($sock1,$_,512);
-    if ($n==0) {
-      exit(0);
-    }
-    print $sock0 $_;
-  }
-}
+my $socket0=create_unix_domain_socket($SSH_AUTH_SOCK);
+my $socket1=create_proxy_socket($SCR_PORT,$otp,$connect_dest);
+bi_directional_pipe($socket0,$socket0,$socket1);
 '
-  perl -mIO::Socket -e "$perl_code" $SCR_PORT "$otp" SCR_SSH_AUTH_SOCK_REQUEST $SSH_AUTH_SOCK &
+  perl -e "$perl_code" $SCR_PORT "$otp" SCR_SSH_AUTH_SOCK_REQUEST $SSH_AUTH_SOCK &
   pid=$!
   sleep 0.1
   while [ ! -S $SSH_AUTH_SOCK ]; do
@@ -747,62 +770,15 @@ if (my $pid=fork) {
   return $rc
 }
 
+# this function is used for ssh connections back to the scrash server
 -ssh-proxy-connect() {
   local otp="$1" connect_dest=$2 perl_code
-  perl_code='
-BEGIN {
-  $|=1;
-}
+  perl_code=$(-perl-proxying-subroutines)'
 my ($SCR_PORT,$otp,$connect_dest)=@ARGV;
-
-my $sock1=IO::Socket::INET->new(
-  Proto=>"tcp",
-  Blocking=>1,
-  PeerAddr=>"127.0.0.1",
-  PeerPort=>$SCR_PORT) or die "Cannot create socket - $IO::Socket::errstr\n";
-#$sock1->autoflush(1);
-
-# send request headers
-$sock1->send(sprintf("CONNECT %s HTTP/1.0\r\n",$connect_dest));
-$sock1->send(sprintf("X-Scrash-Otp: %s\r\n",$otp));
-$sock1->send("\r\n");
-
-# read response headers
-chomp(my $status_line=readline($sock1));
-printf STDERR "%s\n",$status_line;
-while (chomp(my $hdr=readline($sock1))) {
-  if ($hdr eq "\r") {
-    last;
-  }
-  #printf STDERR "header:<%s>\n",$hdr;
-}
-
-# connect socket bi-directionally to stdin/stdout
-my $c;
-if (my $pid=fork) {
-  $SIG{HUP}=sub {
-    kill("HUP",$pid);
-    exit(0);
-  };
-  while (1) {
-    my $n=sysread(STDIN,$c,512);
-    if ($n==0) {
-      last;
-    }
-    print $sock1 $c;
-  }
-  kill("TERM",$pid);
-} else {
-  while (1) {
-    my $n=sysread($sock1,$c,512);
-    if ($n==0) {
-      last;
-    }
-    print STDOUT $c;
-  }
-}
+my $socket=create_proxy_socket($SCR_PORT,$otp,$connect_dest);
+bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 '
-  exec perl -mIO::Socket -e "$perl_code" $SCR_PORT "$otp" $connect_dest
+  exec perl -e "$perl_code" $SCR_PORT "$otp" $connect_dest
 }
 
 -sxx-scr-server-known-hosts() {
