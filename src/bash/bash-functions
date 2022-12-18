@@ -547,7 +547,7 @@ ssh() {
       # using printf to display the prompt rather than "read -p ..." so that
       # this can work when running inside vim
       printf "${erase_eol}OTP? " >/dev/tty
-      read -n $otp_length otp </dev/tty
+      read -rn $otp_length otp </dev/tty
     fi
   else
     echo "$FUNCNAME: failed to acquire OTP" >&2
@@ -557,7 +557,7 @@ ssh() {
     #echo "$FUNCNAME: bad OTP" >&2
     #return 1
   #fi
-  echo -n "$otp" | openssl enc -a -A
+  builtin echo -E -n "$otp" | openssl enc -a -A
 }
 
 # fetches clipboard contents

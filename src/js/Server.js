@@ -343,7 +343,10 @@ class Server extends http.Server {
   setOtp(req,res) {
     const otpLength=6;
     let otp=this.randomString(otpLength);
-    while (this.#otpCache.has(otp)) {
+    while (this.#otpCache.has(otp) ||
+      // do not want any OTP beginning with a tilde, because it can trigger the
+      // ssh escape logic
+      /^~/.test(otp)) {
       otp=this.randomString(otpLength);
     }
     const otpStream=new ReadableString(otp);
