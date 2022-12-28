@@ -45,7 +45,8 @@ init() {
       (t)
         mode=test
         SCR_ENV=test
-        SCR_PORT=$((50000+$RANDOM % 10000))
+        #SCR_PORT=$((50000+$RANDOM % 10000))
+        SCR_PORT=55554
         ;;
       (g)
         test_groups="$OPTARG"

@@ -1,15 +1,29 @@
+# vim:filetype=bash
 -clear-cache
 export SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION=1
 if [ "$SCR_SSH_AUTH_SOCK" ]; then
   hostname=$(ssh localhost hostname)
   [ "$hostname" ]
   [ "$hostname" = $(hostname) ]
+
+  # add in some tests around the version file
+  version_file=$SCR_TMPDIR/.version
+  [ -f $version_file ]
+  rm $version_file
+  # this next ssh session should use the same $SCR_TMPDIR, and re-create the
+  # version file
+  hostname=$(ssh localhost hostname)
+  [ "$hostname" = $(hostname) ]
+  [ -f $version_file ]
+
   ssh-add -l
   rm -f /tmp/passwd
   -download /etc/passwd
   [ -f /tmp/passwd ]
   [ $(-md5 /tmp/passwd) = $(-md5 /etc/passwd) ]
   rm /tmp/passwd
+
+  ssh localhost bash -c -- -vars | grep -q SCR_TMPDIR
 else
   echo 'WARNING: skipping tests, no value for $SCR_SSH_AUTH_SOCK' >&2
 fi

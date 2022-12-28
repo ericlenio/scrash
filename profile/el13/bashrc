@@ -453,7 +453,7 @@ fi
         openssl_cmd+=(-debug)
         echo "${openssl_cmd[@]}"
       fi
-      eval "exec 0< <(${openssl_cmd[@]} </dev/null)"
+      eval "exec 0< <(${openssl_cmd[@]} </dev/null || true)"
     fi
   fi
   while read line; do
@@ -581,4 +581,4 @@ fi
   )
 }
 
-echo "******** sourced mybashrc ********" >&2
+-tty-echo "******** sourced mybashrc ********" >&2

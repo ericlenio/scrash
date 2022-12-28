@@ -54,6 +54,7 @@ same as above, but also include test case file(s) matching on \"vim\":
   url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
   eval -- "$(curl -S -f -s --compressed $url)"
   -shell-init -C
+  rm -f "$SCR_TMPDIR/.version"
   # TEST_ERROR_FILE is a semaphore to stop -on-error from running more than
   # once; necessary due to "set -E"
   TEST_ERROR_FILE="$SCR_TMPDIR/err"

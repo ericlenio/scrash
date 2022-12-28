@@ -7,6 +7,16 @@
   done
 }
 
+-tty-echo() {
+  local tty=/dev/tty
+  if [ "$SSH_CLIENT" ]; then
+    tty=$SSH_TTY
+  fi
+  if [ -e "$tty" ]; then
+    echo "$@" >$tty
+  fi
+}
+
 -vars() {
   set | egrep '^(EDITOR|SCR|STY|VIM|SSH)' | sort
 }
@@ -14,7 +24,7 @@
 -clear-cache() {
   if [[ "$SCR_TMPDIR" =~ ^/tmp/ ]]; then
     rm -rf "$SCR_TMPDIR"/*
-    echo "cleaned out $SCR_TMPDIR"
+    -tty-echo "cleaned out $SCR_TMPDIR"
   fi
 }
 
@@ -342,7 +352,7 @@ vim() {
 }
 
 -shell-init() {
-  local opts="CDvs:" opt OPTIND log_tty verbose=0 i fcns num_fcns test_mode=0 test_groups start clear_cache=0 declare_mode=0 show_test_groups
+  local opts="CDvs:" opt OPTIND log_tty verbose=0 i fcns num_fcns test_mode=0 test_groups start clear_cache=0 declare_mode=0 show_test_groups version_file old_version
   while builtin getopts $opts opt; do
     case $opt in
       (v) verbose=1
@@ -377,8 +387,27 @@ vim() {
     # rvim is used (at least on macos)
     export SHELL=$BASH
     #[ -z "$SUDO_USER" ] && rm -f $EDITOR $SCR_VIMRC
-    [ ! -d $SCR_TMPDIR ] && mkdir -p $SCR_TMPDIR
-    [ $clear_cache = 1 ] && -clear-cache
+    if [ ! -d $SCR_TMPDIR ]; then
+      mkdir -p $SCR_TMPDIR
+    fi
+    version_file="$SCR_TMPDIR/.version"
+    if [ ! -f "$version_file" ]; then
+      -tty-echo "force clear cache now, no version file exists ($version_file)"
+      clear_cache=1
+    else
+      old_version=$(<"$version_file")
+      if [ "$old_version" != $SCR_VERSION ]; then
+        -tty-echo "force clear cache now, detected scrash version change (old=$old_version, new=$SCR_VERSION)"
+        clear_cache=1
+        rm -f "$version_file"
+      fi
+    fi
+    if [ $clear_cache = 1 ]; then
+      -clear-cache
+    fi
+    if [ ! -f "$version_file" ]; then
+      echo $SCR_VERSION > "$version_file"
+    fi
   fi
   if [ "$(type -t -- -bashrc)" = function ]; then
     eval -- "$(-bashrc)"
