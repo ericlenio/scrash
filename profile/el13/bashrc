@@ -399,12 +399,13 @@ fi
 
 
 -openssl_s_client_show_certs() (
-  local arg1 usage show_cert_details host port hostport cert_line=0 n=1 opts="hv" opt verbose=0 certs OPTARG OPTIND
+  local arg1 usage show_cert_details host port hostport cert_line=0 n=1 opts="dhv" opt verbose=0 debug=0 certs OPTARG OPTIND
   usage() {
     {
-      echo "usage: ${FUNCNAME[1]} [-h][-v] {hostname:port|/path/to/pem/certs}"
+      echo "usage: ${FUNCNAME[1]} [-h][-d][-v] {hostname:port|/path/to/pem/certs}"
       echo "or, pipe PEM certs to $FUNCNAME"
       echo "use -v to display the certs"
+      echo "use -d to turn on debug mode to show s_client details"
     } >/dev/tty
   }
   show_cert_details() {
@@ -421,6 +422,8 @@ fi
     case $opt in
       (h) usage
         return
+        ;;
+      (d) debug=1
         ;;
       (v) verbose=1
         ;;
@@ -443,10 +446,20 @@ fi
       fi
       host=${BASH_REMATCH[1]}
       port=${BASH_REMATCH[2]}
-      exec 0< <(echo | openssl s_client -showcerts -servername $host -connect $host:$port 2>/dev/null)
+      openssl_cmd=(openssl s_client -showcerts -servername $host -connect $host:$port)
+      if [ $debug = 0 ]; then
+        openssl_cmd+=('2>/dev/null')
+      else
+        openssl_cmd+=(-debug)
+        echo "${openssl_cmd[@]}"
+      fi
+      eval "exec 0< <(${openssl_cmd[@]} </dev/null)"
     fi
   fi
   while read line; do
+    if [ $debug = 1 ]; then
+      echo "$line"
+    fi
     if [[ "$line" =~ ^-----BEGIN\ CERTIFICATE----- ]]; then
       cert_line=1
       cert=""
