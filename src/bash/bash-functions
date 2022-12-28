@@ -231,7 +231,7 @@ screen() {
   shift
   printf -v url "%s%s" $base_url $endpoint
   set -- "$@" "$url"
-  if curl --noproxy 127.0.0.1 -f -S -s "$@"; then
+  if NO_PROXY=127.0.0.1 curl -f -S -s "$@"; then
     :
   else
     rc=$?
@@ -475,7 +475,7 @@ vim() {
   else
     start=1
   fi
-  printf 'eval -- "$(curl --noproxy 127.0.0.1 -S -f -s --compressed http://127.0.0.1:%s/scr-get-bash-functions?start=%s)"' $remote_port $start
+  printf 'eval -- "$(NO_PROXY=127.0.0.1 curl -S -f -s --compressed http://127.0.0.1:%s/scr-get-bash-functions?start=%s)"' $remote_port $start
 }
 
 ssh-add() {
