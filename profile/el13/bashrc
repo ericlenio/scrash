@@ -581,4 +581,16 @@ fi
   )
 }
 
+# set GIT_SSH so we can ensure SSH_AUTH_SOCK gets set when dealing with git
+# ssh-style URLs, see:
+# https://git-scm.com/book/en/v2/Git-Internals-Environment-Variables#_miscellaneous
+export GIT_SSH=$SCR_TMPDIR/git-ssh
+if [ ! -f $GIT_SSH ]; then
+  {
+    echo '#!/usr/bin/env bash'
+    echo '-ssh-auth-sock env ssh "$@"'
+  } > $GIT_SSH
+  chmod 755 $GIT_SSH
+fi
+
 -tty-echo "******** sourced mybashrc ********" >&2
