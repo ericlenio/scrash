@@ -490,10 +490,32 @@ scp() {
   -ssh-auth-sock env $FUNCNAME "$@"
 }
 
+# simulate the functionality of ssh ProxyJump, so we can integrate with the
+# ssh-agent OTP logic; place something like this in ssh config file:
+#   ProxyCommand bash -c -- '-ssh-proxy-jump root@ops.lincware.com %h'
+-ssh-proxy-jump() {
+  local jump_host=$1 dest_host=$2 preauth_otp
+  if preauth_otp=$(-ws-set-otp); then
+    ssh $jump_host ssh --otp=$preauth_otp root@$dest_host sshd -i
+  else
+    echo "$FUNCNAME: failed to set preauth_otp" >&2
+    return 1
+  fi
+}
+
 ssh() {
   local SCR_PORT_FORWARD bootstr OPTIND \
     ssh_legal_opts="1246ab:c:e:fgi:kl:m:no:p:qstvxACD:E:F:GI:J:KL:MNO:PQ:R:S:TVw:W:XYy" \
     opt ssh_user_host cmd=(-ssh-auth-sock env ssh) start=1 N_flag=0 rc cmdline_ssh_host
+  if [[ "$1" =~ --otp=([[:print:]]*) ]]; then
+    # see -ssh-proxy-jump
+    SCR_PREAUTH_OTP=${BASH_REMATCH[1]}
+    if [ ${#SCR_PREAUTH_OTP} = 0 ]; then
+      echo "$FUNCNAME: --otp was specified with empty value" >&2
+      return 1
+    fi
+    shift
+  fi
   while builtin getopts $ssh_legal_opts opt; do
     #case $opt in
     #  f|N|M|V)
@@ -571,6 +593,11 @@ ssh() {
 
 -ws-set-otp() {
   local otp erase_eol='\033[0K' otp_length=6
+  if [ "$SCR_PREAUTH_OTP" ]; then
+    echo "$SCR_PREAUTH_OTP"
+    unset SCR_PREAUTH_OTP
+    return
+  fi
   if otp=$(-ws /scr-set-otp); then
     if [ ${#otp} -eq 0 ]; then
       # using printf to display the prompt rather than "read -p ..." so that
@@ -579,7 +606,7 @@ ssh() {
       read -rn $otp_length otp </dev/tty
     fi
   else
-    echo "$FUNCNAME: failed to acquire OTP" >&2
+    echo "$FUNCNAME: failed to acquire OTP (on host $(hostname))" >&2
     return 1
   fi
   #if ! [[ "$otp" =~ ^[0-9]{$otp_length}$ ]]; then
