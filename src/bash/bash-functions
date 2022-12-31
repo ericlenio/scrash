@@ -18,7 +18,7 @@
 }
 
 -vars() {
-  set | egrep '^(EDITOR|SCR|STY|VIM|SSH)' | sort
+  set | egrep '^(EDITOR|SCR|STY|VIM|SSH|GIT_SSH)' | sort
 }
 
 -clear-cache() {
@@ -386,6 +386,10 @@ vim() {
     # for sudo users, if they use vim and SHELL is /bin/false (or similar) then
     # rvim is used (at least on macos)
     export SHELL=$BASH
+    # set GIT_SSH so we can ensure SSH_AUTH_SOCK gets set when dealing with git
+    # ssh-style URLs, see:
+    # https://git-scm.com/book/en/v2/Git-Internals-Environment-Variables#_miscellaneous
+    export GIT_SSH=$SCR_TMPDIR/git-ssh
     #[ -z "$SUDO_USER" ] && rm -f $EDITOR $SCR_VIMRC
     if [ ! -d $SCR_TMPDIR ]; then
       mkdir -p $SCR_TMPDIR
@@ -407,6 +411,14 @@ vim() {
     fi
     if [ ! -f "$version_file" ]; then
       echo $SCR_VERSION > "$version_file"
+    fi
+    if [ ! -f $GIT_SSH ]; then
+      {
+        echo '#!/usr/bin/env bash'
+        -shell-init -D
+        echo '-ssh-auth-sock env ssh "$@"'
+      } > $GIT_SSH
+      chmod 755 $GIT_SSH
     fi
   fi
   if [ "$(type -t -- -bashrc)" = function ]; then
