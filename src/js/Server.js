@@ -340,20 +340,50 @@ class Server extends http.Server {
       .then(()=>res.end());
   }
 
-  setOtp(req,res) {
-    const otpLength=6;
-    let otp=this.randomString(otpLength);
+  generateOtp(length) {
+    let otp=this.randomString(length);
     while (this.#otpCache.has(otp) ||
       // do not want any OTP beginning with a tilde, because it can trigger the
       // ssh escape logic
       /^~/.test(otp)) {
-      otp=this.randomString(otpLength);
+      otp=this.randomString(length);
     }
-    const otpStream=new ReadableString(otp);
-    return this.getClipboard().then(clipboard=>{
-      this.#otpCache.add(otp,clipboard);
-      // in test mode, we send the OTP back to the requester
-      return this.setClipboard(otpStream).then(()=>res.end(SCR_ENV==='test' ? String(otp) : ""));
+    return otp;
+  }
+
+  setOtp(req,res) {
+    const otpLength=6;
+    const url=new URL(req.url,`http://${req.headers.host}`);
+    const count=parseInt(url.searchParams.get('count'),10);
+    if (isNaN(count)) {
+      throw new Error("missing value for count");
+    }
+    if (count<1) {
+      throw new Error(`setOtp: count<1 (${count})`);
+    }
+    return Promise.all([...Array(count).keys()].map(i=>{
+      const otp=this.generateOtp(otpLength);
+      if (i===0) {
+        // store the clipboard contents only for the first OTP, so we can
+        // restore the clipboard contents as soon as that first OTP is used for
+        // a request (presumably in the very near future)
+        return this.getClipboard().then(clipboard=>{
+          this.#otpCache.add(otp,clipboard);
+          return otp;
+        });
+      }
+      this.#otpCache.add(otp,undefined);
+      return otp;
+    })).then(results=>{
+      const otps=results.join('');
+      const otpStream=new ReadableString(otps);
+      return this.setClipboard(otpStream).then(()=>{
+        // in test mode, we send the OTP back to the requester
+        if (SCR_ENV==='test') {
+          return res.end(otps);
+        }
+        res.end();
+      });
     });
   }
 

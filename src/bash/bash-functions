@@ -227,8 +227,20 @@ screen() {
 
 -ws() {
   [ "$STY" ] && -screen-env
-  local base_url=http://127.0.0.1:$SCR_PORT endpoint=$1 url rc=0
+  local base_url=http://127.0.0.1:$SCR_PORT endpoint url rc=0 opts="o" opt OPTIND otp need_otp=0
+  while builtin getopts $opts opt; do
+    case $opt in
+      (o) need_otp=1
+        ;;
+    esac
+  done
+  shift $(($OPTIND-1))
+  endpoint=$1
   shift
+  if [ $need_otp = 1 ]; then
+    -fetch-otp
+    set -- -H "X-Scrash-Otp: $otp" "$@"
+  fi
   printf -v url "%s%s" $base_url $endpoint
   set -- "$@" "$url"
   if NO_PROXY=127.0.0.1 curl -f -S -s "$@"; then
@@ -506,11 +518,11 @@ scp() {
 # ssh-agent OTP logic; place something like this in ssh config file:
 #   ProxyCommand bash -c -- '-ssh-proxy-jump root@ops.lincware.com %h'
 -ssh-proxy-jump() {
-  local jump_host=$1 dest_host=$2 preauth_otp
-  if preauth_otp=$(-ws-set-otp); then
-    ssh $jump_host ssh --otp=$preauth_otp root@$dest_host sshd -i
+  local jump_host=$1 dest_host=$2 otp
+  if -fetch-otp 2; then
+    ssh $jump_host ssh --otp=$otp root@$dest_host sshd -i
   else
-    echo "$FUNCNAME: failed to set preauth_otp" >&2
+    echo "$FUNCNAME: failed to set otp" >&2
     return 1
   fi
 }
@@ -603,37 +615,77 @@ ssh() {
   "${cmd[@]}"
 }
 
+-fetch-otp() {
+  # note: otp_max_lifetime should be a few seconds less than OTP_MAX_LIFETIME
+  # in OtpCache.js
+  local count=${1:-1} otp_max_lifetime=17 i now=$(date +%s) expiration
+  if ! [[ "$count" =~ ^[0-9]+$ ]]; then
+    echo "$FUNCNAME: illegal count: $count" >&2
+    return 1
+  fi
+  # create the OTP cache if it does not exist
+  if ! compgen -v SCR_OTP_CACHE >/dev/null; then
+    echo "creating SCR_OTP_CACHE now at SHLVL=$SHLVL:$(hostname)" >&2
+    SCR_OTP_CACHE=()
+  fi
+  # load SCR_OTP_CACHE into positional params for easier access
+  set -- ${SCR_OTP_CACHE[*]}
+  # remove any expired OTP's from the cache
+  for ((i=$#;i>0;i--)); do
+    expiration=${!i%%:*}
+    if [ $(($now-$expiration)) -ge $otp_max_lifetime ]; then
+echo "expiring otp at index $i" >&2
+      set -- ${@:0:$i-1}
+    fi
+  done
+  # if the cache does not have enough OTP's, then go get as many as needed
+  if [ $count -gt $# ]; then
+    set -- $@ $(-ws-set-otp $(($count-$#)))
+echo "SCR_OTP_CACHE now:$#:$*" >&2
+  fi
+  if [ "${FUNCNAME[1]}" ]; then
+    # load the first OTP into "otp" variable, which is specifically NOT local
+    # to this function
+    otp=${1##*:}
+    shift
+echo "SCR_OTP_CACHE now:$#:$*" >&2
+  fi
+  # restore our cache from positional params
+  SCR_OTP_CACHE=($*)
+}
+
 -ws-set-otp() {
-  local otp erase_eol='\033[0K' otp_length=6
+  local otp erase_eol='\033[0K' otp_length=6 count=${1:-1} i otp_line now=$(date +%s) otp_encoded
+  if [ "${FUNCNAME[1]}" != -fetch-otp ]; then
+    echo "$FUNCNAME: caller should always be -fetch-otp" >&2
+    return 1
+  fi
   if [ "$SCR_PREAUTH_OTP" ]; then
     echo "$SCR_PREAUTH_OTP"
     unset SCR_PREAUTH_OTP
     return
   fi
-  if otp=$(-ws /scr-set-otp); then
-    if [ ${#otp} -eq 0 ]; then
+  if otp_line=$(-ws /scr-set-otp?count=$count); then
+    if [ ${#otp_line} -eq 0 ]; then
       # using printf to display the prompt rather than "read -p ..." so that
       # this can work when running inside vim
-      printf "${erase_eol}OTP? " >/dev/tty
-      read -rn $otp_length otp </dev/tty
+      printf "${erase_eol}OTP[$count,${FUNCNAME[*]:2}]? " >/dev/tty
+      read -rn $(($count*$otp_length)) otp_line </dev/tty
     fi
   else
     echo "$FUNCNAME: failed to acquire OTP (on host $(hostname))" >&2
     return 1
   fi
-  #if ! [[ "$otp" =~ ^[0-9]{$otp_length}$ ]]; then
-    #echo "$FUNCNAME: bad OTP" >&2
-    #return 1
-  #fi
-  builtin echo -E -n "$otp" | openssl enc -a -A
+  for ((i=0;i<$count;i++)); do
+    otp=${otp_line:$i*$otp_length:$otp_length}
+    otp_encoded=$(echo -E -n "$otp" | openssl enc -a -A)
+    printf "%s:%s\n" $now $otp_encoded
+  done
 }
 
 # fetches clipboard contents
 -clipboard() {
-  local otp
-  if otp=$(-ws-set-otp); then
-    -ws /scr-get-clipboard --compressed -H "X-Scrash-Otp: $otp" "$@"
-  fi
+  -ws -o /scr-get-clipboard --compressed "$@"
 }
 
 -md5() {
@@ -782,7 +834,7 @@ sub bi_directional_pipe {
       return $?
     fi
   fi
-  if ! otp=$(-ws-set-otp); then
+  if ! -fetch-otp; then
     return 1
   fi
   umask=$(umask)
@@ -859,7 +911,7 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 -sxx-scr-server() {
   local sxx=$1 otp cmd
   shift
-  if otp=$(-ws-set-otp); then
+  if -fetch-otp 2; then
     -sxx-scr-server-known-hosts
     cmd=(
       $sxx
@@ -921,8 +973,8 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
     let n=${#pw_line[*]}
     pw="${pw_line[$n-1]}"
     echo "$pw"
-  elif otp=$(-ws-set-otp); then
-    -ws /scr-get-password -d "key=$pwkey" -H "X-Scrash-Otp: $otp" "$@"
+  elif -ws -o /scr-get-password -d "key=$pwkey" "$@"; then
+    :
   else
     echo "$FUNCNAME: problem with OTP" >&2
     return 1
