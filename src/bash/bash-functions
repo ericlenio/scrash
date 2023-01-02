@@ -238,7 +238,7 @@ screen() {
   endpoint=$1
   shift
   if [ $need_otp = 1 ]; then
-    -fetch-otp
+    -fetch-otps
     set -- -H "X-Scrash-Otp: $otp" "$@"
   fi
   printf -v url "%s%s" $base_url $endpoint
@@ -402,6 +402,7 @@ vim() {
     # ssh-style URLs, see:
     # https://git-scm.com/book/en/v2/Git-Internals-Environment-Variables#_miscellaneous
     export GIT_SSH=$SCR_TMPDIR/git-ssh
+    export SCR_SSH_PROXY_JUMP=$SCR_TMPDIR/ssh-proxy-jump
     #[ -z "$SUDO_USER" ] && rm -f $EDITOR $SCR_VIMRC
     if [ ! -d $SCR_TMPDIR ]; then
       mkdir -p $SCR_TMPDIR
@@ -431,6 +432,13 @@ vim() {
         echo '-ssh-auth-sock env ssh "$@"'
       } > $GIT_SSH
       chmod 755 $GIT_SSH
+    fi
+    if [ ! -f $SCR_SSH_PROXY_JUMP ]; then
+      {
+        echo '#!/usr/bin/env bash'
+        echo '-ssh-proxy-jump "$@"'
+      } > $SCR_SSH_PROXY_JUMP
+      chmod 755 $SCR_SSH_PROXY_JUMP
     fi
   fi
   if [ "$(type -t -- -bashrc)" = function ]; then
@@ -516,10 +524,16 @@ scp() {
 
 # simulate the functionality of ssh ProxyJump, so we can integrate with the
 # ssh-agent OTP logic; place something like this in ssh config file:
-#   ProxyCommand bash -c -- '-ssh-proxy-jump root@ops.lincware.com %h'
+#
+#   ProxyCommand ${SCR_SSH_PROXY_JUMP} user@jump_host_here dest_host_here
+#
+# so if we wanted to jump to root@ops.lincware.com first, then get to
+# apt.lincware.com we use this:
+#
+#   ProxyCommand ${SCR_SSH_PROXY_JUMP} root@ops.lincware.com apt.lincware.com
 -ssh-proxy-jump() {
   local jump_host=$1 dest_host=$2 otp
-  if -fetch-otp 2; then
+  if -fetch-otps 2; then
     ssh $jump_host ssh --otp=$otp root@$dest_host sshd -i
   else
     echo "$FUNCNAME: failed to set otp" >&2
@@ -530,7 +544,8 @@ scp() {
 ssh() {
   local SCR_PORT_FORWARD bootstr OPTIND \
     ssh_legal_opts="1246ab:c:e:fgi:kl:m:no:p:qstvxACD:E:F:GI:J:KL:MNO:PQ:R:S:TVw:W:XYy" \
-    opt ssh_user_host cmd=(-ssh-auth-sock env ssh) start=1 N_flag=0 rc cmdline_ssh_host
+    opt ssh_user_host cmd=(-ssh-auth-sock env ssh) start=1 N_flag=0 rc cmdline_ssh_host \
+    h ssh_config prefetch_otps=0
   if [[ "$1" =~ --otp=([[:print:]]*) ]]; then
     # see -ssh-proxy-jump
     SCR_PREAUTH_OTP=${BASH_REMATCH[1]}
@@ -585,6 +600,11 @@ ssh() {
       cmd+=(exec bash -c "'"$bootstr"'")
       cmdline_ssh_host=${ssh_user_host##*@}
       h=$cmdline_ssh_host
+      ssh_config="$HOME/.ssh/config"
+      if [ -f "$ssh_config" ] && grep -q -E '^ *ProxyCommand .*\{SCR_SSH_PROXY_JUMP\}.* '$cmdline_ssh_host'$' "$ssh_config"; then
+        prefetch_otps=1
+        -prefetch-otps
+      fi
       [ "$SSH_STY_LBL" ] && h=$SSH_STY_LBL
       [ "$STY" ] && printf "\033k$h\033\134" >/dev/tty
     else
@@ -596,6 +616,9 @@ ssh() {
   rc=$?
   if [ $N_flag = 0 ]; then
     [ "$STY" ] && printf "\033k${HOSTNAME}\033\134" >/dev/tty
+  fi
+  if [ $prefetch_otps = 1 -a -p "$SCR_OTP_CACHE_FIFO" ]; then
+    rm -f $SCR_OTP_CACHE_FIFO
   fi
   return $rc
 }
@@ -615,7 +638,38 @@ ssh() {
   "${cmd[@]}"
 }
 
--fetch-otp() {
+#
+# pre-fetch OTPs for the current shell level ($SHLVL), and also for the next
+# lower shell level. Use a named pipe ($SCR_OTP_CACHE_FIFO) to pass OTPs from
+# the current shell level to the lower one. This function should only be called
+# by the ssh function.
+-prefetch-otps() {
+  local num_otps=6 dest_shlvl=$(($SHLVL+1))
+  if [ "${FUNCNAME[1]}" != ssh ]; then
+    echo "$FUNCNAME: expected caller to be ssh" >&2
+    return 1
+  fi
+  -fetch-otps $num_otps
+  export SCR_OTP_CACHE_FIFO=$(mktemp -u).$dest_shlvl
+  rm -f $SCR_OTP_CACHE_FIFO
+  if [ -e $SCR_OTP_CACHE_FIFO ]; then
+    echo "$FUNCNAME: could not remove $SCR_OTP_CACHE_FIFO" >&2
+    return 1
+  fi
+  if ! mkfifo $SCR_OTP_CACHE_FIFO; then
+    echo "$FUNCNAME: mkfifo on $SCR_OTP_CACHE_FIFO failed" >&2
+    return 1
+  fi
+  otps="$(
+    for otp in ${SCR_OTP_CACHE[*]:0:$num_otps/2}; do
+      echo $otp
+    done
+  )"
+  echo "$otps" >$SCR_OTP_CACHE_FIFO &
+  SCR_OTP_CACHE=(${SCR_OTP_CACHE[*]:$num_otps/2})
+}
+
+-fetch-otps() {
   # note: otp_max_lifetime should be a few seconds less than OTP_MAX_LIFETIME
   # in OtpCache.js
   local count=${1:-1} otp_max_lifetime=17 i now=$(date +%s) expiration
@@ -630,25 +684,45 @@ ssh() {
   fi
   # load SCR_OTP_CACHE into positional params for easier access
   set -- ${SCR_OTP_CACHE[*]}
+  if [ -p "$SCR_OTP_CACHE_FIFO" ] && [[ "$SCR_OTP_CACHE_FIFO" =~ .+\.([0-9]+)$ ]]; then
+    local fifo_shlvl=${BASH_REMATCH[1]}
+    if [ $SHLVL = $fifo_shlvl ]; then
+      {
+        while true; do
+          read
+          if [ -z "$REPLY" ]; then
+            break
+          fi
+          set -- "$@" $REPLY
+        done
+      } <$SCR_OTP_CACHE_FIFO
+echo "loaded OTPs from $SCR_OTP_CACHE_FIFO:SHLVL=$SHLVL:$#" >&2
+      unset SCR_OTP_CACHE_FIFO
+      rm -f $SCR_OTP_CACHE_FIFO
+    fi
+  fi
   # remove any expired OTP's from the cache
   for ((i=$#;i>0;i--)); do
     expiration=${!i%%:*}
     if [ $(($now-$expiration)) -ge $otp_max_lifetime ]; then
-echo "expiring otp at index $i" >&2
-      set -- ${@:0:$i-1}
+echo "expiring ($expiration) otp at index $i:${!i}" >&2
+      set -- ${@:1:$i-1} ${@:$i+1}
     fi
   done
+echo "count:$count,\$#=$#,$*" >&2
   # if the cache does not have enough OTP's, then go get as many as needed
   if [ $count -gt $# ]; then
     set -- $@ $(-ws-set-otp $(($count-$#)))
 echo "SCR_OTP_CACHE now:$#:$*" >&2
   fi
-  if [ "${FUNCNAME[1]}" ]; then
-    # load the first OTP into "otp" variable, which is specifically NOT local
-    # to this function
+  if [ ${otp+x} ]; then
+    # load the first OTP into "otp" variable, which should specifically NOT
+    # local to this function, and should be declared by the caller
     otp=${1##*:}
     shift
 echo "SCR_OTP_CACHE now:$#:$*" >&2
+  else
+    echo "$FUNCNAME: warning: caller otp variable was not detected" >&2
   fi
   # restore our cache from positional params
   SCR_OTP_CACHE=($*)
@@ -656,8 +730,8 @@ echo "SCR_OTP_CACHE now:$#:$*" >&2
 
 -ws-set-otp() {
   local otp erase_eol='\033[0K' otp_length=6 count=${1:-1} i otp_line now=$(date +%s) otp_encoded
-  if [ "${FUNCNAME[1]}" != -fetch-otp ]; then
-    echo "$FUNCNAME: caller should always be -fetch-otp" >&2
+  if [ "${FUNCNAME[1]}" != -fetch-otps ]; then
+    echo "$FUNCNAME: caller should always be -fetch-otps" >&2
     return 1
   fi
   if [ "$SCR_PREAUTH_OTP" ]; then
@@ -669,7 +743,7 @@ echo "SCR_OTP_CACHE now:$#:$*" >&2
     if [ ${#otp_line} -eq 0 ]; then
       # using printf to display the prompt rather than "read -p ..." so that
       # this can work when running inside vim
-      printf "${erase_eol}OTP[$count,${FUNCNAME[*]:2}]? " >/dev/tty
+      printf "${erase_eol}OTP[$count:$SHLVL:${FUNCNAME[*]:2}]? " >/dev/tty
       read -rn $(($count*$otp_length)) otp_line </dev/tty
     fi
   else
@@ -823,7 +897,10 @@ sub bi_directional_pipe {
 # authenticate with ssh-agent running on the scrash server
 #
 -ssh-auth-sock() {
-  local SSH_AUTH_SOCK umask otp arg i rc pid perl_code start=$SECONDS elapsed
+  local SSH_AUTH_SOCK umask arg i rc pid perl_code start=$SECONDS elapsed
+  # warning: on Ubuntu 8 when using ProxyJump, it was necessary to initialize
+  # otp to a null string in order for -fetch-otps to detect the variable exists
+  local otp=''
   if [ ${SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION:-0} = 1 ]; then
     echo "$FUNCNAME: force skip optimization" >&2
   else
@@ -834,7 +911,11 @@ sub bi_directional_pipe {
       return $?
     fi
   fi
-  if ! -fetch-otp; then
+  if ! -fetch-otps; then
+    return 1
+  fi
+  if [ -z "$otp" ]; then
+    echo "$FUNCNAME: failed to acquire otp at SHLVL: $SHLVL" >&2
     return 1
   fi
   umask=$(umask)
@@ -911,7 +992,7 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 -sxx-scr-server() {
   local sxx=$1 otp cmd
   shift
-  if -fetch-otp 2; then
+  if -fetch-otps 2; then
     -sxx-scr-server-known-hosts
     cmd=(
       $sxx
