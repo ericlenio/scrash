@@ -544,8 +544,9 @@ scp() {
 ssh() {
   local SCR_PORT_FORWARD bootstr OPTIND \
     ssh_legal_opts="1246ab:c:e:fgi:kl:m:no:p:qstvxACD:E:F:GI:J:KL:MNO:PQ:R:S:TVw:W:XYy" \
-    opt ssh_user_host cmd=(-ssh-auth-sock env ssh) start=1 N_flag=0 rc cmdline_ssh_host \
-    h ssh_config prefetch_otps=0
+    opt ssh_user_host cmd=(-ssh-auth-sock env ssh) start=1 rc cmdline_ssh_host \
+    h ssh_config=$HOME/.ssh/config prefetch_otps=0 \
+    M_flag=0 N_flag=0 S_flag=0
   if [[ "$1" =~ --otp=([[:print:]]*) ]]; then
     # see -ssh-proxy-jump
     SCR_PREAUTH_OTP=${BASH_REMATCH[1]}
@@ -566,12 +567,17 @@ ssh() {
     [ "$OPTARG" ] && cmd+=("$OPTARG")
     # if -N is given, still allow for forwarding SCR_PORT but skip bootstr
     # (integration tests use this with a ssh control master)
+    [ $opt = M ] && M_flag=1
     [ $opt = N ] && N_flag=1
+    [ $opt = S ] && S_flag=1
+    [[ $opt = o && ( "$OPTARG" =~ ^ControlPath ) ]] && S_flag=1
+    [[ $opt = o && ( "$OPTARG" =~ ^ControlMaster ) ]] && M_flag=1
   done
   # after this shift, the ssh user@host should be left in $1 (assuming an
   # user@host was provided on the command line, which is most of the time)
   [ $OPTIND -gt 1 ] && shift $(($OPTIND-1))
   ssh_user_host="$1"
+  cmdline_ssh_host=${ssh_user_host##*@}
   if [ "$ssh_user_host" ]; then
     shift
     if [ $# -eq 0 ]; then
@@ -584,6 +590,12 @@ ssh() {
       -R$SCR_PORT_FORWARD:127.0.0.1:$SCR_PORT
       "$ssh_user_host"
     )
+    if [[ $M_flag = 1 || ( $M_flag = 0 && $S_flag = 0 ) ]]; then
+      if [ -f "$ssh_config" ] && grep -q -E '^ *ProxyCommand .*\{SCR_SSH_PROXY_JUMP\}.* '$cmdline_ssh_host'$' "$ssh_config"; then
+        prefetch_otps=1
+        -prefetch-otps
+      fi
+    fi
     if [ $N_flag = 0 ]; then
       if [ "$RA_SSH_USE_EVAL" = 1 -o "$RA_AGENT_ID" ]; then
         # we are running remoteadmin shell - if any of the args begin with $'
@@ -598,13 +610,7 @@ ssh() {
       fi
       bootstr=$(-shell-boot-string $SCR_PORT_FORWARD "$@")
       cmd+=(exec bash -c "'"$bootstr"'")
-      cmdline_ssh_host=${ssh_user_host##*@}
       h=$cmdline_ssh_host
-      ssh_config="$HOME/.ssh/config"
-      if [ -f "$ssh_config" ] && grep -q -E '^ *ProxyCommand .*\{SCR_SSH_PROXY_JUMP\}.* '$cmdline_ssh_host'$' "$ssh_config"; then
-        prefetch_otps=1
-        -prefetch-otps
-      fi
       [ "$SSH_STY_LBL" ] && h=$SSH_STY_LBL
       [ "$STY" ] && printf "\033k$h\033\134" >/dev/tty
     else
@@ -908,6 +914,30 @@ sub bi_directional_pipe {
       # optimization: skip proxy ssh auth socket logic because we are local to
       # the scrash server
       SSH_AUTH_SOCK=$SCR_SSH_AUTH_SOCK "$@"
+      return $?
+    fi
+  fi
+  if [ "$1" = env ]; then
+    # check options for ControlPath/ControlMaster. If only ControlPath is
+    # detected we can apply an optimization and skip using an OTP
+    local orig_opts=("$@") ssh_opts=("${@:3}") opts="o:SM" opt OPTIND OPTERR=0 has_control_path=0 has_control_master=0
+    set -- "${ssh_opts[@]}"
+    while builtin getopts $opts opt; do
+      case $opt in
+        (o)
+          [[ "$OPTARG" =~ ^ControlPath ]] && has_control_path=1
+          [[ "$OPTARG" =~ ^ControlMaster ]] && has_control_master=1
+          ;;
+        (M) has_control_master=1
+          ;;
+        (S) has_control_path=1
+          ;;
+      esac
+    done
+    set -- "${orig_opts[@]}"
+    if [ $has_control_master = 0 -a $has_control_path = 1 ]; then
+      echo "$FUNCNAME: optimization for ControlPath, skip OTP" >&2
+      "$@"
       return $?
     fi
   fi
