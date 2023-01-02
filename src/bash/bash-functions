@@ -227,7 +227,7 @@ screen() {
 
 -ws() {
   [ "$STY" ] && -screen-env
-  local base_url=http://127.0.0.1:$SCR_PORT endpoint url rc=0 opts="o" opt OPTIND otp need_otp=0
+  local base_url=http://127.0.0.1:$SCR_PORT endpoint url rc=0 opts="o" opt OPTIND otp='' need_otp=0
   while builtin getopts $opts opt; do
     case $opt in
       (o) need_otp=1
@@ -1020,7 +1020,7 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 
 # run one of ssh, sftp, scp, etc. connecting back to the scrash server
 -sxx-scr-server() {
-  local sxx=$1 otp cmd
+  local sxx=$1 otp='' cmd
   shift
   if -fetch-otps 2; then
     -sxx-scr-server-known-hosts
@@ -1067,7 +1067,7 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 # limitation: password cannot contain a colon because that is assumed to be the
 # delimiter here
 -pw() {
-  local opt OPTIND pwkey no_network=0 pw_line otp pw n
+  local opt OPTIND pwkey no_network=0 pw_line pw n
   while builtin getopts "N" opt; do
     case $opt in
       (N) # handle edge case when server is not running

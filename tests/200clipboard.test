@@ -1,5 +1,6 @@
 # vim:filetype=bash
 -clear-cache
+unset SCR_OTP_CACHE
 len=8
 r=$(-random-string $len)
 [ $len = ${#r} ]
