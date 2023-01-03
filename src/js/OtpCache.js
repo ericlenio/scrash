@@ -28,7 +28,7 @@ class OtpCache {
    * @returns {object}
    */
   get(otp) {
-    if (!(String(otp) in this)) {
+    if (!this.has(otp)) {
       return null;
     }
     const data=this[otp];
@@ -38,6 +38,7 @@ class OtpCache {
     return data;
   }
 
+  /*
   getStream(otp) {
     const data=this.get(otp);
     return new Readable({
@@ -47,6 +48,12 @@ class OtpCache {
         this.push(null);
       }
     });
+  }
+  */
+
+  eraseValues() {
+    Object.keys(this).forEach(otp=>this[otp]=undefined);
+    return Promise.resolve();
   }
 }
 

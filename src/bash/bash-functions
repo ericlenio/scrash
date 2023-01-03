@@ -22,6 +22,10 @@
 }
 
 -clear-cache() {
+  if [ "$SUDO_USER" ]; then
+    -tty-echo "$FUNCNAME: skip because we detected sudo is in effect" >&2
+    return
+  fi
   if [[ "$SCR_TMPDIR" =~ ^/tmp/ ]]; then
     rm -rf "$SCR_TMPDIR"/*
     -tty-echo "cleaned out $SCR_TMPDIR"
@@ -240,6 +244,7 @@ screen() {
   if [ $need_otp = 1 ]; then
     -fetch-otps
     set -- -H "X-Scrash-Otp: $otp" "$@"
+    -used-otp $otp
   fi
   printf -v url "%s%s" $base_url $endpoint
   set -- "$@" "$url"
@@ -247,7 +252,7 @@ screen() {
     :
   else
     rc=$?
-    echo "curl failed with arguments: $@" >&2
+    echo "$FUNCNAME: curl failed with arguments: $@" >&2
     echo "stack trace: ${FUNCNAME[*]}" >&2
   fi
   return $rc
@@ -394,6 +399,7 @@ vim() {
     export SCR_VIMRUNTIME=$SCR_TMPDIR/vim
     export SCR_SCREENRC=$SCR_TMPDIR/screenrc
     export SCR_SSH_USER_KNOWN_HOSTS=$SCR_TMPDIR/ssh-$SCR_SSH_USER-$SCR_SSH_HOST-known-hosts
+    export SCR_USED_OTPS=$SCR_TMPDIR/scr-used-otps
     export VIMINIT='source $SCR_VIMRC'
     # for sudo users, if they use vim and SHELL is /bin/false (or similar) then
     # rvim is used (at least on macos)
@@ -429,16 +435,9 @@ vim() {
       {
         echo '#!/usr/bin/env bash'
         -shell-init -D
-        echo '-ssh-auth-sock env ssh "$@"'
+        echo '-sxx-init env ssh "$@"'
       } > $GIT_SSH
       chmod 755 $GIT_SSH
-    fi
-    if [ ! -f $SCR_SSH_PROXY_JUMP ]; then
-      {
-        echo '#!/usr/bin/env bash'
-        echo '-ssh-proxy-jump "$@"'
-      } > $SCR_SSH_PROXY_JUMP
-      chmod 755 $SCR_SSH_PROXY_JUMP
     fi
   fi
   if [ "$(type -t -- -bashrc)" = function ]; then
@@ -511,15 +510,26 @@ vim() {
 }
 
 ssh-add() {
-  -ssh-auth-sock env $FUNCNAME "$@"
+  -sxx-init env $FUNCNAME "$@"
 }
 
 sftp() {
-  -ssh-auth-sock env $FUNCNAME "$@"
+  -sxx-init env $FUNCNAME "$@"
 }
 
 scp() {
-  -ssh-auth-sock env $FUNCNAME "$@"
+  -sxx-init env $FUNCNAME "$@"
+}
+
+-sxx-init() {
+  if [ ! -f $SCR_SSH_PROXY_JUMP ]; then
+    {
+      echo '#!/usr/bin/env bash'
+      echo '-ssh-proxy-jump "$@"'
+    } > $SCR_SSH_PROXY_JUMP
+    chmod 755 $SCR_SSH_PROXY_JUMP
+  fi
+  -ssh-auth-sock "$@"
 }
 
 # simulate the functionality of ssh ProxyJump, so we can integrate with the
@@ -530,9 +540,10 @@ scp() {
 # so if we wanted to jump to root@ops.lincware.com first, then get to
 # apt.lincware.com we use this:
 #
+# Host apt.lincware.com
 #   ProxyCommand ${SCR_SSH_PROXY_JUMP} root@ops.lincware.com apt.lincware.com
 -ssh-proxy-jump() {
-  local jump_host=$1 dest_host=$2 otp
+  local jump_host=$1 dest_host=$2 otp=''
   if -fetch-otps 2; then
     ssh $jump_host ssh --otp=$otp root@$dest_host sshd -i
   else
@@ -544,7 +555,7 @@ scp() {
 ssh() {
   local SCR_PORT_FORWARD bootstr OPTIND \
     ssh_legal_opts="1246ab:c:e:fgi:kl:m:no:p:qstvxACD:E:F:GI:J:KL:MNO:PQ:R:S:TVw:W:XYy" \
-    opt ssh_user_host cmd=(-ssh-auth-sock env ssh) start=1 rc cmdline_ssh_host \
+    opt ssh_user_host cmd=(-sxx-init env ssh) start=1 rc cmdline_ssh_host \
     h ssh_config=$HOME/.ssh/config prefetch_otps=0 \
     M_flag=0 N_flag=0 S_flag=0
   if [[ "$1" =~ --otp=([[:print:]]*) ]]; then
@@ -572,6 +583,7 @@ ssh() {
     [ $opt = S ] && S_flag=1
     [[ $opt = o && ( "$OPTARG" =~ ^ControlPath ) ]] && S_flag=1
     [[ $opt = o && ( "$OPTARG" =~ ^ControlMaster ) ]] && M_flag=1
+    [ $opt = F ] && ssh_config="$OPTARG"
   done
   # after this shift, the ssh user@host should be left in $1 (assuming an
   # user@host was provided on the command line, which is most of the time)
@@ -675,6 +687,20 @@ ssh() {
   SCR_OTP_CACHE=(${SCR_OTP_CACHE[*]:$num_otps/2})
 }
 
+-used-otp() {
+  local otp="$1"
+  if [ "$SUDO_USER" ]; then
+    echo "$FUNCNAME warning: skipping due to sudo session in effect" >&2
+    return
+  fi
+  if [ ! -f $SCR_USED_OTPS ]; then
+    touch $SCR_USED_OTPS
+  fi
+  if [ "$otp" ] && ! grep -q "$otp" $SCR_USED_OTPS; then
+    echo "$otp" >> $SCR_USED_OTPS
+  fi
+}
+
 -fetch-otps() {
   # note: otp_max_lifetime should be a few seconds less than OTP_MAX_LIFETIME
   # in OtpCache.js
@@ -707,26 +733,27 @@ echo "loaded OTPs from $SCR_OTP_CACHE_FIFO:SHLVL=$SHLVL:$#" >&2
       rm -f $SCR_OTP_CACHE_FIFO
     fi
   fi
-  # remove any expired OTP's from the cache
+  # remove any expired OTP's (or already used OTP's, if they are present in
+  # $SCR_USED_OTPS) from the cache
   for ((i=$#;i>0;i--)); do
     expiration=${!i%%:*}
-    if [ $(($now-$expiration)) -ge $otp_max_lifetime ]; then
+    if [ $(($now-$expiration)) -ge $otp_max_lifetime ] || grep -q "$otp" $SCR_USED_OTPS 2>/dev/null; then
 echo "expiring ($expiration) otp at index $i:${!i}" >&2
       set -- ${@:1:$i-1} ${@:$i+1}
     fi
   done
-echo "count:$count,\$#=$#,$*" >&2
+echo "SCR_OTP_CACHE[$SHLVL] now:$#:$*" >&2
   # if the cache does not have enough OTP's, then go get as many as needed
   if [ $count -gt $# ]; then
     set -- $@ $(-ws-set-otp $(($count-$#)))
-echo "SCR_OTP_CACHE now:$#:$*" >&2
+echo "SCR_OTP_CACHE[$SHLVL] now:$#:$*" >&2
   fi
   if [ ${otp+x} ]; then
     # load the first OTP into "otp" variable, which should specifically NOT
     # local to this function, and should be declared by the caller
     otp=${1##*:}
     shift
-echo "SCR_OTP_CACHE now:$#:$*" >&2
+echo "SCR_OTP_CACHE[$SHLVL] now:$#:$*" >&2
   else
     echo "$FUNCNAME: warning: caller otp variable was not detected" >&2
   fi
@@ -844,6 +871,7 @@ echo '
 use IO::Socket;
 sub create_proxy_socket {
   my ($SCR_PORT,$otp,$connect_dest)=@_;
+
   my $socket=IO::Socket::INET->new(
     Proto=>"tcp",
     Blocking=>1,
@@ -865,6 +893,9 @@ sub create_proxy_socket {
     }
     #printf STDERR "header:<%s>\n",$hdr;
   }
+  # something weird going on if we call -used-otp before receiving the response
+  # headers; test cases will fail, and not sure why
+  system("/usr/bin/env","bash","-c","--","-used-otp $otp");
   return $socket;
 }
 

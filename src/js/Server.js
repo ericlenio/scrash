@@ -337,6 +337,7 @@ class Server extends http.Server {
 
   setClipboardFromRequest(req,res) {
     return this.setClipboard(req)
+      .then(()=>this.#otpCache.eraseValues())
       .then(()=>res.end());
   }
 
