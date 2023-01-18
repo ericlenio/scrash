@@ -642,18 +642,15 @@ ssh() {
 }
 
 -copy-to-clipboard() {
-  local f="${1:-/dev/stdin}" cmd=(-ws /scr-set-clipboard --data-binary)
+  local f="${1:-/dev/stdin}" stripTrailingReturn=0
   if [ ! -e "$f" ]; then
     echo "$FUNCNAME: no such file, or file is not readable: $f" >&2
     return 1
   fi
   if [ "$f" = /dev/stdin ]; then
-    # command substitution will strip trailing \n, which we want
-    cmd+=("$(<$f)")
-  else
-    cmd+=(@"$f")
+    stripTrailingReturn=1
   fi
-  "${cmd[@]}"
+  -ws /scr-set-clipboard?stripTrailingReturn=$stripTrailingReturn --data-binary @"$f"
 }
 
 #

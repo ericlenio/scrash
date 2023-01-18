@@ -336,7 +336,18 @@ class Server extends http.Server {
   }
 
   setClipboardFromRequest(req,res) {
-    return this.setClipboard(req)
+    const url=new URL(req.url,`http://${req.headers.host}`);
+    const stripTrailingReturn=url.searchParams.get('stripTrailingReturn');
+    let streamPromise=Promise.resolve(req);
+    if (stripTrailingReturn==="1") {
+      streamPromise=new Promise((resolve,reject)=>{
+        let reqData='';
+        req.on('error',e=>reject(e));
+        req.on('data',data=>reqData+=data);
+        req.on('end',()=>resolve(new ReadableString(reqData.trim())));
+      });
+    }
+    return streamPromise.then(stream=>this.setClipboard(stream))
       .then(()=>this.#otpCache.eraseValues())
       .then(()=>res.end());
   }
