@@ -400,6 +400,8 @@ vim() {
     export SCR_SCREENRC=$SCR_TMPDIR/screenrc
     export SCR_SSH_USER_KNOWN_HOSTS=$SCR_TMPDIR/ssh-$SCR_SSH_USER-$SCR_SSH_HOST-known-hosts
     export SCR_USED_OTPS=$SCR_TMPDIR/scr-used-otps
+    : ${SCR_SSH_LEVEL:=0}
+    export SCR_SSH_LEVEL
     export VIMINIT='source $SCR_VIMRC'
     # for sudo users, if they use vim and SHELL is /bin/false (or similar) then
     # rvim is used (at least on macos)
@@ -468,7 +470,7 @@ vim() {
   local user=${1:-root} bootstr
   [ $# -gt 0 ] && shift
   [ "$STY" ] && -screen-env
-  bootstr=$(-shell-boot-string $SCR_PORT "$@")
+  bootstr=$(-shell-boot-string -p $SCR_PORT "$@")
   if [ ! -e $EDITOR ]; then
     # create the editor, might need it under sudo and sudo user will not be
     # able to create it
@@ -499,14 +501,22 @@ vim() {
 }
 
 -shell-boot-string() {
-  local remote_port=$1 start
-  shift
+  local remote_port ssh_level=$SCR_SSH_LEVEL start opts="p:l:" opt OPTIND
+  while builtin getopts $opts opt; do
+    case $opt in
+      (p) remote_port=$OPTARG
+        ;;
+      (l) ssh_level=$OPTARG
+        ;;
+    esac
+  done
+  shift $(($OPTIND-1))
   if [ $# -gt 0 ]; then
     start=$(-ssh-serialize-cmd "$@")
   else
     start=1
   fi
-  printf 'eval -- "$(NO_PROXY=127.0.0.1 curl -S -f -s --compressed http://127.0.0.1:%s/scr-get-bash-functions?start=%s)"' $remote_port $start
+  printf 'eval -- "$(NO_PROXY=127.0.0.1 curl -S -f -s --compressed http://127.0.0.1:%s/scr-get-bash-functions?start=%s\&ssh_level=%s)"' $remote_port $start $ssh_level
 }
 
 ssh-add() {
@@ -620,7 +630,7 @@ ssh() {
           fi
         done
       fi
-      bootstr=$(-shell-boot-string $SCR_PORT_FORWARD "$@")
+      bootstr=$(-shell-boot-string -l $(($SCR_SSH_LEVEL+1)) -p $SCR_PORT_FORWARD "$@")
       cmd+=(exec bash -c "'"$bootstr"'")
       h=$cmdline_ssh_host
       [ "$SSH_STY_LBL" ] && h=$SSH_STY_LBL

@@ -302,6 +302,7 @@ class Server extends http.Server {
       gz.pipe(res);
       gz.write(this.#shellScript);
       const start=url.searchParams.get('start');
+      const sshLevel=url.searchParams.get('ssh_level');
       if (start) {
         gz.write(`export SCR_PORT=${url.port}\n`);
         gz.write(`export SCR_PORT_0=${SCR_PORT_0}\n`);
@@ -309,6 +310,7 @@ class Server extends http.Server {
         gz.write(`export SCR_VERSION=${SCR_VERSION}\n`);
         gz.write(`export SCR_SSH_USER=${SCR_SSH_USER}\n`);
         gz.write(`export SCR_SSH_HOST=${SCR_SSH_HOST}\n`);
+        gz.write(`export SCR_SSH_LEVEL=${sshLevel ? sshLevel : 0}\n`);
         gz.write(`-shell-init -s ${start}\n`);
       }
       gz.end(resolve);
