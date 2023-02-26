@@ -1,0 +1,22 @@
+#! /usr/local/bin/bash
+# set up a bridge from 401 Main St to LincWare cloud network on AWS
+
+local_bridge_ip=192.168.13.1
+remote_bridge_ip=192.168.13.2
+tun_device_num=3
+tun_device=tun$tun_device_num
+cmd=(
+  ssh
+  -i /root/.ssh/lw-office-bridge.id_rsa
+  -f
+  -w $tun_device_num:$tun_device_num
+  -oTunnel=point-to-point
+  -oPermitLocalCommand=yes
+  -oLocalCommand="ifconfig $tun_device $local_bridge_ip $remote_bridge_ip && route add 10.0.0.0/24 $local_bridge_ip && echo local bridge is up"
+  ops.lincware.com
+  sh -c "'ifconfig $tun_device $remote_bridge_ip $local_bridge_ip && route add 10.9.0.0/24 $remote_bridge_ip && echo remote bridge is up'"
+)
+
+if ! ifconfig $tun_device >/dev/null 2>&1; then
+  exec "${cmd[@]}"
+fi
