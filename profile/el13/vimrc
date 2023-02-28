@@ -67,7 +67,11 @@ set cursorline noswapfile number hlsearch incsearch sw=2 ignorecase wrap
 set ruler ai nocindent indentexpr= showmatch modeline modelines=5 nobackup nowritebackup textwidth=0
 set expandtab formatoptions=croql nojoinspaces scrolloff=0 laststatus=2
 set wildmenu wildignore=*.o,*.class,*.jar,*.png,*.pdf,$PWD/**node_modules/**,build/**,.git/**,.svn/**,dist/**,tmp/** path=.,,**
-set runtimepath+=$SCR_VIMRUNTIME re=0
+set runtimepath+=$SCR_VIMRUNTIME
+if v:version>=704
+  " make editing .ts (typescript) files easier
+  set re=0
+endif
 filetype indent off
 " vnoremap: 'v' visual mode, 'nore' no recurse, 'map' map
 " here we remap control-c to copy the current visual selection to the OS clipboard
