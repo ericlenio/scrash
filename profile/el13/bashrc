@@ -99,11 +99,7 @@ fi
     for path in "${skip_paths[@]}"; do
       printf "! -path %s " "${path// /\ }"
     done
-  ) | {
-    while read f; do
-      echo "${f// /\\ }"
-    done
-  } | xargs egrep -H "$@"
+  ) -print0 | xargs -0 egrep -H "$@"
 )
 
 -pwgen() {

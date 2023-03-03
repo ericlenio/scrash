@@ -21,6 +21,12 @@ s4=$(random_string)
 # handle files with a space in the name
 t1="$SCR_TMPDIR/t1 file"
 echo "$s1" > "$t1"
+# handle files with a single quote in the name
+t1a="$SCR_TMPDIR/t1a'file"
+echo "$s1" > "$t1a"
+# handle files with a double quote in the name
+t1b="$SCR_TMPDIR/t1b\"file"
+echo "$s1" > "$t1b"
 # by default, -grep skips node_modules subdir, except when using -a so test
 # that
 t2="$SCR_TMPDIR/node_modules/t2"
@@ -32,6 +38,8 @@ cd $SCR_TMPDIR
 -grep $s1
 basename "$t1"
 -grep $s1 | grep "$(basename \"$t1\")"
+-grep $s1 | grep $(basename "$t1a")
+-grep $s1 | grep $(basename "$t1b")
 ! -grep $s2
 -grep -a $s2
 ! -grep $s3
