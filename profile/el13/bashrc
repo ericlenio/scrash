@@ -30,12 +30,21 @@ c() {
 export -f v l c
 
 -totp() {
-  local key_idx=${1:-0} otp key_id base32_key
+  local key_idx=${1:-0} otp key_id base32_key i
   local key_ids=(
     "TOTP LincWare OPS"
+    "TOTP npmjs"
     "TOTP Amazon Web Services"
     "TOTP lw-401-main-st"
   )
+  if [ "$key_idx" = -h ]; then
+    echo "usage: $FUNCNAME i"
+    echo "where \"i\" is the index of the TOTP you want, listed below"
+    for ((i=0;i<${#key_ids[*]};i++)); do
+      printf "%s. %s\n" $i "${key_ids[$i]}"
+    done
+    return
+  fi
   key_id=${key_ids[$key_idx]}
   if [ -z "$key_id" ]; then
     echo "$FUNCNAME: could not acquire base32_key using key_idx=$key_idx" >&2
@@ -45,7 +54,7 @@ export -f v l c
     if otp=$(oathtool --totp -b $base32_key); then
       #printf "%s:%s\n" "$key_id" $otp
       printf $otp | -copy-to-clipboard
-      echo "TOTP for \"$key_id\" was copied to the OS clipboard"
+      echo "TOTP for \"$key_id\" was copied to the OS clipboard ($otp)"
     else
       echo "$FUNCNAME: oathtool failed key: $key_id" >&2
       return 1
