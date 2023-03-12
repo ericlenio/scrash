@@ -44,6 +44,7 @@ const E_OS_PROG_ENUM={
 class Server extends http.Server {
   #shellScript;
   #otpCache;
+  #shellFunctions;
 
   init({notify,port}) {
     console.log(`starting Server.js v${SCR_VERSION}, configuration: ${SCR_ENV}, profile: ${SCR_PROFILE}`);
@@ -58,6 +59,7 @@ class Server extends http.Server {
       //.then(()=>this.initEnvironmentVariables())
       .then(()=>this.loadBashFunctions())
       .then(shellScript=>this.#shellScript=shellScript)
+      .then(()=>this.parseBashFunctionNames(this.#shellScript))
       .then(()=>this.loadVimPlugins())
       .then(shellScript=>this.#shellScript+=shellScript)
       .then(()=>this.listen(port,'127.0.0.1'))
@@ -291,6 +293,26 @@ class Server extends http.Server {
       });
     })).then(()=>fsPromises.readFile(`${SCR_HOME}/src/bash/bash-functions`,'utf8'))
     .then(fileContent=>shellScript+=fileContent);
+  }
+
+  /**
+   * generate a list of all loaded bash functions; the list is stored in
+   * <code>this.#shellFunctions</code>
+   */
+  parseBashFunctionNames(shellScript) {
+    return new Promise((resolve,reject)=>{
+      let funcs='';
+      const args=["-i","bash","-c","eval -- \"$(</dev/stdin)\";compgen -A function"]
+      const p=child_process.spawn("/usr/bin/env",args,{stdio:['pipe','pipe',process.stderr]});
+      p.on('error',reject);
+      p.stdout.on('close',()=>{
+        this.#shellFunctions=funcs.split(/\s+/s).filter(f=>Boolean(f));
+        console.log(this.#shellFunctions.length,"shell functions loaded");
+        resolve();
+      });
+      p.stdin.end(shellScript,'utf8');
+      p.stdout.on('data',data=>funcs+=data);
+    });
   }
 
   getBashFunctions(url,res) {
