@@ -95,3 +95,11 @@ if [ "$RA_USER_PASSWORD_64" ] && online remoteadmin.private:3333; then
 else
   echo "WARNING: skipping tests for remoteadmin" >&2
 fi
+
+if [ "$SCR_SSH_AUTH_SOCK" ]; then
+  # -totp function should NOT be loaded inside ssh session (see SCR_LOCAL_FUNCS)
+  if ssh localhost bash -- -totp; then
+    echo "expected -totp to fail" >&2
+    false
+  fi
+fi
