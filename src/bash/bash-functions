@@ -470,7 +470,7 @@ vim() {
   local user=${1:-root} bootstr
   [ $# -gt 0 ] && shift
   [ "$STY" ] && -screen-env
-  bootstr=$(-shell-boot-string -p $SCR_PORT "$@")
+  bootstr=$(-shell-boot-string -p $SCR_PORT -- "$@")
   if [ ! -e $EDITOR ]; then
     # create the editor, might need it under sudo and sudo user will not be
     # able to create it
@@ -630,7 +630,7 @@ ssh() {
           fi
         done
       fi
-      bootstr=$(-shell-boot-string -l $(($SCR_SSH_LEVEL+1)) -p $SCR_PORT_FORWARD "$@")
+      bootstr=$(-shell-boot-string -l $(($SCR_SSH_LEVEL+1)) -p $SCR_PORT_FORWARD -- "$@")
       cmd+=(exec bash -c "'"$bootstr"'")
       h=$cmdline_ssh_host
       [ "$SSH_STY_LBL" ] && h=$SSH_STY_LBL

@@ -42,9 +42,9 @@ const E_OS_PROG_ENUM={
 };
 
 class Server extends http.Server {
-  #shellScript;
+  //#shellScript='';
   #otpCache;
-  #shellFunctions;
+  #shellFunctions={};
 
   init({notify,port}) {
     console.log(`starting Server.js v${SCR_VERSION}, configuration: ${SCR_ENV}, profile: ${SCR_PROFILE}`);
@@ -58,10 +58,12 @@ class Server extends http.Server {
     return fsPromises.readdir(SCR_PROFILE_DIR)
       //.then(()=>this.initEnvironmentVariables())
       .then(()=>this.loadBashFunctions())
-      .then(shellScript=>this.#shellScript=shellScript)
-      .then(()=>this.parseBashFunctionNames(this.#shellScript))
-      .then(()=>this.loadVimPlugins())
-      .then(shellScript=>this.#shellScript+=shellScript)
+      //.then(shellScript=>this.#shellScript=shellScript)
+      //.then(()=>this.loadVimPlugins())
+      //.then(shellScript=>this.#shellScript+=shellScript)
+      //.then(()=>this.parseBashFunctionNames(this.#shellScript))
+      //.then(shellFunctions=>this.#shellFunctions=shellFunctions)
+      //.then(()=>this.loadBashFunctionsIndividually(this.#shellScript,this.#shellFunctions))
       .then(()=>this.listen(port,'127.0.0.1'))
       .then(()=>new Promise(resolve=>this.once('listening',resolve)));
   }
@@ -273,6 +275,7 @@ class Server extends http.Server {
     }
   }
 
+  /*
   loadBashFunctions() {
     let shellScript="";
     const rcfiles=["screenrc","vimrc","bashrc"];
@@ -294,11 +297,31 @@ class Server extends http.Server {
     })).then(()=>fsPromises.readFile(`${SCR_HOME}/src/bash/bash-functions`,'utf8'))
     .then(fileContent=>shellScript+=fileContent);
   }
+  */
+
+  loadBashFunctions() {
+    return new Promise(resolve=>{
+      readline.createInterface({input:process.stdin}).on('line',line=>{
+        const m=line.split(':');
+        if (!m) {
+          const e=new Error("invalid line in loadBashFunctions");
+          throw e;
+        }
+        const funcName=m[0];
+        const funcDef64=m[1];
+        this.#shellFunctions[funcName]=Buffer.from(funcDef64,'base64').toString();
+      }).on('close',()=>{
+        console.log("loaded",Object.keys(this.#shellFunctions).length,"bash functions");
+        resolve();
+      });
+    });
+  }
 
   /**
    * generate a list of all loaded bash functions; the list is stored in
    * <code>this.#shellFunctions</code>
    */
+  /*
   parseBashFunctionNames(shellScript) {
     return new Promise((resolve,reject)=>{
       let funcs='';
@@ -306,14 +329,40 @@ class Server extends http.Server {
       const p=child_process.spawn("/usr/bin/env",args,{stdio:['pipe','pipe',process.stderr]});
       p.on('error',reject);
       p.stdout.on('close',()=>{
-        this.#shellFunctions=funcs.split(/\s+/s).filter(f=>Boolean(f));
-        console.log(this.#shellFunctions.length,"shell functions loaded");
-        resolve();
+        const shellFunctions=funcs.split(/\s+/s).filter(f=>Boolean(f));
+        console.log(shellFunctions.length,"shell functions loaded");
+        resolve(shellFunctions);
       });
       p.stdin.end(shellScript,'utf8');
       p.stdout.on('data',data=>funcs+=data);
     });
   }
+  */
+
+  /*
+  loadBashFunctionsIndividually(shellScript,shellFunctions) {
+return;
+    return new Promise((resolve,reject)=>{
+      let s='';
+      const args=["-i","bash","-c","eval -- \"$(</dev/stdin)\";for f in $(compgen -A function); do printf %s%s $f $'\\x1e'; declare -f -- $f; echo $'\\x1e'; done"]
+      const p=child_process.spawn("/usr/bin/env",args,{stdio:['pipe','pipe',process.stderr]});
+      p.on('error',reject);
+      p.stdout.on('close',()=>{
+        const list=s.split(/\x1e/s).filter(f=>Boolean(f));
+        const shellFunctions={};
+        for (let i=0;i<list.length/2;i++) {
+          const funcName=list[i*2];
+          console.log('funcName:',i,funcName)
+        }
+console.log('dbg:list:',list.length);
+        console.log('dbg:',list.length,"shell functions loaded");
+        resolve();
+      });
+      p.stdin.end(shellScript,'utf8');
+      p.stdout.on('data',data=>s+=data);
+    });
+  }
+  */
 
   getBashFunctions(url,res) {
     return new Promise((resolve,reject)=>{
@@ -322,19 +371,31 @@ class Server extends http.Server {
       res.setHeader('Content-Encoding','gzip');
       res.setHeader('Content-Type','application/x-shellscript');
       gz.pipe(res);
-      gz.write(this.#shellScript);
+      let bytesWritten=0;
+      const write=s=>{
+        gz.write(s);
+        bytesWritten+=s.length;
+      };
+      const localFuncs=(process.env.SCR_LOCAL_FUNCS || '').split(/\s+/);
+      for (let funcName of Object.keys(this.#shellFunctions)) {
+        if (localFuncs.includes(funcName)) {
+          continue;
+        }
+        write(this.#shellFunctions[funcName]);
+      }
       const start=url.searchParams.get('start');
       const sshLevel=url.searchParams.get('ssh_level');
       if (start) {
-        gz.write(`export SCR_PORT=${url.port}\n`);
-        gz.write(`export SCR_PORT_0=${SCR_PORT_0}\n`);
-        gz.write(`export SCR_ENV=${SCR_ENV}\n`);
-        gz.write(`export SCR_VERSION=${SCR_VERSION}\n`);
-        gz.write(`export SCR_SSH_USER=${SCR_SSH_USER}\n`);
-        gz.write(`export SCR_SSH_HOST=${SCR_SSH_HOST}\n`);
-        gz.write(`export SCR_SSH_LEVEL=${sshLevel ? sshLevel : 0}\n`);
-        gz.write(`-shell-init -s ${start}\n`);
+        write(`export SCR_PORT=${url.port}\n`);
+        write(`export SCR_PORT_0=${SCR_PORT_0}\n`);
+        write(`export SCR_ENV=${SCR_ENV}\n`);
+        write(`export SCR_VERSION=${SCR_VERSION}\n`);
+        write(`export SCR_SSH_USER=${SCR_SSH_USER}\n`);
+        write(`export SCR_SSH_HOST=${SCR_SSH_HOST}\n`);
+        write(`export SCR_SSH_LEVEL=${sshLevel ? sshLevel : 0}\n`);
+        write(`-shell-init -s ${start}\n`);
       }
+      console.log("getBashFunctions: sent",bytesWritten,"bytes");
       gz.end(resolve);
     });
   }
@@ -347,6 +408,7 @@ class Server extends http.Server {
     return fsPromises.readFile(`${SCR_HOME}/src/vim/${plugin}.vim`,'utf8');
   }
 
+  /*
   loadVimPlugins() {
     let shellScript="";
     const plugins=["clipboard"];
@@ -358,6 +420,7 @@ class Server extends http.Server {
       `);
     }));
   }
+  */
 
   setClipboardFromRequest(req,res) {
     const url=new URL(req.url,`http://${req.headers.host}`);

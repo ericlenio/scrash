@@ -14,7 +14,7 @@ v=$(-random-string $len)
 curlrc="$SCR_TMPDIR/.curlrc"
 echo "proxy = http://no-such-host.example.private:8181" > "$curlrc"
 CURL_HOME=$(dirname "$curlrc") bash -c -- -ws-hello-world
-bootstr=$(-shell-boot-string $SCR_PORT hostname)
+bootstr=$(-shell-boot-string -p $SCR_PORT hostname)
 h=$(CURL_HOME=$(dirname "$curlrc") bash -c "$bootstr")
 [ "$h" = $(hostname) ]
 session_id=$(screen --generate-session-id)

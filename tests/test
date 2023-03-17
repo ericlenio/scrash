@@ -43,9 +43,9 @@ same as above, but also include test case file(s) matching on \"vim\":
   if [ ! -e $fifo ]; then
     mkfifo $fifo
   fi
-  npm start -- -p $SCR_PORT -n $fifo &
+  npm start -- -p $SCR_PORT -n $fifo < <(scr_function_list_dump) &
   # once this read is done, we know the server is up and listening
-  read port<$fifo
+  read port <$fifo
   rm $fifo
   if ! [[ "$port" =~ ^[0-9]+$ ]]; then
     exit 1

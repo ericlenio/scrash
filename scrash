@@ -55,34 +55,83 @@ init() {
   done
   export SCR_PASSWORD_FILE="$SCR_HOME/profile/$SCR_PROFILE/passwords.gpg"
   export SCR_PORT_0=$SCR_PORT
+  BASH_FUNCTIONS="$SCR_HOME"/src/bash/bash-functions
+  PROFILE_BASH_FUNCTIONS="$SCR_HOME"/profile/$SCR_PROFILE/bash-functions
 }
+
+get_function_names() {
+  local file="$1"
+  env -i bash --norc --noprofile -c "source \"$file\"; compgen -A function"
+}
+
+build_func() {
+  local funcname=$1 file="${2:-/dev/stdin}"
+  printf -- "%s() { echo '%s' | openssl enc -d -a -A | gzip -dc; }" $funcname $(gzip -9c <"$file" | openssl enc -a -A)
+}
+
+load_bash_functions() {
+  # funclist: maintain a list of all loaded bash functions used by scrash
+  local funclist=()
+  source "$BASH_FUNCTIONS"
+  if [ -f "$PROFILE_BASH_FUNCTIONS" ]; then
+    source "$PROFILE_BASH_FUNCTIONS"
+  fi
+  funclist+=($(get_function_names "$BASH_FUNCTIONS"))
+  if [ -f "$PROFILE_BASH_FUNCTIONS" ]; then
+    funclist+=($(get_function_names "$PROFILE_BASH_FUNCTIONS"))
+  fi
+  for rcfile in "$SCR_HOME"/profile/$SCR_PROFILE/{screenrc,bashrc,vimrc}; do
+    rcfile_base=$(basename "$rcfile")
+    funcname="-$rcfile_base"
+    if [ -f "$rcfile" ]; then
+      funcdef=$(build_func $funcname "$rcfile")
+    else
+      printf -v funcdef -- "%s() { :; }" $funcname
+    fi
+    eval -- "$funcdef"
+    funclist+=($funcname)
+    #if [ $rcfile_base = bashrc ]; then
+      #source "$rcfile"
+    #fi
+  done
+  for vim_plugin in $(find "$SCR_HOME"/src/vim -name '*.vim'); do
+    plugin=$(basename "$vim_plugin" .vim)
+    plugin_func="-vim-plugin-$plugin"
+    funcdef=$(grep -v -e '^ *"' "$vim_plugin" | build_func $plugin_func)
+    eval -- "$funcdef"
+    funclist+=($plugin_func)
+  done
+  -shell-init -C
+  printf -v funcdef -- "scr_function_list() { for f in ${funclist[*]}; do printf '%%s ' \$f; done; }"
+  eval -- "$funcdef"
+  export -f scr_function_list
+}
+
+scr_function_list_dump() {
+  local f
+  for f in $(scr_function_list); do
+    printf '%s:%s\n' $f $(declare -f -- $f | openssl enc -a -A)
+  done
+}
+
+export -f scr_function_list_dump
+
+scr_server() {
+  scr_function_list_dump | npm start --prefix="$SCR_HOME" -- -p $SCR_PORT
+  echo "$FUNCNAME: server has stopped, \"$FUNCNAME\" to restart it" >&2
+  exec bash
+}
+
+export -f scr_server
 
 main() {
   case $mode in
     (client_server)
-      source "$SCR_HOME/src/bash/bash-functions"
-      -shell-init -C
-      for rcfile in "$SCR_HOME"/profile/$SCR_PROFILE/{screenrc,bashrc,vimrc}; do
-        rcfile_base=$(basename $rcfile)
-        if [ -f "$rcfile" ]; then
-          printf -v funcdef -- "-%s() { cat '%s'; }" $rcfile_base "$rcfile"
-        else
-          printf -v funcdef -- "-%s() { :; }" $rcfile_base
-        fi
-        eval -- "$funcdef"
-      done
-      eval -- "$(-bashrc)"
-      -vim-plugin-clipboard() {
-        cat "$SCR_HOME/src/vim/clipboard.vim"
-      }
-      -scr-server() {
-        npm start --prefix="$SCR_HOME" -- -p $SCR_PORT
-        echo "$FUNCNAME: server has stopped" >&2
-        exec bash
-      }
-      shell_init_args+=(-s $(-ssh-serialize-cmd screen bash -c -- -scr-server))
+      load_bash_functions
+      shell_init_args+=(-s $(-ssh-serialize-cmd screen bash -c scr_server))
       ;;
     (test)
+      load_bash_functions
       cd $SCR_HOME
       cmd=(exec ./tests/test)
       if [ "$test_groups" ]; then
