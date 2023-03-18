@@ -14,6 +14,11 @@ following executables: ssh, ssh-add, scp, sftp, screen, vim. There are a number
 of exported shell variables, with prefix of `SCR_`. (Type `-vars` to see the
 full list of shell variables.)
 
+## platform-specific functions
+You may define bash functions in a profile that only get loaded for a
+particular platform you ssh to. To do this, the function name must begin with
+`-platform-`, where `platform` is the lowercased output of running `uname`.
+
 # Profile layout
 A profile may contain these files:
 
@@ -26,8 +31,8 @@ A profile may contain these files:
 | `profile/MYPROFILE/screenrc`                 | screenrc sourced for all gnu screen sessions |
 
 # Supported operating systems
-Tested on Darwin (Mac), Linux, Raspian (Raspberry Pi), and OpenBSD. Almost
-certainly would be fine with FreeBSD.
+Tested on MacOS, Linux, Raspian (Raspberry Pi), and OpenBSD. Almost certainly
+would be fine with FreeBSD.
 
 # Vim
 Put any desired vimrc settings in `./profile/MYPROFILE/vimrc` and they will be
