@@ -1,3 +1,0 @@
-#! /usr/bin/env bash
-
-v README.md package.json scrash server.js profile/*/* src/js/*.js src/bash/* src/vim/* tests/*
