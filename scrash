@@ -57,6 +57,7 @@ init() {
   export SCR_PORT_0=$SCR_PORT
   BASH_FUNCTIONS="$SCR_HOME"/src/bash/bash-functions
   PROFILE_BASH_FUNCTIONS="$SCR_HOME"/profile/$SCR_PROFILE/bash-functions
+  PROFILE_BASH_FUNCTIONS_LOCALHOST="$SCR_HOME"/profile/$SCR_PROFILE/bash-functions-localhost
 }
 
 get_function_names() {
@@ -72,14 +73,14 @@ build_func() {
 load_bash_functions() {
   # funclist: maintain a list of all loaded bash functions used by scrash
   local funclist=()
+  local bash_files=("$BASH_FUNCTIONS" "$PROFILE_BASH_FUNCTIONS" "$PROFILE_BASH_FUNCTIONS_LOCALHOST")
   source "$BASH_FUNCTIONS"
-  if [ -f "$PROFILE_BASH_FUNCTIONS" ]; then
-    source "$PROFILE_BASH_FUNCTIONS"
-  fi
-  funclist+=($(get_function_names "$BASH_FUNCTIONS"))
-  if [ -f "$PROFILE_BASH_FUNCTIONS" ]; then
-    funclist+=($(get_function_names "$PROFILE_BASH_FUNCTIONS"))
-  fi
+  for f in "${bash_files[@]}"; do
+    [ ! -f "$f" ] && continue
+    source "$f"
+    funclist+=($(get_function_names "$f"))
+  done
+  export SCR_LOCALHOST_FUNCS=$([ -f "$PROFILE_BASH_FUNCTIONS_LOCALHOST" ] && get_function_names "$PROFILE_BASH_FUNCTIONS_LOCALHOST")
   for rcfile in "$SCR_HOME"/profile/$SCR_PROFILE/{screenrc,bashrc,vimrc}; do
     rcfile_base=$(basename "$rcfile")
     funcname="-$rcfile_base"

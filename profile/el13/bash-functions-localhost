@@ -1,0 +1,480 @@
+# vim:filetype=bash
+-edit() {
+  cd "$SCR_HOME"
+  ./edit
+}
+
+-totp() {
+  local key_idx=${1:-0} otp key_id base32_key i
+  local key_ids=(
+    "TOTP LincWare OPS"
+    "TOTP npmjs"
+    "TOTP Amazon Web Services"
+    "TOTP lw-401-main-st"
+  )
+  if [ "$key_idx" = -h ]; then
+    echo "usage: $FUNCNAME i"
+    echo "where \"i\" is the index of the TOTP you want, listed below"
+    for ((i=0;i<${#key_ids[*]};i++)); do
+      printf "%s. %s\n" $i "${key_ids[$i]}"
+    done
+    return
+  fi
+  key_id=${key_ids[$key_idx]}
+  if [ -z "$key_id" ]; then
+    echo "$FUNCNAME: could not acquire base32_key using key_idx=$key_idx" >&2
+    return 1
+  fi
+  if base32_key=$(-pw -N "$key_id"); then
+    if otp=$(oathtool --totp -b $base32_key); then
+      #printf "%s:%s\n" "$key_id" $otp
+      printf $otp | -copy-to-clipboard
+      echo "TOTP for \"$key_id\" was copied to the OS clipboard ($otp)"
+    else
+      echo "$FUNCNAME: oathtool failed key: $key_id" >&2
+      return 1
+    fi
+  else
+    echo "$FUNCNAME: failed to acquire secret for key: $key_id" >&2
+    return 1
+  fi
+}
+
+#
+# Usage: -ra [filter] [command ...]
+# where filter is used as a simple search filter against all currently
+# connected VMs. The user is prompted to pick the VM from a list and further
+# prompted to run either ssh or sftp to that VM.
+#
+# If a command is given we assume it is to be run on the remote VM identified
+# by the filter (and the assumption is that the filter will match on exactly 1
+# VM).
+#
+# Programmer note: this script is designed to work on Linux, OpenBSD, and Mac
+# OS X. So do not use any obscure syntax or 3rd party tools which may not exist
+# in some environments, e.g., Mac OS X's bash does not support associative
+# arrays.
+#
+# Set these environment variables as necessary (defaults in parens)
+# RA_SERVER_BASE_URL (https://remoteadmin.private:3333)
+# RA_SSH_USER (lincdoc)
+# RA_USER ($LOGNAME)
+#
+#exec > >(tee >(grep ^: >$cmds) | grep -v ^:)
+#trap "rm -f $stdout $cmds; echo $stdout was deleted" EXIT INT
+
+-ra() {
+  local exec ssh_params opts="he:u:j:drps" opt RA_SERVER_BASE_URL=${RA_SERVER_BASE_URL:-https://remoteadmin.private:3333} RA_SSH_USER=${RA_SSH_USER:-lincdoc} OPTIND=1 curl_path=/usr/local/opt/curl/bin
+  -add-path "$curl_path"
+  declare -a exec
+  declare -a ssh_params
+  local ssh_params_file="$HOME/.remoteadmin/ssh_options" filter RA_SSH_PROXY_JUMP_HOST RA_MODE=ssh superuser=0
+  local appCtx raAgentId
+
+  usage() {
+    echo "Usage: -ra [-hdr] [filter [ssh args ...]]"
+    echo "       -ra [-d] -p [filter [psql args ...]]"
+    echo "       -ra [-d] -s"
+    echo "  -h: this usage note"
+    echo "  -d: use dev remoteadmin server"
+    echo "  -r: in ssh mode (the default), ssh to the remote server as root; in psql mode, connect with the owner of the ld_admin schema"
+    echo "  -p: psql mode"
+    echo "  -s: show current remoteadmin users"
+  }
+
+  while builtin getopts $opts opt; do
+    case $opt in
+      h) usage
+        return
+        ;;
+      e) RA_SERVER_BASE_URL=$OPTARG
+        echo "NOTE: using endpoint base: $RA_SERVER_BASE_URL" >/dev/tty
+        ;;
+      u) RA_USER_OVERRIDE=$OPTARG
+        echo "NOTE: using RA_USER: $RA_USER_OVERRIDE" >/dev/tty
+        ;;
+      d) RA_SERVER_BASE_URL=${RA_SERVER_BASE_URL/%:3333/:3001}
+        echo "NOTE: using dev RA server at: $RA_SERVER_BASE_URL" >/dev/tty
+        ;;
+      r) RA_SSH_USER=root
+        superuser=1
+        ;;
+      p) RA_MODE=psql
+        ;;
+      s) RA_MODE=show_users
+        ;;
+    esac
+  done
+  filter=${!OPTIND}
+  [ $OPTIND -gt $# ] && shift $# || shift $OPTIND
+  if [ -z "$filter" ]; then
+    filter="."
+  fi
+  if [[ "$filter" =~ ^(([^:]+):)(([_[:alnum:]]+))$ ]]; then
+    raAgentId=${BASH_REMATCH[2]}
+    filter=$raAgentId
+    appCtx=${BASH_REMATCH[4]}
+  fi
+  if ! [[ $RA_SERVER_BASE_URL =~ ://([-\.[:alnum:]]+) ]]; then
+    echo "could not parse RA_SSH_PROXY_JUMP_HOST from endpoint: $RA_SERVER_BASE_URL" >&2
+    return 1
+  fi
+  RA_SSH_PROXY_JUMP_HOST=${BASH_REMATCH[1]}
+
+  get_extra_ssh_params() {
+    local hostname=$(echo $1 | tr "[:upper:]" "[:lower:]")
+    local hostname2
+    local line
+    if [ -f "$ssh_params_file" ]; then
+      while read -r line; do
+        if [[ $line =~ ^([-\.[:alnum:]]+)=(.+) ]]; then
+          hostname2=$(echo ${BASH_REMATCH[1]} | tr "[:upper:]" "[:lower:]")
+          if [ ${hostname} = ${hostname2} ]; then
+            printf %s "${BASH_REMATCH[2]}"
+            return
+          fi
+        fi
+      done < "$ssh_params_file"
+    fi
+  }
+
+  if [ "$STY" ]; then
+    -screen-env
+  fi
+  if [ "$RA_USER_OVERRIDE" ]; then
+    RA_USER=$RA_USER_OVERRIDE
+  fi
+
+  if [ -z "$RA_USER" ]; then
+    read -p "What is your remoteadmin username? " RA_USER </dev/tty
+    [ -z "$RA_USER" ] && return 1
+    read -p "Confirm: username is \"$RA_USER\" (y/n, default is y)? " yesno </dev/tty
+    [ "$yesno" -a "$yesno" != y ] && return
+  fi
+
+  #local pwkey="LincWare LDAP:$RA_USER"
+  #local pw=$(pw "$pwkey")
+  if [ -z "$RA_USER_PASSWORD_64" ]; then
+    echo "$FUNCNAME: no value for RA_USER_PASSWORD_64" >&2
+    return 1
+  fi
+  if ! pw=$(echo "$RA_USER_PASSWORD_64" | openssl enc -d -a -A); then
+    echo "$FUNCNAME: could not acquire password" >&2
+    return 1
+  fi
+  local raw agents auth=$(printf "%s:%s" "$RA_USER" "$pw" | openssl enc -a -A)
+  local ldap_auth_hdr=$(printf "Authorization: Basic %s" $auth)
+  local endpoint=$RA_SERVER_BASE_URL/ra-get-agents?superuser=$superuser
+  if ! [[ $RA_SERVER_BASE_URL =~ ://([-\.[:alnum:]]+) ]]; then
+    echo "$FUNCNAME: could not parse hostname from endpoint: $RA_SERVER_BASE_URL" >&2
+    return 1
+  fi
+
+  local agt_id=${BASH_REMATCH[1]}/127.0.0.1
+  local matching=() header=() raAgentIdIdx agent=()
+
+  get_header_idx() {
+    local i
+    for ((i=0;i<${#header[@]};i++)); do
+      if [ ${header[$i]} = $1 ]; then
+        echo $i
+        return
+      fi
+    done
+    return 1
+  }
+
+  get_data() {
+    local i j data
+    IFS='|' read -a data <<< "${matching[$1]}"
+    for ((j=0;j<${#header[@]};j++)); do
+      printf "%s=%s;" ${header[$j]} "${data[$j]}"
+    done
+  }
+
+  fmt_date() {
+    epoch_seconds=$1 os=$(uname -s) fmt="%m/%d %H:%M:%S"
+    case $os in
+      Darwin|OpenBSD)
+        date -r $epoch_seconds +"$fmt"
+        ;;
+      Linux)
+        date --date=@$epoch_seconds +"$fmt"
+        ;;
+    esac
+  }
+
+  if [ $RA_MODE != show_users ]; then
+    if ! raw=$(curl -k -S -s -f -H "Accept: text/plain" -H "$ldap_auth_hdr" -H "X-Ra-Agent-Id: $agt_id" $endpoint); then
+      echo "$FUNCNAME: failed to read $endpoint" >&2
+      return 1
+    fi
+    IFS=$'\n' read -d '' -a agents <<< "$raw" || true
+
+    IFS='|' read -a header <<< "${agents[0]}"
+
+    if ! raAgentIdIdx=$(get_header_idx raAgentId); then
+      echo "$FUNCNAME: failed to get raAgentIdIdx" >&2
+      return 1
+    fi
+
+    for ((i=1;i<${#agents[@]};i++)); do
+      agent=(${agents[$i]})
+      raAgentId=${agent[$raAgentIdIdx]}
+      if [[ $raAgentId =~ $filter ]]; then
+        matching+=("${agents[$i]}")
+      fi
+    done
+
+    if [ ${#matching[@]} -eq 0 ]; then
+      echo "$FUNCNAME: no matches for filter: $filter" >&2
+      return 1
+    fi
+
+    local n=$((${#matching[@]}-1)) choice=0
+    if [ $n -ge 1 ]; then
+      local choice_list=$(
+        for ((i=0;i<=$n;i++)); do
+          eval "$(get_data $i)"
+          dt=$(fmt_date $createTimestamp)
+          printf "%s (%s)\n" $raAgentId "$dt"
+        done
+      )
+      choice=$(-pick-something "Pick:" "$choice_list" 1) || {
+        echo "invalid choice"
+        return 1
+      }
+    fi
+
+    #get_data $choice
+    eval "$(get_data $choice)"
+  fi
+
+  case $RA_MODE in
+    ssh|show_users)
+      # get a session cookie so we can do various web service calls
+      local cookie_jar=$HOME/.remoteadmin/ra-cookies
+      if [ ! -f $cookie_jar ]; then
+        touch $cookie_jar
+        chmod 600 $cookie_jar
+      fi
+      curl -k -f -s -S -b "$cookie_jar" -c "$cookie_jar" -H "X-Ra-Session-Request: 1" -H "$ldap_auth_hdr" $RA_SERVER_BASE_URL/ra-simple-login
+      ;;
+  esac
+
+  case $RA_MODE in
+    ssh)
+      local extra_params="$(get_extra_ssh_params $raHostname)"
+      if [ -n "$extra_params" ]; then
+        echo "Passing extra params to ssh: $extra_params"
+      fi
+      if c=($(curl -k -f -s -S -b "$cookie_jar" -H "$ldap_auth_hdr" -H "X-Ra-Agent-Id: $raAgentId" $RA_SERVER_BASE_URL/ra-get-shell-ctx)); then
+        if [ $# -eq 0 ]; then
+          set -- exec bash
+        fi
+        RA_SSH_USE_EVAL=1 SSH_STY_LBL=$raHostname ssh -a -t -oProxyJump=remoteadmin@$RA_SSH_PROXY_JUMP_HOST -p $raSshPort $extra_params $RA_SSH_USER@127.0.0.1 "${c[@]}" "$@"
+      fi
+      ;;
+    psql)
+      choice=0
+      n=$((${#context[@]}-1))
+      if [ $n -ge 1 ]; then
+        if [ -z "$appCtx" ]; then
+          local choice_list=$(
+            for ((i=0;i<=$n;i++)); do
+              printf "%s (%s/%s/%s)\n" ${context[$i]} ${ldVersion[$i]} ${database[$i]} ${username[$i]}
+            done
+          )
+          choice=$(-pick-something "Pick:" "$choice_list" 1) || {
+            echo "invalid choice" >&2
+            return 1
+          }
+        else
+          choice=-1
+          for ((i=0;i<=$n;i++)); do
+            if [ ${context[$i]} = $appCtx ]; then
+              choice=$i
+              break
+            fi
+          done
+          if [ $choice -lt 0 ]; then
+            echo "no such context: $appCtx" >&2
+            echo "available contexts: ${context[*]}" >&2
+            return 1
+          fi
+        fi
+      fi
+      appCtx=${context[$choice]}
+      export PGDATABASE=${database[$choice]}
+      export PGUSER=${username[$choice]}
+      #export PGHOST=${host[$choice]}
+      export PGHOST=127.0.0.1
+      export PGSSLMODE=require
+      export PGPORT=${port[$choice]}
+      export PGOPTIONS="-c lw.raAgentId=$raAgentId/$appCtx}"
+      export PGPASSWORD="$(echo ${password[$choice]} | openssl enc -d -a -A)"
+      ssh -fN -L127.0.0.1:$PGPORT:127.0.0.1:$PGPORT ${host[$choice]}
+      psql -v PROMPT1="$raHostname:%n@%/>" "$@"
+      # do I need to stop ssh?
+      ;;
+    show_users)
+      #local type="application/json"
+      local type="text/plain"
+      curl -k -f -S -H "$ldap_auth_hdr" -H "X-Ra-Agent-Id: $agt_id" -H "Accept: $type" $RA_SERVER_BASE_URL/ra-users-get-browser-windows
+      ;;
+  esac
+}
+
+# Use this script to mount the encrypted filesystem, which spawns a shell so
+# you can make edits. When you exit the shell, it unmounts and deallocates the
+# loop device. Arguments: [-rw|-ro] [mountpoint]
+# If neither -rw nor -ro are specified, ask
+# If mountpoint is not specified, mounts in ./mnt
+-linux-lwsecrets() {
+  local privdir=$HOME/Documents/private
+  local privurl=https://svn.lincware.com/svnpk/private
+  if [ ! -d $privdir ]; then
+    echo "Expected $privdir to exist, with checkout:"
+    echo $privurl
+    return 1
+  fi
+  (
+    cd $privdir
+    svn up
+
+
+    local dat_file=lincware-secrets.dat
+    local mapname=$LOGNAME-lincware-secrets
+    local mountpoint=$(pwd)/mnt
+    local rwro
+
+    # read -h (help), -ro (readonly), -rw (read/write)
+    # return true if should shift
+    readrwro() {
+      if [ "$1" = "-h" ]; then
+        echo "Usage: $FUNCNAME [-ro|-rw] [mountpoint]" >&2
+        return 0
+      elif [ "$1" = "-ro" ]; then
+        rwro="ro"
+        return 0
+      elif [ "$1" = "-rw" ]; then
+        rwro="rw"
+        return 0
+      fi
+      return 1
+    }
+
+    # check for -ro/-rw and mount point
+    if readrwro $1; then shift; fi
+    if [ "$1" != "" ]; then
+      mountpoint=$1
+      shift
+    fi
+    if readrwro $1; then shift; fi
+
+    # make sure mount point exists
+    if [ ! -d "$mountpoint" ]; then
+      echo "Mount point $mountpoint does not exist." >&2
+      return 1
+    fi
+
+    if [ "$rwro" = "" ]; then
+      # neither -ro nor -rw passed, ask
+      echo "Mount the share in read-only mode (y/n)? "
+      read readonly
+      if [ "$readonly" = "y" ]; then
+        rwro="ro"
+      else
+        rwro="rw"
+      fi
+    fi
+
+    # set mount options if read only
+    if [ "$rwro" = "ro" ]; then
+      # noatime so lincware-secrets.dat is not altered
+      mount_opts="-o ro,noatime"
+    fi
+
+    loopdev=$(sudo losetup --find)
+    echo "Using loop device: $loopdev"
+
+    sudo losetup $loopdev $dat_file && {
+      sudo cryptsetup luksOpen $loopdev $mapname && {
+        sudo mount $mount_opts /dev/mapper/$mapname $mountpoint && {
+          echo
+          echo "Launching a new shell now so you can make edits to files"
+          echo "under $mountpoint. Type 'exit' to leave the shell, and"
+          echo "$mountpoint will then be automatically unmounted."
+          echo
+          echo "Press ENTER to continue."
+          read
+
+          (
+            cd $mountpoint
+            -s
+          )
+
+          sudo umount "$mountpoint"
+          if [ "$rwro" = "rw" ]; then
+            echo "Commit changes now (y/n)? "
+            read commit
+            if [ "$commit" = "y" ]; then
+              svn commit
+            fi
+          fi
+        }
+        sudo cryptsetup remove $mapname
+      }
+      sudo losetup -d $loopdev
+    }
+  )
+}
+
+-darwin-macbook-pf-init() (
+  # set up firewall rules for Eric's macbook so that VirtualBox/Qemu systems
+  # can communicate on the network
+  #
+  # based on notes from:
+  # http://superuser.com/questions/429405/how-can-i-get-virtualbox-to-run-with-a-hosts-only-adapter
+  if [ $(uname) != Darwin ]; then
+    echo "$FUNCNAME: only suitable for MacOS" >&2
+    return 1
+  fi
+  set -e
+  vpn_iface=utun3
+  qemu_bridge_iface=bridge100
+  #vpn_subnet=10.4.1.0/24
+  vmware_iface=vmnet2
+  wifi_iface=en0
+  qemu_subnet=192.168.105.0/24
+  vbox_subnet=192.168.5.0/24
+  vbox_iface=vboxnet0
+
+  #sudo sysctl -w net.inet.ip.forwarding=1 net.inet.ip.fw.enable=1
+  #sudo sysctl -a net.inet.ip.forwarding net.inet.ip.fw.enable
+  sudo sysctl -w net.inet.ip.forwarding=1
+  sudo sysctl -a net.inet.ip.forwarding
+  #sudo pfctl -F all -f /etc/pf.conf
+  {
+    echo
+    #echo "nat on en0 from vboxnet0:network -> (en0)"
+    # this next one to allow virtualbox guests to communicate to lincware
+    # servers when VPN is on
+    #echo "nat on $vpn_iface from vboxnet0:network -> ($vpn_iface)"
+    # this one to allow asus flip on 192.168.1.102 to go through the router to
+    # elmbp and across elmbp's VPN to lincware
+    #echo "nat on $vpn_iface from en0:network -> ($vpn_iface)"
+    #echo "pass in quick proto tcp to any keep state"
+    # set up a private static route in the netgear router to pass
+    # 192.168.5.0/24 to elmbp's en0 IP address, then this next "pass" rule gets
+    # that traffic passed from en0 to vboxnet0
+    #echo "pass in quick proto { tcp udp } from 192.168.1.0/24 to 192.168.5.0/24 keep state"
+    # forward VPN traffic to lincware VPN: also must set up a static route on
+    # the router to pass 10.9.0.0/16 to elmbp's en0 IP address
+    #echo "pass in quick proto { tcp udp } from 192.168.1.0/24 to 10.9.0.0/16 keep state"
+    if ifconfig | grep -q -w $vpn_iface; then
+      echo "nat on $vpn_iface from { $vbox_subnet $qemu_subnet } to any -> $vpn_iface"
+    fi
+    echo "nat on $wifi_iface from { $vbox_subnet $qemu_subnet } to any -> $wifi_iface"
+  } | sudo pfctl -e -f -
+)

@@ -366,6 +366,12 @@ console.log('dbg:list:',list.length);
 
   getBashFunctions(url,res) {
     return new Promise((resolve,reject)=>{
+      for (let param of ['platform','hostname','ssh_level','start']) {
+        if (!url.searchParams.has(param)) {
+          const e=new Error(`getBashFunctions: missing parameter: ${param}`);
+          return reject(e);
+        }
+      }
       const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
       gz.on('error',reject);
       res.setHeader('Content-Encoding','gzip');
@@ -376,15 +382,11 @@ console.log('dbg:list:',list.length);
         gz.write(s);
         bytesWritten+=s.length;
       };
-      const localFuncs=(process.env.SCR_LOCAL_FUNCS || '').split(/\s+/);
-      for (let funcName of Object.keys(this.#shellFunctions)) {
-        if (localFuncs.includes(funcName)) {
-          continue;
-        }
-        write(this.#shellFunctions[funcName]);
-      }
-      const start=url.searchParams.get('start');
+      const platform=url.searchParams.get('platform').toLowerCase();
+      const hostname=url.searchParams.get('hostname').toLowerCase();
       const sshLevel=url.searchParams.get('ssh_level');
+      const start=url.searchParams.get('start');
+      this.sendFunctions(write,platform,hostname);
       if (start) {
         write(`export SCR_PORT=${url.port}\n`);
         write(`export SCR_PORT_0=${SCR_PORT_0}\n`);
@@ -398,6 +400,34 @@ console.log('dbg:list:',list.length);
       console.log("getBashFunctions: sent",bytesWritten,"bytes");
       gz.end(resolve);
     });
+  }
+
+  /**
+   * send bash functions over the wire to HTTP client; filter which functions
+   * get sent based on HTTP client OS platform and/or host name
+   *
+   * @param {function} write - writes to gzip stream
+   *
+   * @param {string} platform - the lowercased <code>uname</code> value from the http client
+   *
+   * @param {string} hostname - the lowercased <code>hostname</code> value from the http client
+   */
+  sendFunctions(write,platform,hostname) {
+    const localFuncs=process.env.SCR_LOCALHOST_FUNCS.split(/\s+/);
+    const platformRegex=/^-(darwin|linux|openbsd|freebsd)-/;
+    for (let funcName of Object.keys(this.#shellFunctions)) {
+      if (localFuncs.includes(funcName)) {
+        continue;
+      }
+      if (platformRegex.test(funcName)) {
+        const funcPlatform=funcName.match(platformRegex)[1];
+        if (funcPlatform!==platform) {
+          console.log("sendFunctions:skip:",platform,funcPlatform,funcName);
+          continue;
+        }
+      }
+      write(this.#shellFunctions[funcName]);
+    }
   }
 
   getUserRcFile(rcfile) {

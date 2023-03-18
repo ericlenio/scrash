@@ -14,6 +14,9 @@ following executables: ssh, ssh-add, scp, sftp, screen, vim. There are a number
 of exported shell variables, with prefix of `SCR_`. (Type `-vars` to see the
 full list of shell variables.)
 
+# Profile layout
+A profile may contain these files:
+
 # Supported operating systems
 Tested on Darwin (Mac), Linux, Raspian (Raspberry Pi), and OpenBSD. Almost
 certainly would be fine with FreeBSD.
