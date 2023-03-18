@@ -1,5 +1,12 @@
 # vim:filetype=bash
 
+-log() {
+  # to do: write logging logic
+  if [ "$SCR_DEBUG" = 1 ]; then
+    :
+  fi
+}
+
 -add-path() {
   while [ $# -gt 0 ]; do
     [ -d "$1" ] && [[ ":$PATH:" != *":$1:"* ]] && PATH="$1:$PATH"
@@ -369,6 +376,7 @@ vim() {
   while builtin getopts $opts opt; do
     case $opt in
       (v) verbose=1
+        export SCR_DEBUG=1
         ;;
       (s)
         # pass start=1 to start an interactive shell, any other value is
@@ -715,7 +723,7 @@ ssh() {
   fi
   # create the OTP cache if it does not exist
   if ! compgen -v SCR_OTP_CACHE >/dev/null; then
-    echo "creating SCR_OTP_CACHE now at SHLVL=$SHLVL:$(hostname)" >&2
+    -log "creating SCR_OTP_CACHE now at SHLVL=$SHLVL:$(hostname)"
     SCR_OTP_CACHE=()
   fi
   # load SCR_OTP_CACHE into positional params for easier access
@@ -732,7 +740,7 @@ ssh() {
           set -- "$@" $REPLY
         done
       } <$SCR_OTP_CACHE_FIFO
-echo "loaded OTPs from $SCR_OTP_CACHE_FIFO:SHLVL=$SHLVL:$#" >&2
+      -log "loaded OTPs from $SCR_OTP_CACHE_FIFO:SHLVL=$SHLVL:$#"
       unset SCR_OTP_CACHE_FIFO
       rm -f $SCR_OTP_CACHE_FIFO
     fi
@@ -742,22 +750,22 @@ echo "loaded OTPs from $SCR_OTP_CACHE_FIFO:SHLVL=$SHLVL:$#" >&2
   for ((i=$#;i>0;i--)); do
     expiration=${!i%%:*}
     if [ $(($now-$expiration)) -ge $otp_max_lifetime ] || [ "$otp" ] && grep -q "$otp" $SCR_USED_OTPS 2>/dev/null; then
-echo "expiring ($expiration) otp at index $i:${!i}" >&2
+      -log "expiring ($expiration) otp at index $i:${!i}"
       set -- ${@:1:$i-1} ${@:$i+1}
     fi
   done
-echo "SCR_OTP_CACHE[$SHLVL] now:$#:$*" >&2
+  -log "SCR_OTP_CACHE[$SHLVL] now:$#:$*"
   # if the cache does not have enough OTP's, then go get as many as needed
   if [ $count -gt $# ]; then
     set -- $@ $(-ws-set-otp $(($count-$#)))
-echo "SCR_OTP_CACHE[$SHLVL] now:$#:$*" >&2
+    -log "SCR_OTP_CACHE[$SHLVL] now:$#:$*"
   fi
   if [ ${otp+x} ]; then
     # load the first OTP into "otp" variable, which should specifically NOT
     # local to this function, and should be declared by the caller
     otp=${1##*:}
     shift
-echo "SCR_OTP_CACHE[$SHLVL] now:$#:$*" >&2
+    -log "SCR_OTP_CACHE[$SHLVL] now:$#:$*"
   else
     echo "$FUNCNAME: warning: caller otp variable was not detected" >&2
   fi
