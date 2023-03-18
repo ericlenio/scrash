@@ -17,6 +17,14 @@ full list of shell variables.)
 # Profile layout
 A profile may contain these files:
 
+| path                                         | notes                     |
+| -------------------------------------------- | ------------------------- |
+| `profile/MYPROFILE/bashrc`                   | this file is sourced for every new shell |
+| `profile/MYPROFILE/bash-functions`           | this file is for your own custom functions, available with every shell |
+| `profile/MYPROFILE/bash-functions-localhost` | this file is for your own custom functions, but only available with shells on your local machine |
+| `profile/MYPROFILE/vimrc`                    | vimrc sourced for all vim sessions (see below) |
+| `profile/MYPROFILE/screenrc`                 | screenrc sourced for all gnu screen sessions |
+
 # Supported operating systems
 Tested on Darwin (Mac), Linux, Raspian (Raspberry Pi), and OpenBSD. Almost
 certainly would be fine with FreeBSD.
