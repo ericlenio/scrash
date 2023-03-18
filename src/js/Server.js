@@ -55,15 +55,7 @@ class Server extends http.Server {
     }
     this.on('request',(req,res)=>this.onRequest(req,res));
     this.on('connect',(req,socket,head)=>this.onConnect(req,socket,head));
-    return fsPromises.readdir(SCR_PROFILE_DIR)
-      //.then(()=>this.initEnvironmentVariables())
-      .then(()=>this.loadBashFunctions())
-      //.then(shellScript=>this.#shellScript=shellScript)
-      //.then(()=>this.loadVimPlugins())
-      //.then(shellScript=>this.#shellScript+=shellScript)
-      //.then(()=>this.parseBashFunctionNames(this.#shellScript))
-      //.then(shellFunctions=>this.#shellFunctions=shellFunctions)
-      //.then(()=>this.loadBashFunctionsIndividually(this.#shellScript,this.#shellFunctions))
+    return this.loadBashFunctions()
       .then(()=>this.listen(port,'127.0.0.1'))
       .then(()=>new Promise(resolve=>this.once('listening',resolve)));
   }
@@ -275,30 +267,6 @@ class Server extends http.Server {
     }
   }
 
-  /*
-  loadBashFunctions() {
-    let shellScript="";
-    const rcfiles=["screenrc","vimrc","bashrc"];
-    return Promise.all(rcfiles.map(rcfile=>{
-      // create a bash function to generate the rcfile on demand: the function
-      // name is a hyphen followed by the rcfile name
-      return this.getUserRcFile(rcfile).then(fileContent=>shellScript+=`-${rcfile}() {
-        local b64src="${Buffer.from(fileContent).toString('base64')}"
-        echo $b64src | openssl enc -d -a -A
-      }
-      `).catch(e=>{
-        if (e.code==="ENOENT") {
-          // the user profile does not have the rcfile, so set up stub function
-          shellScript+=`-${rcfile}() { :; }\n`;
-          return;
-        }
-        throw e;
-      });
-    })).then(()=>fsPromises.readFile(`${SCR_HOME}/src/bash/bash-functions`,'utf8'))
-    .then(fileContent=>shellScript+=fileContent);
-  }
-  */
-
   loadBashFunctions() {
     return new Promise(resolve=>{
       readline.createInterface({input:process.stdin}).on('line',line=>{
@@ -316,53 +284,6 @@ class Server extends http.Server {
       });
     });
   }
-
-  /**
-   * generate a list of all loaded bash functions; the list is stored in
-   * <code>this.#shellFunctions</code>
-   */
-  /*
-  parseBashFunctionNames(shellScript) {
-    return new Promise((resolve,reject)=>{
-      let funcs='';
-      const args=["-i","bash","-c","eval -- \"$(</dev/stdin)\";compgen -A function"]
-      const p=child_process.spawn("/usr/bin/env",args,{stdio:['pipe','pipe',process.stderr]});
-      p.on('error',reject);
-      p.stdout.on('close',()=>{
-        const shellFunctions=funcs.split(/\s+/s).filter(f=>Boolean(f));
-        console.log(shellFunctions.length,"shell functions loaded");
-        resolve(shellFunctions);
-      });
-      p.stdin.end(shellScript,'utf8');
-      p.stdout.on('data',data=>funcs+=data);
-    });
-  }
-  */
-
-  /*
-  loadBashFunctionsIndividually(shellScript,shellFunctions) {
-return;
-    return new Promise((resolve,reject)=>{
-      let s='';
-      const args=["-i","bash","-c","eval -- \"$(</dev/stdin)\";for f in $(compgen -A function); do printf %s%s $f $'\\x1e'; declare -f -- $f; echo $'\\x1e'; done"]
-      const p=child_process.spawn("/usr/bin/env",args,{stdio:['pipe','pipe',process.stderr]});
-      p.on('error',reject);
-      p.stdout.on('close',()=>{
-        const list=s.split(/\x1e/s).filter(f=>Boolean(f));
-        const shellFunctions={};
-        for (let i=0;i<list.length/2;i++) {
-          const funcName=list[i*2];
-          console.log('funcName:',i,funcName)
-        }
-console.log('dbg:list:',list.length);
-        console.log('dbg:',list.length,"shell functions loaded");
-        resolve();
-      });
-      p.stdin.end(shellScript,'utf8');
-      p.stdout.on('data',data=>s+=data);
-    });
-  }
-  */
 
   getBashFunctions(url,res) {
     return new Promise((resolve,reject)=>{
@@ -437,20 +358,6 @@ console.log('dbg:list:',list.length);
   getVimPluginFile(plugin) {
     return fsPromises.readFile(`${SCR_HOME}/src/vim/${plugin}.vim`,'utf8');
   }
-
-  /*
-  loadVimPlugins() {
-    let shellScript="";
-    const plugins=["clipboard"];
-    return Promise.all(plugins.map(plugin=>{
-      return this.getVimPluginFile(plugin).then(fileContent=>`-vim-plugin-${plugin}() {
-        local b64src="${Buffer.from(fileContent).toString('base64')}"
-        echo $b64src | openssl enc -d -a -A
-      }
-      `);
-    }));
-  }
-  */
 
   setClipboardFromRequest(req,res) {
     const url=new URL(req.url,`http://${req.headers.host}`);
@@ -664,20 +571,6 @@ console.log('dbg:list:',list.length);
       });
     });
   }
-
-  /*
-  initEnvironmentVariables() {
-    if (!process.env.STY) {
-      return Promise.resolve();
-    }
-    return new Promise((resolve,reject)=>{
-      const p=child_process.spawn("/usr/bin/env",['screen','-X','setenv','SCR_PASSWORD_FILE',SCR_PASSWORD_FILE],
-        {stdio:['ignore','ignore',process.stderr]});
-      p.on('exit',resolve);
-      p.on('error',reject);
-    });
-  }
-  */
 
   loadSshUserKnownHosts() {
     return new Promise((resolve,reject)=>{
