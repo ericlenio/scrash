@@ -32,10 +32,6 @@
   fi
 }
 
--debug-ts() {
-  echo "${FUNCNAME[*]}:$@:$(date +%s)" >> $SCR_TMPDIR/a
-}
-
 -random-string() {
   local length=${1:-16} r="" c
   while [ ${#r} -lt $length ]; do
@@ -745,7 +741,7 @@ echo "loaded OTPs from $SCR_OTP_CACHE_FIFO:SHLVL=$SHLVL:$#" >&2
   # $SCR_USED_OTPS) from the cache
   for ((i=$#;i>0;i--)); do
     expiration=${!i%%:*}
-    if [ $(($now-$expiration)) -ge $otp_max_lifetime ] || grep -q "$otp" $SCR_USED_OTPS 2>/dev/null; then
+    if [ $(($now-$expiration)) -ge $otp_max_lifetime ] || [ "$otp" ] && grep -q "$otp" $SCR_USED_OTPS 2>/dev/null; then
 echo "expiring ($expiration) otp at index $i:${!i}" >&2
       set -- ${@:1:$i-1} ${@:$i+1}
     fi
