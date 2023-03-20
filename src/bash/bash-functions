@@ -673,7 +673,11 @@ ssh() {
 # lower shell level. Use a named pipe ($SCR_OTP_CACHE_FIFO) to pass OTPs from
 # the current shell level to the lower one. This function should only be called
 # by the ssh function.
+#
+# Primary use case: an ssh session which is configured to use ProxyJump, which
+# ssh spawns a process to do the jump
 -prefetch-otps() {
+  # arbitrarily default num_otps=6
   local num_otps=6 dest_shlvl=$(($SHLVL+1))
   if [ "${FUNCNAME[1]}" != ssh ]; then
     echo "$FUNCNAME: expected caller to be ssh" >&2
@@ -690,6 +694,8 @@ ssh() {
     echo "$FUNCNAME: mkfifo on $SCR_OTP_CACHE_FIFO failed" >&2
     return 1
   fi
+  # use half of the fetched OTPs for current shell level, and half for the next
+  # lower level
   otps="$(
     for otp in ${SCR_OTP_CACHE[*]:0:$num_otps/2}; do
       echo $otp
