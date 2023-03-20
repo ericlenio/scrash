@@ -12,8 +12,8 @@ vim --version >/dev/null
 rm $EDITOR
 vim --version >/dev/null
 [ -e $EDITOR ]
-echo ok | -copy-to-clipboard
-[ ok = $(-clipboard ) ]
+echo ok | -set-clipboard
+[ ok = $(-get-clipboard ) ]
 t1=$SCR_TMPDIR/t1
 t2=$SCR_TMPDIR/t2
 t3=$SCR_TMPDIR/t3
@@ -21,11 +21,11 @@ t3=$SCR_TMPDIR/t3
 printf "/^root\015vey:call ScrSetClipboard()\015:q\015" > $t1
 vim -s $t1 /etc/passwd
 #'rm $t1
-[ root = $(-clipboard) ]
+[ root = $(-get-clipboard) ]
 
 s="The quick brown fox jumps over the lazy dog"
-echo "$s" | -copy-to-clipboard
-[ "$s" = "$(-clipboard)" ]
+echo "$s" | -set-clipboard
+[ "$s" = "$(-get-clipboard)" ]
 printf ":call ScrPasteClipboard()\015ZZ" > $t1
 vim -s $t1 $t2
 [ -e $t2 ]
@@ -33,8 +33,8 @@ vim -s $t1 $t2
 
 # test paste in middle of a line
 cp $t2 $t3
-echo cat | -copy-to-clipboard
-[ cat = $(-clipboard) ]
+echo cat | -set-clipboard
+[ cat = $(-get-clipboard) ]
 printf "/fox\0153x:call ScrPasteClipboard()\015ZZ" > $t1
 vim -s $t1 $t3
 [ "The quick brown cat jumps over the lazy dog" = "$(<$t3)" ]
@@ -50,7 +50,7 @@ s2="line1:aa bb cc
 line2"
 echo "$s2" > $t3
 printf -v s3 "The quick brown\nfox jumps over\nthe lazy dog"
-echo "$s3" | -copy-to-clipboard
+echo "$s3" | -set-clipboard
 printf "/bb\015:call ScrPasteClipboard()\015ZZ" > $t1
 vim -s $t1 $t3
 [ $(wc -l <$t3) = 4 ]

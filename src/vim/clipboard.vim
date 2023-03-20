@@ -18,8 +18,8 @@ fu ScrPasteClipboard(...)
     "else
       "let l:otp=a:1
     "endif
-    "let [l:clipboard,l:stderr,l:rc]=ScrSystemcaller("-clipboard ".l:otp)
-    let [l:clipboard,l:stderr,l:rc]=ScrSystemcaller("-clipboard")
+    "let [l:clipboard,l:stderr,l:rc]=ScrSystemcaller("-get-clipboard ".l:otp)
+    let [l:clipboard,l:stderr,l:rc]=ScrSystemcaller("-get-clipboard")
     if len(l:stderr) > 0
       echohl WarningMsg
       echon join(l:stderr," ")
@@ -79,7 +79,7 @@ fu ScrSetClipboard()
     return
   endif
   try
-    let [l:stdout,l:stderr,l:rc]=ScrSystemcaller("-copy-to-clipboard",l:pw)
+    let [l:stdout,l:stderr,l:rc]=ScrSystemcaller("-set-clipboard",l:pw)
     if len(l:stderr) > 0
       echohl WarningMsg
       echon join(l:stderr," ")

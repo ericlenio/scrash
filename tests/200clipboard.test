@@ -3,35 +3,35 @@
 len=15
 r=$(-random-string $len)
 [ $len = ${#r} ]
-echo $r | -copy-to-clipboard
+echo $r | -set-clipboard
 if -ws /scr-get-clipboard --compressed 2>/dev/null; then
   echo "access to clipboard without a OTP: expected HTTP 401" >&2
   false
 fi
-r2=$(-clipboard)
+r2=$(-get-clipboard)
 [ $r = $r2 ]
 # check that when copying from stdin that the last \n is chopped off
 t0=$SCR_TMPDIR/t0
--clipboard > $t0
+-get-clipboard > $t0
 IFS= read -d '' ans <$t0 || true
 [ "$ans" = "${ans%$'\n'}" ]
 # test copy a file
--copy-to-clipboard /etc/passwd
-[ $(-clipboard | -md5) = $(-md5 /etc/passwd) ]
+-set-clipboard /etc/passwd
+[ $(-get-clipboard | -md5) = $(-md5 /etc/passwd) ]
 # clipboard over ssh
 t=$(mktemp)
 uname -a > $t
--ssh-localhost -copy-to-clipboard $t
-[ $(-md5 $t) = $(-clipboard | -md5) ]
+-ssh-localhost -set-clipboard $t
+[ $(-md5 $t) = $(-get-clipboard | -md5) ]
 rm $t
-echo $r | -copy-to-clipboard
-r2=$(-clipboard)
+echo $r | -set-clipboard
+r2=$(-get-clipboard)
 [ $r = $r2 ]
 # test file name containing a space
 t2="$SCR_TMPDIR/my file"
 uname -a > "$t2"
--copy-to-clipboard "$t2"
-[ "$(-clipboard)" = "$(uname -a)" ]
+-set-clipboard "$t2"
+[ "$(-get-clipboard)" = "$(uname -a)" ]
 paste_prog=$(node << 'EOF'
 import("./src/js/Server.js").then(module=>{
 const Server=module.default;

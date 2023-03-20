@@ -77,7 +77,7 @@ fi
 [ $rc = 22 ]
 
 -totp
-otp=$(-clipboard)
+otp=$(-get-clipboard)
 [ ${#otp} -eq 6 ]
 [[ "$otp" =~ ^[0-9]{6}$ ]]
 

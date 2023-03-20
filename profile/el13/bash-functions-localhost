@@ -28,7 +28,7 @@
   if base32_key=$(-pw -N "$key_id"); then
     if otp=$(oathtool --totp -b $base32_key); then
       #printf "%s:%s\n" "$key_id" $otp
-      printf $otp | -copy-to-clipboard
+      printf $otp | -set-clipboard
       echo "TOTP for \"$key_id\" was copied to the OS clipboard ($otp)"
     else
       echo "$FUNCNAME: oathtool failed key: $key_id" >&2

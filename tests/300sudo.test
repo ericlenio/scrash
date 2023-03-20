@@ -1,12 +1,12 @@
 # vim:filetype=bash
 -s nobody -ws-hello-world | grep -q hello
 [ $(-s nobody whoami) = nobody ]
-echo ok | -copy-to-clipboard
-[ ok = $(-clipboard) ]
+echo ok | -set-clipboard
+[ ok = $(-get-clipboard) ]
 t1=$SCR_TMPDIR/t1
 # little vim script: find line beginning with "root", select it, copy it to
 # clipboard (by pressing control-c), then quit the editor
 printf "/^root\015ve\003:q\015" > $t1
 vim -s $t1 /etc/passwd
-[ root = $(-clipboard) ]
+[ root = $(-get-clipboard) ]
 rm $t1

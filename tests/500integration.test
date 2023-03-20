@@ -25,8 +25,8 @@ r=$(-random-string)
 [ ${#r} -gt 0 ]
 echo r=$r
 # flush clipboard
-echo $r | -copy-to-clipboard
-[ $r = $(-clipboard) ]
+echo $r | -set-clipboard
+[ $r = $(-get-clipboard) ]
 
 
 
@@ -44,12 +44,12 @@ cat $f2
 EOF
 ans=$(-ssh-localhost -screen-pipe -u -S $session_id bash $t2)
 [ "$ans" = $r ]
-[ $passwd_user = $(-clipboard) ]
+[ $passwd_user = $(-get-clipboard) ]
 
 
 # flush clipboard
-echo $r | -copy-to-clipboard
-[ $r = $(-clipboard) ]
+echo $r | -set-clipboard
+[ $r = $(-get-clipboard) ]
 
 
 
@@ -67,7 +67,7 @@ cat $f2
 EOF
 ans=$(-ssh-localhost -screen-pipe -u -S $session_id bash $t3)
 [ "$ans" = $passwd_user ]
-[ root = $(-clipboard) ]
+[ root = $(-get-clipboard) ]
 
 
 # scr ports should differ, proving we survived a port change

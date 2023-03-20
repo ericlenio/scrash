@@ -656,7 +656,7 @@ ssh() {
   return $rc
 }
 
--copy-to-clipboard() {
+-set-clipboard() {
   local f="${1:-/dev/stdin}" stripTrailingReturn=0
   if [ ! -e "$f" ]; then
     echo "$FUNCNAME: no such file, or file is not readable: $f" >&2
@@ -809,7 +809,7 @@ ssh() {
 }
 
 # fetches clipboard contents
--clipboard() {
+-get-clipboard() {
   -ws -o /scr-get-clipboard --compressed "$@"
 }
 
