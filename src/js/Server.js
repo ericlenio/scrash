@@ -269,6 +269,7 @@ class Server extends http.Server {
 
   loadBashFunctions() {
     return new Promise(resolve=>{
+      let bytes=0;
       readline.createInterface({input:process.stdin}).on('line',line=>{
         const m=line.split(':');
         if (!m) {
@@ -277,9 +278,11 @@ class Server extends http.Server {
         }
         const funcName=m[0];
         const funcDef64=m[1];
-        this.#shellFunctions[funcName]=Buffer.from(funcDef64,'base64').toString();
+        const funcDef=Buffer.from(funcDef64,'base64').toString();
+        this.#shellFunctions[funcName]=funcDef;
+        bytes+=funcDef.length;
       }).on('close',()=>{
-        console.log("loaded",Object.keys(this.#shellFunctions).length,"bash functions");
+        console.log("loaded",Object.keys(this.#shellFunctions).length,"bash functions,",bytes,"bytes");
         resolve();
       });
     });
@@ -580,13 +583,10 @@ class Server extends http.Server {
       p.on('exit',(code,sig)=>(code>0 ? reject(new Error("ssh-keyscan non-zero return code")) : null));
       p.on('error',reject);
       readline.createInterface({input:p.stdout}).on('line',line=>{
-        if (line.match(/^#/)) {
+        if (/^#/.test(line)) {
           return;
         }
-        if (userKnownHosts.length>0) {
-          userKnownHosts+="\n";
-        }
-        userKnownHosts+=line;
+        userKnownHosts+=line+"\n";
       }).on('close',()=>userKnownHosts.length==0 ? reject(new Error("no output from ssh-keyscan")) : resolve(userKnownHosts));
     });
 

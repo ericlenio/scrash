@@ -1,9 +1,17 @@
 # vim:filetype=bash
 
 -log() {
-  # to do: write logging logic
+  if [ $# = 0 ]; then
+    if [ "$SCR_DEBUG" = 1 ]; then
+      export SCR_DEBUG=0
+    else
+      export SCR_DEBUG=1
+    fi
+    echo "logging is now $([ $SCR_DEBUG = 0 ] && echo OFF || echo ON)" >&2
+    return
+  fi
   if [ "$SCR_DEBUG" = 1 ]; then
-    :
+    echo "$*" >&2
   fi
 }
 
@@ -568,6 +576,8 @@ scp() {
 }
 
 ssh() {
+  # link to ssh officially supported command line flags:
+  # https://github.com/openssh/openssh-portable/blob/V_9_3_P1/ssh.c#L710
   local SCR_PORT_FORWARD bootstr OPTIND \
     ssh_legal_opts="1246ab:c:e:fgi:kl:m:no:p:qstvxACD:E:F:GI:J:KL:MNO:PQ:R:S:TVw:W:XYy" \
     opt ssh_user_host cmd=(-sxx-init env ssh) start=1 rc cmdline_ssh_host \
@@ -722,14 +732,14 @@ ssh() {
 -fetch-otps() {
   # note: otp_max_lifetime should be a few seconds less than OTP_MAX_LIFETIME
   # in OtpCache.js
-  local count=${1:-1} otp_max_lifetime=17 i now=$(date +%s) expiration
+  local count=${1:-1} otp_max_lifetime=17 i now=$(date +%s) otp_line subshell expiration
   if ! [[ "$count" =~ ^[0-9]+$ ]]; then
     echo "$FUNCNAME: illegal count: $count" >&2
     return 1
   fi
   # create the OTP cache if it does not exist
   if ! compgen -v SCR_OTP_CACHE >/dev/null; then
-    -log "creating SCR_OTP_CACHE now at SHLVL=$SHLVL:$(hostname)"
+    -log "creating SCR_OTP_CACHE[$SHLVL:$BASH_SUBSHELL] $(hostname)"
     SCR_OTP_CACHE=()
   fi
   # load SCR_OTP_CACHE into positional params for easier access
@@ -746,32 +756,53 @@ ssh() {
           set -- "$@" $REPLY
         done
       } <$SCR_OTP_CACHE_FIFO
-      -log "loaded OTPs from $SCR_OTP_CACHE_FIFO:SHLVL=$SHLVL:$#"
+      -log "loaded $# OTPs from $SCR_OTP_CACHE_FIFO[$SHLVL:$BASH_SUBSHELL]"
       unset SCR_OTP_CACHE_FIFO
       rm -f $SCR_OTP_CACHE_FIFO
     fi
   fi
-  # remove any expired OTP's (or already used OTP's, if they are present in
-  # $SCR_USED_OTPS) from the cache
+  # remove any invalid OTPs from the cache if:
+  # 1. they may have already expired
+  # 2. they may have been created in a parent process of a bash command
+  # substitution (command substitution will inherit SCR_OTP_CACHE, but any
+  # changes to it inside the command substitution are not seen by parent
+  # shell); note that BASH_SUBSHELL increases by 1 inside command substitution,
+  # but SHLVL does not
+  # 3. they may have been already used, if they are present in $SCR_USED_OTPS
   for ((i=$#;i>0;i--)); do
-    expiration=${!i%%:*}
-    if [ $(($now-$expiration)) -ge $otp_max_lifetime ] || [ "$otp" ] && grep -q "$otp" $SCR_USED_OTPS 2>/dev/null; then
+    #if ! [[ ${!i} =~ ^([0-9]+):([0-9]+):([[:print:]]+)$ ]]; then
+      #echo "$FUNCNAME: invalid cache value: ${!i}" >&2
+      #return 1
+    #fi
+    #subshell=${BASH_REMATCH[1]}
+    ##expiration=${!i%%:*}
+    #expiration=${BASH_REMATCH[2]}
+    IFS=: read -a otp_line <<<"${!i}"
+    subshell=${otp_line[0]}
+    expiration=${otp_line[1]}
+    if [ $BASH_SUBSHELL -gt $subshell ]; then
+      -log "remove otp due to subshell mismatch ($BASH_SUBSHELL>$subshell) at index $i:${!i}"
+    elif [ $(($now-$expiration)) -ge $otp_max_lifetime ]; then
       -log "expiring ($expiration) otp at index $i:${!i}"
-      set -- ${@:1:$i-1} ${@:$i+1}
+    elif [ "$otp" ] && grep -q "$otp" $SCR_USED_OTPS 2>/dev/null; then
+      -log "remove already used otp at index $i:${!i}"
+    else
+      continue
     fi
+    set -- ${@:1:$i-1} ${@:$i+1}
   done
-  -log "SCR_OTP_CACHE[$SHLVL] now:$#:$*"
+  -log "SCR_OTP_CACHE[$SHLVL:$BASH_SUBSHELL] now:$#:$*"
   # if the cache does not have enough OTP's, then go get as many as needed
   if [ $count -gt $# ]; then
     set -- $@ $(-ws-set-otp $(($count-$#)))
-    -log "SCR_OTP_CACHE[$SHLVL] now:$#:$*"
+    -log "SCR_OTP_CACHE[$SHLVL:$BASH_SUBSHELL] now:$#:$*"
   fi
   if [ ${otp+x} ]; then
     # load the first OTP into "otp" variable, which should specifically NOT
     # local to this function, and should be declared by the caller
     otp=${1##*:}
     shift
-    -log "SCR_OTP_CACHE[$SHLVL] now:$#:$*"
+    -log "SCR_OTP_CACHE[$SHLVL:$BASH_SUBSHELL] now:$#:$*"
   else
     echo "$FUNCNAME: warning: caller otp variable was not detected" >&2
   fi
@@ -804,7 +835,7 @@ ssh() {
   for ((i=0;i<$count;i++)); do
     otp=${otp_line:$i*$otp_length:$otp_length}
     otp_encoded=$(echo -E -n "$otp" | openssl enc -a -A)
-    printf "%s:%s\n" $now $otp_encoded
+    printf "%s:%s:%s\n" $(($BASH_SUBSHELL-1)) $now $otp_encoded
   done
 }
 

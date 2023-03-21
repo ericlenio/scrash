@@ -25,6 +25,6 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
 
   ssh localhost bash -c -- -vars | grep -q SCR_TMPDIR
 else
-  echo 'WARNING: skipping tests, no value for $SCR_SSH_AUTH_SOCK' >&2
+  echo "WARNING $(basename $TEST_SOURCE_FILE): skipping some tests, no value for $SCR_SSH_AUTH_SOCK" >&2
 fi
 SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION=0

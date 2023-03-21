@@ -1,0 +1,27 @@
+# vim:filetype=bash
+-clear-cache
+unset SCR_OTP_CACHE
+num_otps=3
+-fetch-otps $num_otps
+[ ${#SCR_OTP_CACHE[*]} -eq $num_otps ]
+export SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION=1
+if [ "$SCR_SSH_AUTH_SOCK" ]; then
+  hostname=$(ssh localhost hostname)
+  [ "$hostname" ]
+  [ ${#SCR_OTP_CACHE[*]} -eq $num_otps ]
+  ssh localhost hostname
+  [ ${#SCR_OTP_CACHE[*]} -eq $(($num_otps-1)) ]
+  [ "$hostname" = $(hostname) ]
+
+  # test out -ssh-proxy-jump
+  known_hosts=$SCR_TMPDIR/ssh-known-hosts
+  ssh-keyscan $SCR_SSH_HOST,myhost >$known_hosts
+  ssh_config=$SCR_TMPDIR/ssh-config
+  echo "Host myhost
+  UserKnownHostsFile $known_hosts
+  ProxyCommand \${SCR_SSH_PROXY_JUMP} \${SCR_SSH_HOST} localhost" > $ssh_config
+  ssh -F $ssh_config myhost uname -a
+else
+  echo "WARNING $(basename $TEST_SOURCE_FILE): skipping some tests, no value for $SCR_SSH_AUTH_SOCK" >&2
+fi
+SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION=0
