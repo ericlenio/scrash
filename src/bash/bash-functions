@@ -566,6 +566,7 @@ scp() {
 # Host apt.lincware.com
 #   ProxyCommand ${SCR_SSH_PROXY_JUMP} root@ops.lincware.com apt.lincware.com
 -ssh-proxy-jump() {
+  # test: ssh -oProxyCommand="bash -c -- '-ssh-proxy-jump ops apt.lincware.com'" lincdoc@test hostname
   local jump_host=$1 dest_host=$2 otp=''
   if -fetch-otps 2; then
     ssh $jump_host ssh --otp=$otp root@$dest_host sshd -i
