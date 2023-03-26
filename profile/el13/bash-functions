@@ -147,3 +147,7 @@ c() {
 -fixdate() {
   ntpdate -u pool.ntp.org
 }
+
+-tlog() {
+  time "$@" 2>&1 | tee log
+}
