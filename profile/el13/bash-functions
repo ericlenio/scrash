@@ -151,3 +151,13 @@ c() {
 -tlog() {
   time "$@" 2>&1 | tee log
 }
+
+-openbsd-pkg-search() {
+  local search_term="$1"
+  if [ -z "$search_term" ]; then
+    printf "%s: no search term given\n" $FUNCNAME
+    return 1
+  fi
+  echo "SELECT fullpkgname,comment FROM ports WHERE lower(comment) LIKE '%${search_term}%' OR lower(fullpkgname) LIKE '%${search_term}%' ORDER BY fullpkgname" | \
+  sqlite3 /usr/local/share/sqlports
+}
