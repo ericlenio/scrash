@@ -149,7 +149,7 @@ c() {
 }
 
 -tlog() {
-  time "$@" 2>&1 | tee log
+  env time "$@" 2>&1 | tee "$1".log
 }
 
 -openbsd-pkg-search() {
