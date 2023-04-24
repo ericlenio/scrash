@@ -1,10 +1,18 @@
 # vim:filetype=bash
 -clear-cache
 export SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION=1
+-sxx-scr-server-known-hosts
+[ -f $SCR_SSH_USER_KNOWN_HOSTS ]
 if [ "$SCR_SSH_AUTH_SOCK" ]; then
-  hostname=$(ssh localhost hostname)
+  hostname=$(ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST hostname)
   [ "$hostname" ]
   [ "$hostname" = $(hostname) ]
+
+  # IF THIS FILE WAS RUN ON IT'S OWN (npm t -g ssh), then the above ssh should
+  # have deleted $SCR_SSH_USER_KNOWN_HOSTS, because no version file existed
+  # (so, there should have been a forced cache clear)
+  [ ! -f $SCR_SSH_USER_KNOWN_HOSTS ] && -sxx-scr-server-known-hosts
+  [ -f $SCR_SSH_USER_KNOWN_HOSTS ]
 
   # add in some tests around the version file
   version_file=$SCR_TMPDIR/.version
@@ -12,7 +20,7 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
   rm $version_file
   # this next ssh session should use the same $SCR_TMPDIR, and re-create the
   # version file
-  hostname=$(ssh localhost hostname)
+  hostname=$(ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST hostname)
   [ "$hostname" = $(hostname) ]
   [ -f $version_file ]
 
@@ -23,7 +31,7 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
   [ $(-md5 /tmp/passwd) = $(-md5 /etc/passwd) ]
   rm /tmp/passwd
 
-  ssh localhost bash -c -- -vars | grep -q SCR_TMPDIR
+  ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -c -- -vars | grep -q SCR_TMPDIR
 else
   echo "WARNING $(basename $TEST_SOURCE_FILE): skipping some tests, no value for $SCR_SSH_AUTH_SOCK" >&2
 fi

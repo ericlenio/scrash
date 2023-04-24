@@ -97,8 +97,9 @@ else
 fi
 
 if [ "$SCR_SSH_AUTH_SOCK" ]; then
+  [ ! -f $SCR_SSH_USER_KNOWN_HOSTS ] && -sxx-scr-server-known-hosts
   # -totp function should NOT be loaded inside ssh session (see SCR_LOCALHOST_FUNCS)
-  if ssh localhost bash -- -totp; then
+  if ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -- -totp; then
     echo "expected -totp to fail" >&2
     false
   fi

@@ -1,0 +1,59 @@
+# vim:filetype=bash
+# functions defined here are only used when running the test cases
+
+# runs a bash command in gnu screen, waiting for the command to finish
+-screen-pipe() (
+  local stdin stdout stderr rcfifo fifo eof_stdout=0 eof_stderr=0 opts="uS:" opt OPTIND cmd=() pids=()
+  printf -v stdin "%s/sty-stdin-fifo" $SCR_TMPDIR
+  printf -v stdout "%s/sty-stdout-fifo" $SCR_TMPDIR
+  printf -v stderr "%s/sty-stderr-fifo" $SCR_TMPDIR
+  printf -v rcfifo "%s/sty-rc-fifo" $SCR_TMPDIR
+  while builtin getopts $opts opt; do
+    case $opt in
+      (u)
+        cmd+=(-u)
+        ;;
+      (S)
+        cmd+=(-S $OPTARG)
+        ;;
+    esac
+  done
+  # remaining args are the command to be run in the new screen window we are
+  # about to create
+  shift $(($OPTIND-1))
+  cmd+=(-X screen bash -c -- "exec 0<$stdin 1>$stdout 2>$stderr 3>$rcfifo bash")
+  for fifo in $stdin $stdout $stderr $rcfifo; do
+    if [ ! -e $fifo ]; then
+      mkfifo $fifo
+    fi
+  done
+  {
+    c=("$@")
+    declare -p c
+    echo 'if [[ "${c[@]}" =~ \$ ]]; then'
+    echo '  eval -- "${c[@]}"'
+    echo 'else'
+    echo '  "${c[@]}"'
+    echo 'fi'
+    echo 'rc=$?'
+    echo 'echo $rc >&3'
+    echo 'exit'
+  } >$stdin &
+  pids+=($!)
+  while :; do
+    read -d '' <$stdout || eof_stdout=1
+    [ "$REPLY" ] && echo "$REPLY"
+    [ $eof_stdout = 1 ] && break
+  done &
+  pids+=($!)
+  while :; do
+    read -d '' <$stderr || eof_stderr=1
+    [ "$REPLY" ] && echo "$REPLY" >&2
+    [ $eof_stderr = 1 ] && break
+  done &
+  pids+=($!)
+  trap "kill -KILL ${pids[*]}; trap - INT; exit 1" INT
+  screen "${cmd[@]}"
+  read -d '' rc <$rcfifo || true
+  return $rc
+)

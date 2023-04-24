@@ -56,6 +56,7 @@ init() {
   export SCR_PASSWORD_FILE="$SCR_HOME/profile/$SCR_PROFILE/passwords.gpg"
   export SCR_PORT_0=$SCR_PORT
   BASH_FUNCTIONS="$SCR_HOME"/src/bash/bash-functions
+  BASH_FUNCTIONS_TEST="$SCR_HOME"/src/bash/bash-functions-test
   PROFILE_BASH_FUNCTIONS="$SCR_HOME"/profile/$SCR_PROFILE/bash-functions
   PROFILE_BASH_FUNCTIONS_LOCALHOST="$SCR_HOME"/profile/$SCR_PROFILE/bash-functions-localhost
 }
@@ -74,7 +75,9 @@ load_bash_functions() {
   # funclist: maintain a list of all loaded bash functions used by scrash
   local funclist=()
   local bash_files=("$BASH_FUNCTIONS" "$PROFILE_BASH_FUNCTIONS" "$PROFILE_BASH_FUNCTIONS_LOCALHOST")
-  source "$BASH_FUNCTIONS"
+  if [ $SCR_ENV = test ]; then
+    bash_files+=($BASH_FUNCTIONS_TEST)
+  fi
   for f in "${bash_files[@]}"; do
     [ ! -f "$f" ] && continue
     source "$f"

@@ -6,20 +6,25 @@ num_otps=3
 [ ${#SCR_OTP_CACHE[*]} -eq $num_otps ]
 export SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION=1
 if [ "$SCR_SSH_AUTH_SOCK" ]; then
-  hostname=$(ssh localhost hostname)
+  [ ! -f $SCR_SSH_USER_KNOWN_HOSTS ] && -sxx-scr-server-known-hosts
+  [ -f $SCR_SSH_USER_KNOWN_HOSTS ]
+  hostname=$(ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST hostname)
   [ "$hostname" ]
   [ ${#SCR_OTP_CACHE[*]} -eq $num_otps ]
-  ssh localhost hostname
+  [ ! -f $SCR_SSH_USER_KNOWN_HOSTS ] && -sxx-scr-server-known-hosts
+  [ -f $SCR_SSH_USER_KNOWN_HOSTS ]
+  ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST hostname
   [ ${#SCR_OTP_CACHE[*]} -eq $(($num_otps-1)) ]
   [ "$hostname" = $(hostname) ]
 
   # test out -ssh-proxy-jump
+  [ -f "$SCR_SSH_PROXY_JUMP" ]
   known_hosts=$SCR_TMPDIR/ssh-known-hosts
   ssh-keyscan $SCR_SSH_HOST,myhost >$known_hosts
   ssh_config=$SCR_TMPDIR/ssh-config
   echo "Host myhost
   UserKnownHostsFile $known_hosts
-  ProxyCommand \${SCR_SSH_PROXY_JUMP} \${SCR_SSH_HOST} localhost" > $ssh_config
+  ProxyCommand \${SCR_SSH_PROXY_JUMP} \${SCR_SSH_HOST} $SCR_SSH_HOST" -oUserKnownHostsFile=$known_hosts > $ssh_config
   ssh -F $ssh_config myhost uname -a
 else
   echo "WARNING $(basename $TEST_SOURCE_FILE): skipping some tests, no value for $SCR_SSH_AUTH_SOCK" >&2
