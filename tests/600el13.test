@@ -9,6 +9,11 @@ online() {
   host_str=$1
   curl -f -s -S -k -I https://$host_str >/dev/null
 }
+count_ssh_agent_keys() {
+  if ssh-add -l | grep -E ^\\d | wc -l; then
+    :
+  fi
+}
 s1=test-grep-string-here
 -grep $s1
 -grep -w $s1
@@ -81,26 +86,33 @@ otp=$(-get-clipboard)
 [ ${#otp} -eq 6 ]
 [[ "$otp" =~ ^[0-9]{6}$ ]]
 
-if [ "$RA_USER_PASSWORD_64" ] && online remoteadmin.private:3333; then
-  ra_host=ltc.admitplus.work
-  echo "testing remoteadmin simple command to $ra_host ..."
-  h=$(-ra $ra_host hostname)
-  [ "$h" ]
-  # h will have some banner stuff, so just check that it ends with the hostname
-  [[ "$h" =~ $ra_host[[:space:]]*$ ]]
-  rm -f /tmp/passwd
-  echo "testing remoteadmin file download from $ra_host ..."
-  -ra $ra_host bash -c -- "'-download /etc/passwd'"
-  [ -f /tmp/passwd ]
-else
-  echo "WARNING: skipping tests for remoteadmin" >&2
-fi
-
 if [ "$SCR_SSH_AUTH_SOCK" ]; then
+  ssh-add -D
+  num_ssh_keys=$(count_ssh_agent_keys)
+  [ $num_ssh_keys -eq 0 ]
+  -ssh-load-keys
+  num_ssh_keys=$(count_ssh_agent_keys)
+  [ $num_ssh_keys -gt 0 ]
+
   [ ! -f $SCR_SSH_USER_KNOWN_HOSTS ] && -sxx-scr-server-known-hosts
   # -totp function should NOT be loaded inside ssh session (see SCR_LOCALHOST_FUNCS)
   if ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -- -totp; then
     echo "expected -totp to fail" >&2
     false
+  fi
+
+  if [ "$RA_USER_PASSWORD_64" ] && online remoteadmin.private:3333; then
+    ra_host=ltc.admitplus.work
+    echo "testing remoteadmin simple command to $ra_host ..."
+    h=$(-ra $ra_host hostname)
+    [ "$h" ]
+    # h will have some banner stuff, so just check that it ends with the hostname
+    [[ "$h" =~ $ra_host[[:space:]]*$ ]]
+    rm -f /tmp/passwd
+    echo "testing remoteadmin file download from $ra_host ..."
+    -ra $ra_host bash -c -- "'-download /etc/passwd'"
+    [ -f /tmp/passwd ]
+  else
+    echo "WARNING: skipping tests for remoteadmin" >&2
   fi
 fi
