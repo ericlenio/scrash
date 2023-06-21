@@ -501,3 +501,64 @@
   done
   rm -f $SSH_ASKPASS
 }
+
+-ld-crypt() {
+  local groovy=$(mktemp)
+  cat > $groovy <<'EOF'
+#! /usr/bin/env groovy
+// This script encrypts/decrypts sensitive LincDoc data, like client_id
+// database account passwords
+//
+// Usage:
+//   decrypt3 -e plaintext-here
+//   decrypt3 -d encrypted-text-here
+// Example:
+// decrypt3 $(psql -tAc "select unnest(xpath('/database-config/cryptpw/text()',config)) from ld_admin.ld_database where client_id='ltc'" ltc)
+//
+@Grapes(
+    @Grab(group='org.bouncycastle', module='bcprov-jdk15on', version='1.46')
+)
+@Grapes(
+    @Grab(group='commons-codec', module='commons-codec', version='1.7')
+)
+@Grapes(
+    // create a little local grapes repo:
+    //
+    // cd 3.3.x
+    // gradle cryptjar
+    // mkdir -p ~/.groovy/grapes/com.lincdoc/lincdoc-crypt/jars
+    // cp build/libs/lincdoc-crypt.jar ~/.groovy/grapes/com.lincdoc/lincdoc-crypt/jars/lincdoc-crypt-1.0.jar
+    // 
+    // now create ~/.groovy/grapes/com.lincdoc/lincdoc-crypt/ivy.xml with:
+    /*
+          <?xml version="1.0" encoding="UTF-8"?>
+          <ivy-module version="2.0" xmlns:m="http://ant.apache.org/ivy/maven"
+          >
+            <info organisation="com.lincdoc" module="lincdoc-crypt" revision="1.0" status="release" publication="20130102153401">
+              <license name="" />
+              <description homepage="">LincDoc Crypt</description>
+            </info>
+            <configurations>
+              <conf name="default" visibility="public" description="" />
+            </configurations>
+            <publications>
+              <artifact name="lincdoc-crypt" type="jar" ext="jar" conf="default" />
+            </publications>
+          </ivy-module>
+    */
+    @Grab(group='com.lincdoc', module='lincdoc-crypt', version='1.0')
+)
+
+
+import com.lincdoc.Crypt
+
+String op=args[0]
+if (op=='-d') {
+  println(Crypt.decrypt(args[1]))
+} else if (op=='-e') {
+  println(Crypt.encrypt(args[1]))
+}
+EOF
+  groovy $groovy "$@"
+  rm $groovy
+}
