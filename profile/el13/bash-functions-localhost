@@ -5,6 +5,8 @@
 }
 
 -totp() {
+  # used this library for extracting the codes from Google Authenticator:
+  # https://github.com/digitalduke/otpauth-migration-decoder
   local key_idx=${1:-0} otp key_id base32_key i
   local key_ids=(
     "TOTP LincWare OPS"
