@@ -74,7 +74,7 @@ build_func() {
 load_bash_functions() {
   # funclist: maintain a list of all loaded bash functions used by scrash
   local funclist=()
-  local bash_files=("$BASH_FUNCTIONS" "$PROFILE_BASH_FUNCTIONS" "$PROFILE_BASH_FUNCTIONS_LOCALHOST")
+  local bash_files=("$BASH_FUNCTIONS" "$PROFILE_BASH_FUNCTIONS" "$PROFILE_BASH_FUNCTIONS_LOCALHOST") host_specific_rcfile tmpfile=$(mktemp)
   if [ $SCR_ENV = test ]; then
     bash_files+=($BASH_FUNCTIONS_TEST)
   fi
@@ -85,10 +85,17 @@ load_bash_functions() {
   done
   export SCR_LOCALHOST_FUNCS=$([ -f "$PROFILE_BASH_FUNCTIONS_LOCALHOST" ] && get_function_names "$PROFILE_BASH_FUNCTIONS_LOCALHOST")
   for rcfile in "$SCR_HOME"/profile/$SCR_PROFILE/{screenrc,bashrc,vimrc}; do
+    host_specific_rcfile="$rcfile-$(hostname)"
     rcfile_base=$(basename "$rcfile")
     funcname="-$rcfile_base"
     if [ -f "$rcfile" ]; then
-      funcdef=$(build_func $funcname "$rcfile")
+      cp "$rcfile" $tmpfile
+    fi
+    if [ -f "$host_specific_rcfile" ]; then
+      cat "$host_specific_rcfile" >> $tmpfile
+    fi
+    if [ -s $tmpfile ]; then
+      funcdef=$(build_func $funcname $tmpfile)
     else
       printf -v funcdef -- "%s() { :; }" $funcname
     fi
@@ -98,6 +105,7 @@ load_bash_functions() {
       #source "$rcfile"
     #fi
   done
+  rm $tmpfile
   for vim_plugin in $(find "$SCR_HOME"/src/vim -name '*.vim'); do
     plugin=$(basename "$vim_plugin" .vim)
     plugin_func="-vim-plugin-$plugin"

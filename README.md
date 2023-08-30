@@ -25,10 +25,13 @@ A profile may contain these files:
 | path                                         | notes                     |
 | -------------------------------------------- | ------------------------- |
 | `profile/MYPROFILE/bashrc`                   | this file is sourced for every new shell |
+| `profile/MYPROFILE/bashrc-my.host            | this file is sourced for every new shell (after the normal bashrc) but only if running on host `my.host` |
 | `profile/MYPROFILE/bash-functions`           | this file is for your own custom functions, available with every shell |
 | `profile/MYPROFILE/bash-functions-localhost` | this file is for your own custom functions, but only available with shells on your local machine |
 | `profile/MYPROFILE/vimrc`                    | vimrc sourced for all vim sessions (see below) |
+| `profile/MYPROFILE/vimrc-my.host`            | vimrc sourced for all vim sessions (after the normal vimrc) but only if running on host `my.host` |
 | `profile/MYPROFILE/screenrc`                 | screenrc sourced for all gnu screen sessions |
+| `profile/MYPROFILE/screenrc-my.host`         | screenrc sourced for all gnu screen sessions (after the normal screenrc) but only if running on host `my.host` |
 
 # Supported operating systems
 Tested on MacOS, Linux, Raspian (Raspberry Pi), and OpenBSD. Almost certainly
