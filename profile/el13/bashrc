@@ -7,7 +7,11 @@ export PS1=$SCR_PS1
 export HISTCONTROL=ignoreboth:erasedups
 export PAGER=less
 export LESS="-siR"
-export PROMPT_COMMAND="-prompt-command"
+if ! [[ "$PROMPT_COMMAND" =~ -prompt-command$ ]]; then
+  # remote shells may set PROMPT_COMMAND, allow for that but additionally still
+  # ensure that -prompt-command gets executed too
+  export PROMPT_COMMAND="${PROMPT_COMMAND:-:};-prompt-command"
+fi
 -add-path /usr/local/bin /usr/local/sbin $HOME/bin
 export -f v l c
 #export SCR_LOCALHOST_FUNCS="-totp -ra -pwgen -linux-lwsecrets -darwin-macbook-pf-init"
