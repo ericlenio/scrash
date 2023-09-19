@@ -456,7 +456,7 @@ vim() {
 }
 
 -shell-boot-string() {
-  local remote_port ssh_level=$SCR_SSH_LEVEL start opts="p:l:" opt OPTIND
+  local remote_port ssh_level=$SCR_SSH_LEVEL start opts="p:l:" opt OPTIND curl_host=127.0.0.1
   while builtin getopts $opts opt; do
     case $opt in
       (p) remote_port=$OPTARG
@@ -471,8 +471,12 @@ vim() {
   else
     start=1
   fi
-  printf 'eval -- "$(NO_PROXY=127.0.0.1 curl --connect-timeout 5 -S -f -s --compressed http://127.0.0.1:%s/scr-get-bash-functions?platform=$(uname)\&hostname=$(hostname)\&start=%s\&ssh_level=%s || echo false)"' \
-    $remote_port $start $ssh_level
+  printf 'eval -- "$(curl --noproxy %s --connect-timeout 5 -S -f -s --compressed http://%s:%s/scr-get-bash-functions?platform=$(uname)\&hostname=$(hostname)\&start=%s\&ssh_level=%s || echo false)"' \
+    $curl_host \
+    $curl_host \
+    $remote_port \
+    $start \
+    $ssh_level
 }
 
 ssh-add() {

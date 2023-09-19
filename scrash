@@ -67,14 +67,19 @@ get_function_names() {
 }
 
 build_func() {
-  local funcname=$1 file="${2:-/dev/stdin}"
-  printf -- "%s() { echo '%s' | openssl enc -d -a -A | gzip -dc; }" $funcname $(gzip -9c <"$file" | openssl enc -a -A)
+  local funcname=$1 file="${2:-/dev/stdin}" host_specific_funcname
+  host_specific_funcname=$funcname-$(hostname | tr "[:upper:]" "[:lower:]")
+  printf -- "%s() { echo '%s' | openssl enc -d -a -A | gzip -dc; declare -f -- %s >/dev/null 2>&1 && %s || true; }" \
+    $funcname \
+    $(gzip -9c <"$file" | openssl enc -a -A) \
+    $host_specific_funcname \
+    $host_specific_funcname
 }
 
 load_bash_functions() {
   # funclist: maintain a list of all loaded bash functions used by scrash
   local funclist=()
-  local bash_files=("$BASH_FUNCTIONS" "$PROFILE_BASH_FUNCTIONS" "$PROFILE_BASH_FUNCTIONS_LOCALHOST") host_specific_rcfile tmpfile=$(mktemp)
+  local bash_files=("$BASH_FUNCTIONS" "$PROFILE_BASH_FUNCTIONS" "$PROFILE_BASH_FUNCTIONS_LOCALHOST") host_specific_rcfile
   if [ $SCR_ENV = test ]; then
     bash_files+=($BASH_FUNCTIONS_TEST)
   fi
@@ -84,28 +89,22 @@ load_bash_functions() {
     funclist+=($(get_function_names "$f"))
   done
   export SCR_LOCALHOST_FUNCS=$([ -f "$PROFILE_BASH_FUNCTIONS_LOCALHOST" ] && get_function_names "$PROFILE_BASH_FUNCTIONS_LOCALHOST")
-  for rcfile in "$SCR_HOME"/profile/$SCR_PROFILE/{screenrc,bashrc,vimrc}; do
-    host_specific_rcfile="$rcfile-$(hostname)"
-    rcfile_base=$(basename "$rcfile")
-    funcname="-$rcfile_base"
-    if [ -f "$rcfile" ]; then
-      cp "$rcfile" $tmpfile
-    fi
-    if [ -f "$host_specific_rcfile" ]; then
-      cat "$host_specific_rcfile" >> $tmpfile
-    fi
-    if [ -s $tmpfile ]; then
-      funcdef=$(build_func $funcname $tmpfile)
-    else
-      printf -v funcdef -- "%s() { :; }" $funcname
-    fi
+  for rcfile in screenrc bashrc vimrc; do
+    funcname="-$rcfile"
+    # create stub, it might get overwritten in the next for loop
+    printf -v funcdef -- "%s() { :; }" $funcname
     eval -- "$funcdef"
     funclist+=($funcname)
-    #if [ $rcfile_base = bashrc ]; then
-      #source "$rcfile"
-    #fi
+    IFS=$'\n' rcfiles=($(find "$SCR_HOME"/profile/$SCR_PROFILE -name $rcfile\* -print0 | xargs -0 printf "%s\n"))
+    unset IFS
+    for f in "${rcfiles[@]}"; do
+      rcfile_base=$(basename "$f")
+      funcname="-$rcfile_base"
+      funcdef=$(build_func $funcname "$f")
+      eval -- "$funcdef"
+      funclist+=($funcname)
+    done
   done
-  rm $tmpfile
   for vim_plugin in $(find "$SCR_HOME"/src/vim -name '*.vim'); do
     plugin=$(basename "$vim_plugin" .vim)
     plugin_func="-vim-plugin-$plugin"
@@ -113,6 +112,7 @@ load_bash_functions() {
     eval -- "$funcdef"
     funclist+=($plugin_func)
   done
+  funclist=($(IFS=$'\n' echo "${funclist[*]}" | sort -u))
   -shell-init -C
   printf -v funcdef -- "scr_function_list() { for f in ${funclist[*]}; do printf '%%s ' \$f; done; }"
   eval -- "$funcdef"

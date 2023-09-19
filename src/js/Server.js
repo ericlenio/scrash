@@ -339,6 +339,7 @@ class Server extends http.Server {
   sendFunctions(write,platform,hostname) {
     const localFuncs=process.env.SCR_LOCALHOST_FUNCS.split(/\s+/);
     const platformRegex=/^-(darwin|linux|openbsd|freebsd)-/;
+    const rcfileRegex=/^-(?:bashrc|screenrc|vimrc)-(.+)$/;
     for (let funcName of Object.keys(this.#shellFunctions)) {
       if (localFuncs.includes(funcName)) {
         continue;
@@ -347,6 +348,12 @@ class Server extends http.Server {
         const funcPlatform=funcName.match(platformRegex)[1];
         if (funcPlatform!==platform) {
           console.log("sendFunctions:skip:",platform,funcPlatform,funcName);
+          continue;
+        }
+      }
+      if (rcfileRegex.test(funcName)) {
+        const rcfileHostname=funcName.match(rcfileRegex)[1];
+        if (rcfileHostname!==hostname) {
           continue;
         }
       }

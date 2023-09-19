@@ -112,6 +112,12 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
     echo "testing remoteadmin file download from $ra_host ..."
     -ra $ra_host bash -c -- "'-download /etc/passwd'"
     [ -f /tmp/passwd ]
+
+    # test host-specific bashrc: bashrc-m2.local should set JAVA_HOME
+    s=$(ssh localhost compgen -v JAVA_HOME)
+    [ "$s" ]
+    [ "$s" = JAVA_HOME ]
+    ! -ra $ra_host compgen -v JAVA_HOME >/dev/null
   else
     echo "WARNING: skipping tests for remoteadmin" >&2
   fi
