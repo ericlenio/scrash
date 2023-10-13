@@ -151,7 +151,7 @@
 
 # wrapper around gnu screen
 screen() {
-  local i i2 next_arg rcfile session_id_prefix="scr" session_id opt cmd=() screen_cmd=() env=() esc=^Aa update=0 command=0 skip=0
+  local i i2 next_arg rcfile session_id_prefix="scr" session_id opt cmd=() screen_cmd=() esc=^Aa update=0 command=0 skip=0
   for ((i=1;i<=$#;i++)); do
     i2=$((i+1))
     next_arg="${!i2}"
@@ -237,7 +237,8 @@ screen() {
   [ $TERM = dumb ] && TERM=screen
   # strip off "screen." prefix from $TERM to avoid "$TERM too long" issue
   cmd+=(-T ${TERM#screen.} -ln -e$esc)
-  env "${env[@]}" screen "${cmd[@]}" "${screen_cmd[@]}"
+  export SCR_SCREEN_START=$(date +%s)
+  env screen "${cmd[@]}" "${screen_cmd[@]}"
 }
 
 -ws() {
