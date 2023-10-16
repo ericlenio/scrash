@@ -7,8 +7,10 @@
     unalias -a
   fi
   PS1=$SCR_PS1
-  if [ ${#SUDO_USER} -eq 0 -a ! -f "$EDITOR" ]; then
+  if [ "$STY" -a ${#SUDO_USER} -eq 0 -a ! -f "$EDITOR" ]; then
     if [ $(($(date +%s)-$SCR_SCREEN_START)) -gt 3600 ]; then
+      # for a long running gnu screen session, make sure $EDITOR exists; it
+      # will get wiped from /tmp from time to time
       echo "missing $EDITOR, creating it now"
       v --version >/dev/null
     fi
