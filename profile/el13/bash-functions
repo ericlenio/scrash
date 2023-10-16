@@ -45,6 +45,8 @@ c() {
     '*.png'
     '*.jpg'
     '*.pdf'
+    '*.img'
+    '*.iso'
   )
   while builtin getopts $opts opt; do
     case $opt in
