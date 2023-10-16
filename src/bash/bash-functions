@@ -990,6 +990,7 @@ sub create_unix_domain_socket {
     Local=>$SSH_AUTH_SOCK,
   ) || die "IO::Socket error creating svr: $IO::Socket::errstr\n";
   my $socket=$svr->accept();
+  unlink $SSH_AUTH_SOCK;
   return $socket;
 }
 my $socket0=create_unix_domain_socket($SSH_AUTH_SOCK);
@@ -998,23 +999,13 @@ bi_directional_pipe($socket0,$socket0,$socket1);
 '
   perl -e "$perl_code" $SCR_PORT "$otp" SCR_SSH_AUTH_SOCK_REQUEST $SSH_AUTH_SOCK &
   pid=$!
-  sleep 0.1
-  while [ ! -S $SSH_AUTH_SOCK ]; do
+  until [ -S $SSH_AUTH_SOCK ]; do
     sleep 0.1
-    let elapsed=$SECONDS-$start
+    let elapsed=$SECONDS-$start || true
     if [ $elapsed -ge 10 ]; then
       echo "WARNING: $FUNCNAME failed to detect SSH_AUTH_SOCK, you may need to kill perl process $pid" >&2
       break
     fi
-  done
-  for ((i=0;i<$#;i++)); do
-    arg="${!i}"
-    case "$arg" in
-      (ssh|scp|sftp)
-        set -- "${@:1:$i}" -oPermitLocalCommand=yes -oLocalCommand="rm -f $SSH_AUTH_SOCK" "${@:$i+1}"
-        break
-        ;;
-    esac
   done
   SSH_AUTH_SOCK=$SSH_AUTH_SOCK "$@"
   rc=$?
