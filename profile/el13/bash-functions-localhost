@@ -566,3 +566,198 @@ EOF
   groovy $groovy "$@"
   rm $groovy
 }
+
+-ec2() (
+  set -e
+
+  usage() {
+    echo 'usage: ${FUNCNAME[2]} [-h][-d]
+simple front end for LincWare AWS EC2 operations
+-h: this help
+-d: pass --dry-run flag to ec2 command
+
+set up ~/.aws/config:
+  [default]
+  output = json
+  region = us-east-1
+
+and ~/.aws/credentials:
+  [default]
+  aws_access_key_id = AKIAXXXXXXXXXXXXXXXX
+  aws_secret_access_key = XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+'
+  }
+
+  local VM_INSTANCE_DATA=() VM_INSTANCE_IDX dry_run=0 \
+    VM_INSTANCE_VARS=(instance_name instance_id instance_type instance_state private_ip) \
+    VM_MENU_CHOICES=(
+      "console_output VM_INSTANCE_ID" 
+      "console_screenshot VM_INSTANCE_ID" 
+      "reboot VM_INSTANCE_ID" 
+      "ssh_root VM_INSTANCE_ID"
+      "start VM_INSTANCE_ID" 
+      "status" 
+      "stop VM_INSTANCE_ID" 
+    )
+
+  fetch_instance_data() {
+    local i
+    [ ${#VM_INSTANCE_DATA[@]} -gt 0 ] && return
+    #aws ec2 describe-instances --filters Name=tag:Name,Values=ai2 --query 'Reservations[*].Instances[*].[InstanceId]' --output text
+    IFS=$'\n' read -d '' -a VM_INSTANCE_DATA <<< "$(aws ec2 describe-instances --query 'Reservations[].Instances[].[Tags[?Key==`Name`].Value|[0],InstanceId,InstanceType,State.Name,PrivateIpAddress]' --output text | sort -f)" || true
+    for((i=0;i<${#VM_INSTANCE_DATA[@]};i++)); do
+      VM_INSTANCE_DATA[$i]=$(printf "%-24s %-20s %-12s %-12s %s" ${VM_INSTANCE_DATA[$i]})
+    done
+    echo "loaded ${#VM_INSTANCE_DATA[*]} rows of VM instance data" >&2
+  }
+
+  get_instance_info() {
+    local instance_idx=$1 varname=$2 i instance_info
+    for((i=0;i<${#VM_INSTANCE_VARS[*]};i++)); do
+      if [ ${VM_INSTANCE_VARS[$i]} = $varname ]; then
+        read -d '' -a instance_info <<< "${VM_INSTANCE_DATA[$instance_idx]}" || true
+        echo "${instance_info[$i]}"
+        return
+      fi
+    done
+    echo "$FUNCNAME: failed to find value for varname=$varname" >&2
+    return 1
+  }
+
+  instance_id() {
+    get_instance_info "$@" $FUNCNAME
+  }
+
+  instance_name() {
+    get_instance_info "$@" $FUNCNAME
+  }
+
+  instance_state() {
+    get_instance_info "$@" $FUNCNAME
+  }
+
+  private_ip() {
+    get_instance_info "$@" $FUNCNAME
+  }
+
+  pick_instance_id() {
+    local fcn=$1 choice PS3
+    fetch_instance_data
+    PS3="which VM to perform \"$fcn\" (1-${#VM_INSTANCE_DATA[@]})? "
+    select choice in "${VM_INSTANCE_DATA[@]}"; do
+      VM_INSTANCE_IDX=$(($REPLY-1))
+      return 0
+    done
+    return 1
+  }
+
+  start() {
+    ec2_instance_cmd $FUNCNAME start-instances "$@"
+  }
+
+  stop() {
+    ec2_instance_cmd $FUNCNAME stop-instances "$@"
+  }
+
+  reboot() {
+    ec2_instance_cmd $FUNCNAME reboot-instances "$@"
+  }
+
+  console_output() {
+    ec2_instance_cmd $FUNCNAME get-console-output "$@"
+  }
+
+  console_screenshot() {
+    ec2_instance_cmd $FUNCNAME get-console-screenshot "$@"
+  }
+
+  ssh_root() {
+    local instance_idx=$1 ip
+    ip=$(private_ip $instance_idx)
+    ssh root@$ip
+  }
+
+  ec2_instance_cmd() {
+    local cmd=$1 ec2_cmd=$2 instance_idx=$3 aws_cmd instance_id
+    instance_id=$(instance_id $instance_idx)
+    validate_instance_id "$instance_id"
+    aws_cmd=(aws ec2 $ec2_cmd)
+    [ $dry_run = 1 ] && aws_cmd+=(--dry-run)
+    case $ec2_cmd in
+      (get-console-*) aws_cmd+=(--instance-id)
+        ;;
+      (*) aws_cmd+=(--instance-ids)
+        ;;
+    esac
+    aws_cmd+=($instance_id)
+    echo "${aws_cmd[*]}"
+    "${aws_cmd[@]}"
+  }
+
+  validate_instance_id() {
+    local instance_id=$1
+    if [ ${#instance_id} -eq 0 ]; then
+      echo "$FUNCNAME: blank instance ID" >&2
+      return 1
+    fi
+    if ! [[ "$instance_id" =~ ^i-[[:alnum:]]{17}$ ]]; then
+      echo "$FUNCNAME: invalid instance ID: $instance_id" >&2
+      return 1
+    fi
+  }
+
+  status() {
+    fetch_instance_data
+    for line in "${VM_INSTANCE_DATA[@]}"; do
+      echo "$line"
+    done
+  }
+
+  confirm() {
+    local ans random=$(($RANDOM % 10))$(($RANDOM % 10)) fcn=$1 instance_idx=$2
+    local instance_name=$(instance_name $instance_idx)
+    echo "Proceed with the following command:"
+    printf "%s %s\n" $fcn $instance_name
+    read -p "type \"$random\" to confirm: " ans
+    if [ "$ans" != $random ]; then
+      return 1
+    fi
+  }
+
+  main() {
+    local opt opts=hd OPTIND choice fcn_array fcn fcn_args n_fcn_args i arg instance_idx PS3
+    while builtin getopts $opts opt; do
+      case $opt in
+        (h) usage
+          return
+          ;;
+        (d) dry_run=1
+          ;;
+      esac
+    done
+    PS3="choose an operation (1-${#VM_MENU_CHOICES[@]}): "
+    select choice in "${VM_MENU_CHOICES[@]}"; do
+      fcn_array=($choice)
+      fcn=${fcn_array[0]}
+      fcn_args=("${fcn_array[@]:1}")
+      n_fcn_args=${#fcn_args[@]}
+      for((i=0;i<$n_fcn_args;i++)); do
+        arg=${fcn_args[$i]}
+        case $arg in
+          (VM_INSTANCE_ID)
+            if ! pick_instance_id $fcn; then
+              continue 2
+            fi
+            if ! confirm $fcn $VM_INSTANCE_IDX; then
+              continue 2
+            fi
+            fcn_args[$i]=$VM_INSTANCE_IDX
+            ;;
+        esac
+      done
+      $fcn "${fcn_args[@]}"
+    done
+  }
+
+  main "$@"
+)
