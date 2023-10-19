@@ -576,12 +576,12 @@ simple front end for LincWare AWS EC2 operations
 -h: this help
 -d: pass --dry-run flag to ec2 command
 
-set up ~/.aws/config:
+set up ~/.aws/config (or set AWS_DEFAULT_OUTPUT, AWS_DEFAULT_REGION):
   [default]
   output = json
   region = us-east-1
 
-and ~/.aws/credentials:
+and ~/.aws/credentials (or set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY):
   [default]
   aws_access_key_id = AKIAXXXXXXXXXXXXXXXX
   aws_secret_access_key = XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -589,10 +589,19 @@ and ~/.aws/credentials:
   }
 
   local VM_INSTANCE_DATA=() VM_INSTANCE_IDX dry_run=0 \
-    VM_INSTANCE_VARS=(instance_name instance_id instance_type instance_state private_ip) \
-    VM_MENU_CHOICES=(
+    AWS_DEFAULT_REGION=us-east-1 \
+    AWS_PAGER=$PAGER \
+    VM_INSTANCE_VARS=(
+      # this list should match up with the query in fetch_instance_data
+      instance_name
+      instance_id
+      instance_type
+      instance_state 
+      private_ip
+    ) VM_MENU_CHOICES=(
       "console_output VM_INSTANCE_ID" 
       "console_screenshot VM_INSTANCE_ID" 
+      "edit_instance_in_browser VM_INSTANCE_ID"
       "reboot VM_INSTANCE_ID" 
       "ssh_root VM_INSTANCE_ID"
       "start VM_INSTANCE_ID" 
@@ -624,20 +633,20 @@ and ~/.aws/credentials:
     return 1
   }
 
-  instance_id() {
-    get_instance_info "$@" $FUNCNAME
+  get_instance_id() {
+    get_instance_info "$@" ${FUNCNAME:4}
   }
 
-  instance_name() {
-    get_instance_info "$@" $FUNCNAME
+  get_instance_name() {
+    get_instance_info "$@" ${FUNCNAME:4}
   }
 
-  instance_state() {
-    get_instance_info "$@" $FUNCNAME
+  get_instance_state() {
+    get_instance_info "$@" ${FUNCNAME:4}
   }
 
-  private_ip() {
-    get_instance_info "$@" $FUNCNAME
+  get_private_ip() {
+    get_instance_info "$@" ${FUNCNAME:4}
   }
 
   pick_instance_id() {
@@ -673,13 +682,21 @@ and ~/.aws/credentials:
 
   ssh_root() {
     local instance_idx=$1 ip
-    ip=$(private_ip $instance_idx)
+    ip=$(get_private_ip $instance_idx)
     ssh root@$ip
   }
 
+  edit_instance_in_browser() {
+    local instance_idx=$1 instance_id url
+    instance_id=$(get_instance_id $instance_idx)
+    printf -v url "https://%s.console.aws.amazon.com/ec2/home?region=%s#InstanceDetails:instanceId=%s" $AWS_DEFAULT_REGION $AWS_DEFAULT_REGION $instance_id
+    printf %s "$url" | -set-clipboard
+    echo "URL is copied to clipboard ($url)"
+  }
+
   ec2_instance_cmd() {
-    local cmd=$1 ec2_cmd=$2 instance_idx=$3 aws_cmd instance_id
-    instance_id=$(instance_id $instance_idx)
+    local cmd=$1 ec2_cmd=$2 instance_idx=$3 aws_cmd instance_id ans
+    instance_id=$(get_instance_id $instance_idx)
     validate_instance_id "$instance_id"
     aws_cmd=(aws ec2 $ec2_cmd)
     [ $dry_run = 1 ] && aws_cmd+=(--dry-run)
@@ -691,7 +708,10 @@ and ~/.aws/credentials:
     esac
     aws_cmd+=($instance_id)
     echo "${aws_cmd[*]}"
-    "${aws_cmd[@]}"
+    read -p "enter \"y\" to run the above command: " ans
+    if [ "$ans" = y ]; then
+      "${aws_cmd[@]}"
+    fi
   }
 
   validate_instance_id() {
@@ -715,7 +735,7 @@ and ~/.aws/credentials:
 
   confirm() {
     local ans random=$(($RANDOM % 10))$(($RANDOM % 10)) fcn=$1 instance_idx=$2
-    local instance_name=$(instance_name $instance_idx)
+    local instance_name=$(get_instance_name $instance_idx)
     echo "Proceed with the following command:"
     printf "%s %s\n" $fcn $instance_name
     read -p "type \"$random\" to confirm: " ans
