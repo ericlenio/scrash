@@ -1,1 +1,2 @@
 export JAVA_HOME=/opt/homebrew/opt/openjdk@11/libexec/openjdk.jdk/Contents/Home
+export MANPATH=:/opt/homebrew/opt/node@16/lib/node_modules/npm/man
