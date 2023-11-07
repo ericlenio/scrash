@@ -497,12 +497,14 @@
 }
 
 -ssh-load-keys() {
-  local SSH_ASKPASS=$(mktemp) key keys=($HOME/.ssh/lenio-id_rsa $HOME/.ssh/remoteadmin-shell-id_rsa)
+  local SSH_ASKPASS=$(mktemp) key keys=(
+    $HOME/.ssh/lenio-id_rsa
+    $HOME/.ssh/remoteadmin-shell-id_rsa
+    $HOME/.ssh/el13-20231106_ed25519
+    ) otp
   printf '#!/usr/bin/env bash\n-ssh-askpass "$@"\n' >$SSH_ASKPASS
   chmod +x $SSH_ASKPASS
-  for key in "${keys[@]}"; do
-    SSH_ASKPASS_REQUIRE=force SSH_ASKPASS=$SSH_ASKPASS ssh-add "$key" </dev/null
-  done
+  SSH_ASKPASS_REQUIRE=force SSH_ASKPASS=$SSH_ASKPASS ssh-add "${keys[@]}" </dev/null
   rm -f $SSH_ASKPASS
 }
 

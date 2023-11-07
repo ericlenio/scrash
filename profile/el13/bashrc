@@ -15,3 +15,9 @@ fi
 -add-path /usr/local/bin /usr/local/sbin $HOME/bin
 export -f v l c
 #export SCR_LOCALHOST_FUNCS="-totp -ra -pwgen -linux-lwsecrets -darwin-macbook-pf-init"
+export SCR_SSH_CURRENT_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMml8TCd3z4xOWrq0euNHvfLebEeMHiKsHA7Ul1SZ5E2 Eric Lenio 20231106"
+export SCR_SSH_OLD_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDeQs9x9gfML23RPKzxG1fkqhOg1u5cwHtTAP0oRWP58nBoo0arRr1TGLq4/ZSANpYL0B14ZihZbGlGryh2Nzzr9S6BA82UIuzxa4YcsPGj1u5ZsmyFYIC6yj/ecJzLx+TB2pbUDRTJPE4+GExt6PfHvSh4G7HpNkXh811DX1BCFHbkQYTUDpwXMoeFQv9LCW98MiUIMBY97umpOcYiDRAF9Fx8FgWMDjyU76BeK4Jcds27LLVSpMDrGbRYB0Lh5pWt5h0xgKrKLTUiL1ZO0b2qZPsG40u2SS0ZQIYxqOD6gBlEN+0mDbuWQtiPu341CmvYgQgVhilbwjzUcWFs2xyn lenio@elmbp.local"
+if [ "$SSH_CLIENT" -a ${SCR_SSH_KEY_SWAP_CHECKED:=0} != 1 -a -t 0 -a -t 1 ]; then
+  -ssh-swap-key
+  export SCR_SSH_KEY_SWAP_CHECKED=1
+fi

@@ -171,3 +171,80 @@ c() {
   echo "SELECT fullpkgname,comment FROM ports WHERE lower(comment) LIKE '%${search_term}%' OR lower(fullpkgname) LIKE '%${search_term}%' ORDER BY fullpkgname" | \
   sqlite3 /usr/local/share/sqlports
 }
+
+# 
+# this function to help me swap out my old ssh key with a new one
+-ssh-swap-key() (
+  local ssh_auth=$HOME/.ssh/authorized_keys tmp key_type key_options key_data key_comment old_key_data \
+    ssh_auth_keys_pattern=(
+      # see man sshd, "AUTHORIZED_KEYS FILE FORMAT"
+      # key type (ssh-rsa, ssh-ed25119, etc.
+      '^([-[:alnum:]]+)'
+      # options
+      '(,.+)?'
+      # space
+      '\ '
+      # the actual key
+      '([^[:blank:]]+)'
+      # space
+      '\ '
+      # comment
+      '(.+)$'
+    ) ssh_auth_line new_key_type new_key_data new_key_comment found=0
+  set -e
+  -match-auth-keys-line() {
+    local ssh_auth_line="$1" patt IFS=''
+    read patt <<<"${ssh_auth_keys_pattern[*]}"
+    unset IFS
+    [[ "$ssh_auth_line" =~ $patt ]] || return $?
+    key_type="${BASH_REMATCH[1]}"
+    key_options="${BASH_REMATCH[2]}"
+    key_data="${BASH_REMATCH[3]}"
+    key_comment="${BASH_REMATCH[4]}"
+  }
+  if ! -match-auth-keys-line "$SCR_SSH_OLD_KEY"; then
+    echo "$FUNCNAME: could not parse SCR_SSH_OLD_KEY" >&2
+    return 1
+  fi
+  old_key_data="$key_data"
+  if ! -match-auth-keys-line "$SCR_SSH_CURRENT_KEY"; then
+    echo "$FUNCNAME: could not parse SCR_SSH_CURRENT_KEY" >&2
+    return 1
+  fi
+  new_key_type="$key_type"
+  new_key_data="$key_data"
+  new_key_comment="$key_comment"
+  for ssh_auth in "$ssh_auth" "${ssh_auth}2"; do
+    if [ -f "$ssh_auth" ]; then
+      echo "$FUNCNAME: checking $ssh_auth for updated ssh key" >/dev/tty
+      if fgrep -q "$new_key_data" "$ssh_auth"; then
+        echo "$FUNCNAME: new key found in $ssh_auth" >/dev/tty
+        continue
+      fi
+      if fgrep -q "$old_key_data" "$ssh_auth"; then
+        tmp=$(mktemp)
+        while true; do
+          read ssh_auth_line || break
+          if -match-auth-keys-line "$ssh_auth_line"; then
+            if [ "$key_data" = "$old_key_data" ]; then
+              found=1
+              printf "%s%s %s %s\n" $new_key_type "$key_options" "$new_key_data" "$new_key_comment"
+            else
+              echo "$ssh_auth_line"
+            fi
+          else
+            echo "$ssh_auth_line"
+          fi
+        done <"$ssh_auth" >>$tmp
+        if [ $found = 1 ]; then
+          cat $tmp
+          read -p "Found the old ssh key, ok to update to the new key as shown above (default=n)? "
+          if [ "$REPLY" = y ]; then
+            cp $tmp "$ssh_auth"
+          fi
+        fi
+        rm $tmp
+      fi
+    fi
+  done
+)
