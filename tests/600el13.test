@@ -122,3 +122,28 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
     echo "WARNING: skipping tests for remoteadmin" >&2
   fi
 fi
+
+# test -ssh-swap-key function
+ssh_auth="$SCR_TMPDIR/.ssh/authorized_keys"
+mkdir -p $(dirname "$ssh_auth")
+for ssh_auth in "${ssh_auth}" "${ssh_auth}2"; do
+  rm -f "${ssh_auth}"*
+  [ ! -f "$ssh_auth" ]
+  echo "$SCR_SSH_OLD_KEY" >"$ssh_auth"
+  echo yes | HOME="$SCR_TMPDIR" -ssh-swap-key
+  c=$(<"$ssh_auth")
+  [ "$SCR_SSH_CURRENT_KEY" = "$c" ]
+  echo "$SCR_SSH_OLD_KEY" >"$ssh_auth"
+  echo | HOME="$SCR_TMPDIR" -ssh-swap-key
+  c=$(<"$ssh_auth")
+  [ "$SCR_SSH_OLD_KEY" = "$c" ]
+  fake_key_options='fake-option1,fake-option2="some value"'
+  echo "$fake_key_options $SCR_SSH_OLD_KEY" >"$ssh_auth"
+  echo yes | HOME="$SCR_TMPDIR" -ssh-swap-key
+  fgrep -q "$fake_key_options $SCR_SSH_CURRENT_KEY" "$ssh_auth"
+  split=(${SCR_SSH_OLD_KEY})
+  [ ${#split[@]} -ge 3 ]
+  echo "${split[@]:0:2} random key comment..." >"$ssh_auth"
+  echo yes | HOME="$SCR_TMPDIR" -ssh-swap-key
+  fgrep -q "$SCR_SSH_CURRENT_KEY" "$ssh_auth"
+done
