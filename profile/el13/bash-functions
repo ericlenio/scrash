@@ -232,7 +232,7 @@ c() {
       if fgrep -q "$old_key_data" "$ssh_auth"; then
         tmp=$(mktemp)
         while true; do
-          read ssh_auth_line || break
+          read -r ssh_auth_line || break
           if -match-auth-keys-line "$ssh_auth_line"; then
             if [ "$key_data" = "$old_key_data" ]; then
               found=1

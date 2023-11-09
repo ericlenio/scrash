@@ -137,7 +137,7 @@ for ssh_auth in "${ssh_auth}" "${ssh_auth}2"; do
   echo | HOME="$SCR_TMPDIR" -ssh-swap-key
   c=$(<"$ssh_auth")
   [ "$SCR_SSH_OLD_KEY" = "$c" ]
-  fake_key_options='fake-option1,fake-option2="some value"'
+  fake_key_options='fake-option1,fake-option2="some value, includes \"escaped\" quotes"'
   echo "$fake_key_options $SCR_SSH_OLD_KEY" >"$ssh_auth"
   echo yes | HOME="$SCR_TMPDIR" -ssh-swap-key
   fgrep -q "$fake_key_options $SCR_SSH_CURRENT_KEY" "$ssh_auth"
