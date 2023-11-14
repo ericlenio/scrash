@@ -57,6 +57,29 @@ echo "$s4" > "$t4"
 -grep -a $s4
 cd "$OLDPWD"
 
+{
+  # test out -tlog
+  -Testfunc() {
+    uname
+  }
+  cd "$SCR_TMPDIR"
+  -tlog -Testfunc
+  tlog_logfile="-Testfunc.log"
+  [ -f $tlog_logfile ]
+  [ $(<$tlog_logfile) = $(uname) ]
+  -tlog uname -a
+  [ -f uname.log ]
+  [ "$(<uname.log)" = "$(uname -a)" ]
+  s1="test script 1"
+  printf "#!/usr/bin/env bash\nuname -a\n" > "$s1"
+  chmod +x "$s1"
+  -tlog "$SCR_TMPDIR/$s1"
+  [ -f "$s1.log" ]
+  stdout=$(<"$s1.log")
+  [ "$stdout" = "$(uname -a)" ]
+  cd -
+}
+
 ! -openssl_s_client_show_certs github.com
 if online github.com:443; then
   -openssl_s_client_show_certs github.com:443

@@ -159,7 +159,8 @@ c() {
 }
 
 -tlog() {
-  env time "$@" 2>&1 | tee "$1".log
+  local logfile=$(basename -- "$1").log
+  time -- "$@" 2>&1 | tee -- "$logfile"
 }
 
 -openbsd-pkg-search() {
