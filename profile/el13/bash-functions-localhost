@@ -445,7 +445,14 @@
     return 1
   fi
   set -e
-  vpn_iface=utun3
+  vpn_iface=$(
+    # assume the last utunX interface is the active VPN
+    ifconfig -X utun | grep ^utun | tail -1 |cut -d: -f1
+  )
+  if ! [[ "$vpn_iface" =~ ^[[:alnum:]]+$ ]]; then
+    echo "$FUNCNAME WARNING: no VPN interface detected: vpn_iface=$vpn_iface" >&2
+  fi
+  echo "detected VPN interface: $vpn_iface"
   qemu_bridge_iface=bridge100
   #vpn_subnet=10.4.1.0/24
   vmware_iface=vmnet2
@@ -476,7 +483,7 @@
     # forward VPN traffic to lincware VPN: also must set up a static route on
     # the router to pass 10.9.0.0/16 to elmbp's en0 IP address
     #echo "pass in quick proto { tcp udp } from 192.168.1.0/24 to 10.9.0.0/16 keep state"
-    if ifconfig | grep -q -w $vpn_iface; then
+    if ifconfig -X $vpn_iface | grep -q -w $vpn_iface; then
       echo "nat on $vpn_iface from { $vbox_subnet $qemu_subnet } to any -> $vpn_iface"
     fi
     echo "nat on $wifi_iface from { $vbox_subnet $qemu_subnet } to any -> $wifi_iface"
