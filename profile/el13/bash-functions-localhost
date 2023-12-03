@@ -444,50 +444,63 @@
     echo "$FUNCNAME: only suitable for MacOS" >&2
     return 1
   fi
+  local known_vpn_ip=10.0.0.10 known_internet_ip=8.8.8.8
+  -get-if-from-ip() {
+    # finds the network interface for a given IP address
+    route get $1 | grep interface: | cut -d: -f2 | tr -d ' '
+  }
   set -e
   vpn_iface=$(
     # assume the last utunX interface is the active VPN
-    ifconfig -X utun | grep ^utun | tail -1 |cut -d: -f1
+    #ifconfig -X utun | grep ^utun | tail -1 |cut -d: -f1
+    -get-if-from-ip $known_vpn_ip
   )
   if ! [[ "$vpn_iface" =~ ^[[:alnum:]]+$ ]]; then
-    echo "$FUNCNAME WARNING: no VPN interface detected: vpn_iface=$vpn_iface" >&2
+    echo "$FUNCNAME ERROR: no VPN interface detected: vpn_iface=$vpn_iface" >&2
+    return 1
   fi
   echo "detected VPN interface: $vpn_iface"
   qemu_bridge_iface=bridge100
   #vpn_subnet=10.4.1.0/24
   vmware_iface=vmnet2
-  wifi_iface=en0
+  wifi_iface=$(-get-if-from-ip $known_internet_ip)
+  if ! [[ "$wifi_iface" =~ ^[[:alnum:]]+$ ]]; then
+    echo "$FUNCNAME ERROR: no wifi interface detected: wifi_iface=$wifi_iface" >&2
+    return 1
+  fi
+  echo "detected wifi interface: $wifi_iface"
   qemu_subnet=192.168.105.0/24
   vbox_subnet=192.168.5.0/24
   vbox_iface=vboxnet0
 
   #sudo sysctl -w net.inet.ip.forwarding=1 net.inet.ip.fw.enable=1
   #sudo sysctl -a net.inet.ip.forwarding net.inet.ip.fw.enable
-  sudo sysctl -w net.inet.ip.forwarding=1
-  sudo sysctl -a net.inet.ip.forwarding
-  #sudo pfctl -F all -f /etc/pf.conf
-  {
-    echo
-    #echo "nat on en0 from vboxnet0:network -> (en0)"
-    # this next one to allow virtualbox guests to communicate to lincware
-    # servers when VPN is on
-    #echo "nat on $vpn_iface from vboxnet0:network -> ($vpn_iface)"
-    # this one to allow asus flip on 192.168.1.102 to go through the router to
-    # elmbp and across elmbp's VPN to lincware
-    #echo "nat on $vpn_iface from en0:network -> ($vpn_iface)"
-    #echo "pass in quick proto tcp to any keep state"
-    # set up a private static route in the netgear router to pass
-    # 192.168.5.0/24 to elmbp's en0 IP address, then this next "pass" rule gets
-    # that traffic passed from en0 to vboxnet0
-    #echo "pass in quick proto { tcp udp } from 192.168.1.0/24 to 192.168.5.0/24 keep state"
-    # forward VPN traffic to lincware VPN: also must set up a static route on
-    # the router to pass 10.9.0.0/16 to elmbp's en0 IP address
-    #echo "pass in quick proto { tcp udp } from 192.168.1.0/24 to 10.9.0.0/16 keep state"
-    if ifconfig -X $vpn_iface | grep -q -w $vpn_iface; then
+  sudo bash -s << EOF
+    sysctl -w net.inet.ip.forwarding=1
+    sysctl -a net.inet.ip.forwarding
+    pfctl -d
+    {
+      echo
+      #echo "nat on en0 from vboxnet0:network -> (en0)"
+      # this next one to allow virtualbox guests to communicate to lincware
+      # servers when VPN is on
+      #echo "nat on $vpn_iface from vboxnet0:network -> ($vpn_iface)"
+      # this one to allow asus flip on 192.168.1.102 to go through the router to
+      # elmbp and across elmbp's VPN to lincware
+      #echo "nat on $vpn_iface from en0:network -> ($vpn_iface)"
+      #echo "pass in quick proto tcp to any keep state"
+      # set up a private static route in the netgear router to pass
+      # 192.168.5.0/24 to elmbp's en0 IP address, then this next "pass" rule gets
+      # that traffic passed from en0 to vboxnet0
+      #echo "pass in quick proto { tcp udp } from 192.168.1.0/24 to 192.168.5.0/24 keep state"
+      # forward VPN traffic to lincware VPN: also must set up a static route on
+      # the router to pass 10.9.0.0/16 to elmbp's en0 IP address
+      #echo "pass in quick proto { tcp udp } from 192.168.1.0/24 to 10.9.0.0/16 keep state"
       echo "nat on $vpn_iface from { $vbox_subnet $qemu_subnet } to any -> $vpn_iface"
-    fi
-    echo "nat on $wifi_iface from { $vbox_subnet $qemu_subnet } to any -> $wifi_iface"
-  } | sudo pfctl -e -f -
+      echo "nat on $wifi_iface from { $vbox_subnet $qemu_subnet } to any -> $wifi_iface"
+    } | pfctl -e -f -
+    pfctl -s nat
+EOF
 )
 
 -ssh-askpass() {
