@@ -87,6 +87,9 @@ fi
 t5=$SCR_HOME/tests/test-certs
 [ -f "$t5" ]
 -openssl_s_client_show_certs "$t5"
+t6=$SCR_HOME/tests/test-cert-no-eol
+[ -f "$t6" ]
+-openssl_s_client_show_certs "$t6" | fgrep -q admitplus.work
 
 SCR_PASSWORD_FILE=$SCR_HOME/profile/$SCR_PROFILE/passwords.gpg
 [ -e "$SCR_PASSWORD_FILE" ]

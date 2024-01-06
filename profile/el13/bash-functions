@@ -77,7 +77,7 @@ c() {
 }
 
 -openssl_s_client_show_certs() (
-  local arg1 usage show_cert_details host port hostport cert_line=0 n=1 opts="dhv" opt verbose=0 debug=0 certs OPTARG OPTIND
+  local arg1 usage show_cert_details host port hostport cert_line=0 n=1 opts="dhv" opt verbose=0 debug=0 certs OPTARG OPTIND finished=0
   usage() {
     {
       echo "usage: ${FUNCNAME[1]} [-h][-d][-v] {hostname:port|/path/to/pem/certs}"
@@ -134,7 +134,10 @@ c() {
       eval "exec 0< <(${openssl_cmd[@]} </dev/null || true)"
     fi
   fi
-  while read line; do
+  until [ $finished = 1 ]; do
+    if ! read line; then
+      finished=1
+    fi
     if [ $debug = 1 ]; then
       echo "$line"
     fi
