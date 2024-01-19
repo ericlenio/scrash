@@ -24,8 +24,10 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
   ssh_config=$SCR_TMPDIR/ssh-config
   echo "Host myhost
   UserKnownHostsFile $known_hosts
-  ProxyCommand \${SCR_SSH_PROXY_JUMP} \${SCR_SSH_HOST} $SCR_SSH_HOST" -oUserKnownHostsFile=$known_hosts > $ssh_config
-  ssh -F $ssh_config myhost uname -a
+  ProxyCommand \${SCR_SSH_PROXY_JUMP} \${SCR_SSH_HOST} $SCR_SSH_HOST -oUserKnownHostsFile=$known_hosts" > $ssh_config
+  u1=$(ssh -F $ssh_config myhost uname -a)
+  u2=$(uname -a)
+  [ "$u1" = "$u2" ]
 else
   echo "WARNING $(basename $TEST_SOURCE_FILE): skipping some tests, no value for $SCR_SSH_AUTH_SOCK" >&2
 fi

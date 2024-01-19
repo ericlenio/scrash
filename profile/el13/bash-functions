@@ -87,11 +87,9 @@ c() {
     } >/dev/tty
   }
   show_cert_details() {
-    local cert="$1"
+    local n=$1 cert="$2"
     echo "################ CERT #$n"
-    while read line; do
-      printf "# %s\n" "$line"
-    done < <(echo "$cert" | openssl x509 -noout -subject -issuer -startdate -enddate)
+    echo "$cert" | openssl x509 -noout -subject -issuer -startdate -enddate
     if [ $verbose = 1 ]; then
       echo -n "$cert"
     fi
@@ -150,7 +148,7 @@ c() {
     fi
     if [[ "$line" =~ ^-----END\ CERTIFICATE----- ]]; then
       cert_line=0
-      show_cert_details "$cert"
+      show_cert_details $n "$cert"
       let n++
       certs+="$cert"
     fi

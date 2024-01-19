@@ -31,7 +31,16 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
   [ $(-md5 /tmp/passwd) = $(-md5 /etc/passwd) ]
   rm /tmp/passwd
 
-  ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -c -- -vars | grep -q SCR_TMPDIR
+  ssh_cmd=(ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -c -- -vars)
+  "${ssh_cmd[@]}" | grep -q SCR_TMPDIR
+
+  m1="should_not_see_this_string_because_exec_should_effectively_hide_it"
+  t1=$SCR_TMPDIR/ssh_exec_test
+  printf "#!/usr/bin/env bash\nset -e\ndeclare -f ssh >/dev/null\n%s\necho '%s'\n" "${ssh_cmd[*]}" "$m1" >$t1
+  chmod 755 $t1
+  $t1 | grep -q SCR_TMPDIR
+  SCR_SSH_EXEC=0 $t1 | grep -q "$m1"
+  ! SCR_SSH_EXEC=1 $t1 | grep -q "$m1"
 else
   echo "WARNING $(basename $TEST_SOURCE_FILE): skipping some tests, no value for $SCR_SSH_AUTH_SOCK" >&2
 fi

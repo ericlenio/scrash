@@ -86,7 +86,7 @@ if online github.com:443; then
 fi
 t5=$SCR_HOME/tests/test-certs
 [ -f "$t5" ]
--openssl_s_client_show_certs "$t5"
+-openssl_s_client_show_certs "$t5" >/dev/null
 t6=$SCR_HOME/tests/test-cert-no-eol
 [ -f "$t6" ]
 -openssl_s_client_show_certs "$t6" | fgrep -q admitplus.work
@@ -140,7 +140,8 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
     [ -f /tmp/passwd ]
 
     # test host-specific bashrc: bashrc-m2.local should set JAVA_HOME
-    s=$(ssh localhost compgen -v JAVA_HOME)
+    [ ! -f $SCR_SSH_USER_KNOWN_HOSTS ] && -sxx-scr-server-known-hosts
+    s=$(ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST compgen -v JAVA_HOME)
     [ "$s" ]
     [ "$s" = JAVA_HOME ]
     ! -ra $ra_host compgen -v JAVA_HOME >/dev/null

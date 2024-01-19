@@ -75,7 +75,7 @@ same as above, but also include test case file(s) matching on \"vim\":
   if [ "$TEST_ERROR_FILE" ]; then
     touch "$TEST_ERROR_FILE"
   fi
-  echo "ERROR with command (subshell level: $BASH_SUBSHELL): $BASH_COMMAND" >&2
+  echo "ERROR with command (subshell level: $BASH_SUBSHELL):" >&2
   if [ $BASH_SUBSHELL -gt 0 ]; then
     #echo "BASH_ARGV[${#BASH_ARGV[*]}]: ${BASH_ARGV[*]}" >&2
     #echo "in file: $TEST_SOURCE_FILE" >&2
@@ -103,6 +103,7 @@ same as above, but also include test case file(s) matching on \"vim\":
   -cleanup
   if [ $rc -gt 0 -o -e "$TEST_ERROR_FILE" ]; then
     echo "FAIL"
+    exit 1
   else
     echo "SUCCESS"
   fi

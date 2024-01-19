@@ -372,15 +372,17 @@ vim() {
       mkdir -p $SCR_TMPDIR
     fi
     version_file="$SCR_TMPDIR/.version"
-    if [ ! -f "$version_file" ]; then
-      -tty-echo "force clear cache now, no version file exists ($version_file)"
-      clear_cache=1
-    else
-      old_version=$(<"$version_file")
-      if [ "$old_version" != $SCR_VERSION ]; then
-        -tty-echo "force clear cache now, detected scrash version change (old=$old_version, new=$SCR_VERSION)"
+    if [ "$start" ]; then
+      if [ ! -f "$version_file" ]; then
+        -tty-echo "force clear cache now, no version file exists ($version_file)"
         clear_cache=1
-        rm -f "$version_file"
+      else
+        old_version=$(<"$version_file")
+        if [ "$old_version" != $SCR_VERSION ]; then
+          -tty-echo "force clear cache now, detected scrash version change (old=$old_version, new=$SCR_VERSION)"
+          clear_cache=1
+          rm -f "$version_file"
+        fi
       fi
     fi
     if [ $clear_cache = 1 ]; then
@@ -393,7 +395,7 @@ vim() {
       {
         echo '#!/usr/bin/env bash'
         -shell-init -D
-        echo '-sxx-init env ssh "$@"'
+        echo '-sxx-init exec ssh "$@"'
       } > $GIT_SSH
       chmod 755 $GIT_SSH
     fi
@@ -515,9 +517,13 @@ scp() {
 #   ProxyCommand ${SCR_SSH_PROXY_JUMP} root@ops.lincware.com apt.lincware.com
 -ssh-proxy-jump() {
   # test: ssh -oProxyCommand="bash -c -- '-ssh-proxy-jump ops apt.lincware.com'" lincdoc@test hostname
+  if [ $0 = bash ]; then
+    echo "$FUNCNAME: cannot run this here" >&2
+    return 1
+  fi
   local jump_host=$1 dest_host=$2
   shift 2
-  ssh "$@" $jump_host nc $dest_host 22
+  SCR_SSH_EXEC=1 ssh "$@" $jump_host nc $dest_host 22
 }
 
 ssh() {
@@ -525,9 +531,14 @@ ssh() {
   # https://github.com/openssh/openssh-portable/blob/V_9_3_P1/ssh.c#L710
   local SCR_PORT_FORWARD bootstr OPTIND \
     ssh_legal_opts="1246ab:c:e:fgi:kl:m:no:p:qstvxACD:E:F:GI:J:KL:MNO:PQ:R:S:TVw:W:XYy" \
-    opt ssh_user_host cmd=(-sxx-init env ssh) start=1 rc cmdline_ssh_host \
+    opt ssh_user_host cmd=(-sxx-init) start=1 rc cmdline_ssh_host \
     h ssh_config=$HOME/.ssh/config prefetch_otps=0 \
     M_flag=0 N_flag=0 S_flag=0
+  if [ ${SCR_SSH_EXEC:-0} = 1 ]; then
+    cmd+=(exec ssh)
+  else
+    cmd+=(env ssh)
+  fi
   if [[ "$1" =~ --otp=([[:print:]]*) ]]; then
     # see -ssh-proxy-jump
     SCR_PREAUTH_OTP=${BASH_REMATCH[1]}

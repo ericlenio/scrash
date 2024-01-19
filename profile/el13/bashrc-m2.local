@@ -1,2 +1,12 @@
+# vim:filetype=bash
 export JAVA_HOME=/opt/homebrew/opt/openjdk@11/libexec/openjdk.jdk/Contents/Home
 export MANPATH=:/opt/homebrew/opt/node@16/lib/node_modules/npm/man
+export RA_SSH=$SCR_TMPDIR/ssh-exec
+if [ ! -f $RA_SSH ]; then
+  {
+    echo '#!/usr/bin/env bash'
+    -shell-init -D
+    echo 'SCR_SSH_EXEC=1 ssh "$@"'
+  } > $RA_SSH
+  chmod 755 $RA_SSH
+fi
