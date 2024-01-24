@@ -16,6 +16,7 @@
     "TOTP Google eric@lincware.com"
     "TOTP AWS root"
     "TOTP Microsoft Azure"
+    "TOTP github"
   )
   if [ "$key_idx" = -h ]; then
     echo "usage: $FUNCNAME i"
