@@ -1126,7 +1126,7 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
       echo "$FUNCNAME: could not read password file: $pw_file" >&2
       return 1
     fi
-    while read pw_line; do
+    while read -r pw_line; do
       found=1
       IFS="$split_char" builtin read -r -a pw_line <<<"$pw_line"
       if [ "$index" ]; then

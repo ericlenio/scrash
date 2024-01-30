@@ -36,6 +36,9 @@ user2="testuser2"
 pw2=$(random_string)
 add_pw "$pwkey2" "$user2" "$pw2"
 
+backslash_pw="\a\b\c\d"
+add_pw "backslashes" "some-user" "$backslash_pw"
+
 ! -pw no-such-pw-key || false
 
 pw=$(-pw "$pwkey1")
@@ -46,6 +49,8 @@ user_b64=$(-pw -i 1 -b "$pwkey1")
 [ $(printf %s "$user" | openssl enc -a -A) = $user_b64 ]
 pwkey=$(-pw -i 0 "$pwkey1")
 [ "$pwkey" = "$pwkey1" ]
+
+[ "$backslash_pw" = "$(-pw backslashes)" ]
 
 pw=$(-ssh-pw -i -1 "$pwkey")
 [ "$pw" = "$pw1" ]
