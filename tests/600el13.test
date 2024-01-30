@@ -91,23 +91,7 @@ t6=$SCR_HOME/tests/test-cert-no-eol
 [ -f "$t6" ]
 -openssl_s_client_show_certs "$t6" | fgrep -q admitplus.work
 
-SCR_PASSWORD_FILE=$SCR_HOME/profile/$SCR_PROFILE/passwords.gpg
-[ -e "$SCR_PASSWORD_FILE" ]
-pwkey="github.com"
-github_pw=$(-pw "$pwkey")
-[ ${#github_pw} -gt 0 ]
-github_pw2=$(-pw -N "$pwkey")
-[ ${#github_pw2} -gt 0 ]
-[ "$github_pw" = "$github_pw2" ]
-# this next one should fail because no OTP is given
-if -ws /scr-get-password -d "key=$pwkey" 2>/dev/null; then
-  rc=$?
-else
-  rc=$?
-fi
-[ $rc = 22 ]
-
--totp
+-totp 1
 otp=$(-get-clipboard)
 [ ${#otp} -eq 6 ]
 [[ "$otp" =~ ^[0-9]{6}$ ]]
@@ -122,7 +106,7 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
 
   [ ! -f $SCR_SSH_USER_KNOWN_HOSTS ] && -sxx-scr-server-known-hosts
   # -totp function should NOT be loaded inside ssh session (see SCR_LOCALHOST_FUNCS)
-  if ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -- -totp; then
+  if ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -c '"$@"' -- -totp; then
     echo "expected -totp to fail" >&2
     false
   fi

@@ -7,17 +7,8 @@
 -totp() {
   # used this library for extracting the codes from Google Authenticator:
   # https://github.com/digitalduke/otpauth-migration-decoder
-  local key_idx=${1:-0} otp key_id base32_key i
-  local key_ids=(
-    "TOTP LincWare OPS"
-    "TOTP npmjs"
-    "TOTP Amazon Web Services"
-    "TOTP lw-401-main-st"
-    "TOTP Google eric@lincware.com"
-    "TOTP AWS root"
-    "TOTP Microsoft Azure"
-    "TOTP github"
-  )
+  local key_idx=$1 otp key_id base32_key i key_ids
+  IFS=$'\n' read -d '' -a key_ids <<<"$(-pw -i 0 TOTP)" || true
   if [ "$key_idx" = -h ]; then
     echo "usage: $FUNCNAME i"
     echo "where \"i\" is the index of the TOTP you want, listed below"
@@ -26,12 +17,18 @@
     done
     return
   fi
-  key_id=${key_ids[$key_idx]}
+  local PS3="choose a TOTP: "
+  if [ "$key_idx" ]; then
+    key_id="${key_ids[$key_idx-1]}"
+  else
+    select key_id in "${key_ids[@]}"; do
+      break
+    done
+  fi
   if [ -z "$key_id" ]; then
-    echo "$FUNCNAME: could not acquire base32_key using key_idx=$key_idx" >&2
     return 1
   fi
-  if base32_key=$(-pw -N "$key_id"); then
+  if base32_key=$(-pw "$key_id"); then
     if otp=$(oathtool --totp -b $base32_key); then
       #printf "%s:%s\n" "$key_id" $otp
       printf $otp | -set-clipboard

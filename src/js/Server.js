@@ -18,7 +18,6 @@ const SCR_PROFILE=process.env.SCR_PROFILE || process.env.npm_package_config_SCR_
 const SCR_PROFILE_DIR=`${SCR_HOME}/profile/${SCR_PROFILE}`;
 const SCR_APP_NAME=process.env.npm_package_name;
 const SCR_PORT_0=process.env.SCR_PORT_0;
-const SCR_PASSWORD_FILE=process.env.SCR_PASSWORD_FILE || `${SCR_PROFILE_DIR}/passwords.gpg`;
 const SCR_SSH_USER=process.env.SCR_SSH_USER;
 const SCR_SSH_HOST=process.env.SCR_SSH_HOST;
 const SCR_SSH_AUTH_SOCK=process.env.SCR_SSH_AUTH_SOCK;
@@ -552,32 +551,39 @@ class Server extends http.Server {
       res.statusCode=401;
       return Promise.reject(new Error("Unauthorized"));
     }
-    if (!SCR_PASSWORD_FILE) {
-      res.statusCode=404;
-      return Promise.reject(new Error("no value for SCR_PASSWORD_FILE"));
-    }
     return new Promise((resolve,reject)=>{
-      fs.access(SCR_PASSWORD_FILE,fs.constants.F_OK,e=>{
-        if (e) {
+      const queryParams={};
+      readline.createInterface({input:req}).on('line',line=>{
+        const qp=new URLSearchParams(line);
+        qp.forEach((value,name)=>queryParams[name]=value);
+      }).on('close',()=>{
+        const searchKey=queryParams.searchKey;
+        if (!searchKey) {
+          const e=new Error("no search key provided");
           return reject(e);
         }
-        readline.createInterface({input:req}).on('line',line=>{
-          const m=line.match(/^key=(.*)$/);
-          if (!m) {
-            return reject(new Error("no password key"));
+        const pwFile=queryParams.pwFile || process.env.SCR_PASSWORD_FILE;
+        const pw_args=['-p',pwFile];
+        if (queryParams.b64==='1') {
+          pw_args.push("-b");
+        }
+        if ('index' in queryParams) {
+          pw_args.push("-i",queryParams.index);
+        }
+        pw_args.push(searchKey);
+        const p=child_process.spawn("/usr/bin/env",['bash','-c','"$@"','--','-pw',...pw_args],
+          {stdio:['ignore','pipe',process.stderr]});
+        p.on("error",reject);
+        p.on('exit',(rc,signal)=>{
+          if (rc>0) {
+            const e=new Error(`failed to acquire password for search key: ${searchKey}`);
+            return reject(e);
           }
-          const key=m[1];
-          const p=child_process.spawn("/usr/bin/env",['gpg','-qd',SCR_PASSWORD_FILE],
-            {stdio:['ignore','pipe',process.stderr]});
-          p.on("error",reject);
-          res.setHeader('Content-Type','text/plain');
-          readline.createInterface({input:p.stdout}).on('line',line=>{
-            const lineArray=line.split(':');
-            if (lineArray[0]===key) {
-              res.write(lineArray[lineArray.length-1]+"\n");
-            }
-          }).on('close',()=>res.end(resolve));
+          res.end();
+          resolve();
         });
+        res.setHeader('Content-Type','text/plain');
+        p.stdout.on('data',data=>res.write(data));
       });
     });
   }

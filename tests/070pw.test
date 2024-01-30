@@ -1,0 +1,81 @@
+# vim:filetype=bash
+random_string() {
+  echo $RANDOM-$RANDOM-$RANDOM-$RANDOM-$RANDOM
+}
+
+# use mktemp for SCR_PASSWORD_FILE and SCR_SSH_USER_KNOWN_HOSTS (and not place
+# them in $SCR_TMPDIR) so they survive the ssh calls below (because ssh-ing
+# will effectively wipe the cache under $SCR_TMPDIR)
+SCR_PASSWORD_FILE_ORIG=$SCR_PASSWORD_FILE
+SCR_PASSWORD_FILE=$(mktemp)
+SCR_SSH_USER_KNOWN_HOSTS=$(mktemp)
+-sxx-scr-server-known-hosts
+
+add_pw() {
+  local pwkey="$1" user="$2" pw="$3"
+  pwlines="$(if [ -s $SCR_PASSWORD_FILE ]; then gpg -qd $SCR_PASSWORD_FILE; fi)"
+  {
+    if [ "$pwlines" ]; then
+      echo "$pwlines"
+    fi
+    printf "%s:%s:%s\n" "$pwkey" "$user" "$pw"
+  } | gpg --default-recipient-self -ea > $SCR_PASSWORD_FILE
+}
+
+-ssh-pw() {
+  ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -c -- '"$@"' -- -pw -p $SCR_PASSWORD_FILE "$@"
+}
+
+pwkey1="my password key with funky chars &/"
+user1="testuser"
+pw1=$(random_string)
+add_pw "$pwkey1" "$user1" "$pw1"
+
+pwkey2="another password key with funky chars ;'<!"
+user2="testuser2"
+pw2=$(random_string)
+add_pw "$pwkey2" "$user2" "$pw2"
+
+! -pw no-such-pw-key || false
+
+pw=$(-pw "$pwkey1")
+[ "$pw" = "$pw1" ]
+user=$(-pw -i 1 "$pwkey1")
+[ "$user" = "$user1" ]
+user_b64=$(-pw -i 1 -b "$pwkey1")
+[ $(printf %s "$user" | openssl enc -a -A) = $user_b64 ]
+pwkey=$(-pw -i 0 "$pwkey1")
+[ "$pwkey" = "$pwkey1" ]
+
+pw=$(-ssh-pw -i -1 "$pwkey")
+[ "$pw" = "$pw1" ]
+pw=$(-ssh-pw -i 2 "$pwkey")
+[ "$pw" = "$pw1" ]
+user=$(-ssh-pw -i 1 "$pwkey")
+[ "$user" = "$user1" ]
+pwkey=$(-ssh-pw -i 0 "$pwkey")
+[ "$pwkey" = "$pwkey1" ]
+pwkey_b64=$(-ssh-pw -i 0 -b "$pwkey")
+[ $(printf %s "$pwkey" | openssl enc -a -A) = "$pwkey_b64" ]
+
+[ $(-pw password | wc -l) -eq 2 ]
+[ "$(-pw password)" = "$pw1"$'\n'"$pw2" ]
+[ "$(-pw -i -1 password)" = "$pw1"$'\n'"$pw2" ]
+[ "$(-ssh-pw -i -1 password)" = "$pw1"$'\n'"$pw2" ]
+[ "$(-pw -i 2 password)" = "$pw1"$'\n'"$pw2" ]
+[ "$(-ssh-pw -i 2 password)" = "$pw1"$'\n'"$pw2" ]
+[ "$(-pw -i 0 password)" = "$pwkey1"$'\n'"$pwkey2" ]
+[ "$(-ssh-pw -i 0 password)" = "$pwkey1"$'\n'"$pwkey2" ]
+[ "$(-pw -i 1 password)" = "$user1"$'\n'"$user2" ]
+[ "$(-ssh-pw -i 1 password)" = "$user1"$'\n'"$user2" ]
+[ "$(-ssh-pw -i 1 -b password)" = $(printf %s "$user1" | openssl enc -a -A)$'\n'$(printf %s "$user2" | openssl enc -a -A) ]
+
+# this next one should fail because no OTP is given
+if -ws /scr-get-password -d "searchKey=$pwkey" 2>/dev/null; then
+  rc=$?
+else
+  rc=$?
+fi
+[ $rc = 22 ]
+rm -f $SCR_PASSWORD_FILE $SCR_SSH_USER_KNOWN_HOSTS
+SCR_PASSWORD_FILE=$SCR_PASSWORD_FILE_ORIG
