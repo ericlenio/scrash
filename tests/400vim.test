@@ -18,7 +18,7 @@ t1=$SCR_TMPDIR/t1
 t2=$SCR_TMPDIR/t2
 t3=$SCR_TMPDIR/t3
 
-printf "/^root\015vey:call ScrSetClipboard()\015:q\015" > $t1
+printf "/^root\015vey:call ScrSetClipboard(@\")\015:q\015" > $t1
 vim -s $t1 /etc/passwd
 #'rm $t1
 [ root = $(-get-clipboard) ]
