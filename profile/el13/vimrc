@@ -18,7 +18,7 @@ if has("autocmd")
     if len(l:pw)>0
       " use named register "p for the password
       let @p=l:pw
-      echo "press ctrl-c to copy the password on line" l:lnum len(@p)
+      echo "press ctrl-c to copy the password on line" l:lnum
     else
       let @p=""
       echo
