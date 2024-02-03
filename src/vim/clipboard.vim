@@ -69,17 +69,21 @@ fu ScrSystemcaller(cmd,...)
   return [l:stdout,l:stderr,v:shell_error]
 endf
 
-fu ScrSetClipboard()
-  " copies the contents of the unnamed register to OS clipboard;
+fu ScrSetClipboard(...)
+  " copies the contents of arg 1, else the unnamed register, to OS clipboard;
   " NOTE: the system command will write out to a temp file
   " which is vim's tempname() function
-  let l:pw=@"
-  if len(l:pw) == 0
+  if a:0 == 1
+    let l:clipboard=a:1
+  else
+    let l:clipboard=@"
+  endif
+  if len(l:clipboard) == 0
     echon "Nothing to copy!"
     return
   endif
   try
-    let [l:stdout,l:stderr,l:rc]=ScrSystemcaller("-set-clipboard",l:pw)
+    let [l:stdout,l:stderr,l:rc]=ScrSystemcaller("-set-clipboard",l:clipboard)
     if len(l:stderr) > 0
       echohl WarningMsg
       echon join(l:stderr," ")
@@ -87,7 +91,7 @@ fu ScrSetClipboard()
       echon " "
     endif
     if l:rc == 0
-      echon "Copied " len(l:pw) " characters"
+      echon "Copied " len(l:clipboard) " characters"
     endif
   catch /.*/
     echo v:exception

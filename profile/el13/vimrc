@@ -15,10 +15,12 @@ if has("autocmd")
     "call setpos("'<",[0,l:lnum,l:start+2,0])
     "call setpos("'>",[0,l:lnum,l:end,0])
     "normal! gv
-    let @"=l:pw
     if len(l:pw)>0
-      echo "press ctrl-c to copy the password on line" l:lnum
+      " use named register "p for the password
+      let @p=l:pw
+      echo "press ctrl-c to copy the password on line" l:lnum len(@p)
     else
+      let @p=""
       echo
     endif
   endf
@@ -27,7 +29,7 @@ if has("autocmd")
   " use the expand() function to highlight the current word (cword)
   " nmap: "n" means we are mapping a key in vim's normal mode
   "autocmd BufReadPre,FileReadPre *.gpg nmap <buffer> * :let @/=expand("<cword>")<cr>:let @"=@/<cr>:call ScrSetClipboard()<cr>
-  autocmd BufReadPre,FileReadPre passwords.gpg nnoremap <c-c> :call ScrSetClipboard()<cr>
+  autocmd BufReadPre,FileReadPre passwords.gpg nnoremap <c-c> :call ScrSetClipboard(@p)<cr>
   autocmd CursorMoved passwords.gpg :call ScrSelectPassword()
 
   " Transparent editing of gpg encrypted files.
