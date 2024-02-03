@@ -1,7 +1,8 @@
+" vim:comments+=b\:"
 fu ScrMktmpdir()
-  " make sure the temp directory exists (for long running vim sessions,
-  " because a cron job might delete it) - any time we do a vim "system"
-  " command this function should be called first
+  " make sure the temp directory exists (for long running vim sessions, because
+  " a cron job might delete it) - any time we do a vim "system" command this
+  " function should be called first
   let @a=fnamemodify(tempname(),":p:h")
   if ! isdirectory(@a)
     call mkdir(@a,"p",0700)
@@ -69,21 +70,16 @@ fu ScrSystemcaller(cmd,...)
   return [l:stdout,l:stderr,v:shell_error]
 endf
 
-fu ScrSetClipboard(...)
+fu ScrSetClipboard(contents)
   " copies the contents of arg 1, else the unnamed register, to OS clipboard;
-  " NOTE: the system command will write out to a temp file
-  " which is vim's tempname() function
-  if a:0 == 1
-    let l:clipboard=a:1
-  else
-    let l:clipboard=@"
-  endif
-  if len(l:clipboard) == 0
+  " NOTE: the system command will write out to a temp file which is vim's
+  " tempname() function
+  if len(a:contents) == 0
     echon "Nothing to copy!"
     return
   endif
   try
-    let [l:stdout,l:stderr,l:rc]=ScrSystemcaller("-set-clipboard",l:clipboard)
+    let [l:stdout,l:stderr,l:rc]=ScrSystemcaller("-set-clipboard",a:contents)
     if len(l:stderr) > 0
       echohl WarningMsg
       echon join(l:stderr," ")
@@ -91,7 +87,7 @@ fu ScrSetClipboard(...)
       echon " "
     endif
     if l:rc == 0
-      echon "Copied " len(l:clipboard) " characters"
+      echon "Copied " len(a:contents) " characters"
     endif
   catch /.*/
     echo v:exception

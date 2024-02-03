@@ -1,3 +1,4 @@
+" vim:comments+=b\:"
 set nocompatible
 
 if has("autocmd")
@@ -25,8 +26,8 @@ if has("autocmd")
     endif
   endf
 
-  " when editing the passwords file, remap * to copy the current word to OS clipboard
-  " use the expand() function to highlight the current word (cword)
+  " when editing the passwords file, remap * to copy the current word to OS
+  " clipboard use the expand() function to highlight the current word (cword)
   " nmap: "n" means we are mapping a key in vim's normal mode
   "autocmd BufReadPre,FileReadPre *.gpg nmap <buffer> * :let @/=expand("<cword>")<cr>:let @"=@/<cr>:call ScrSetClipboard()<cr>
   autocmd BufReadPre,FileReadPre passwords.gpg nnoremap <c-c> :call ScrSetClipboard(@p)<cr>
@@ -54,11 +55,11 @@ if has("autocmd")
     autocmd BufReadPost,FileReadPost *.gpg let &ch = ch_save|unlet ch_save
     autocmd BufReadPost,FileReadPost *.gpg execute ":doautocmd BufReadPost " . expand("%:r")
 
-    " Convert all text to encrypted text before writing
-    " (If you use tcsh, you may need to alter this line.)
+    " Convert all text to encrypted text before writing (If you use tcsh, you
+    " may need to alter this line.)
     autocmd BufWritePre,FileWritePre *.gpg '[,']!gpg --default-recipient-self -ae 2>/dev/null
-    " Undo the encryption so we are back in the normal text, directly
-    " after the file has been written.
+    " Undo the encryption so we are back in the normal text, directly after the
+    " file has been written.
     autocmd BufWritePost,FileWritePost *.gpg u
   augroup END
 endif
@@ -77,5 +78,5 @@ endif
 filetype indent off
 " vnoremap: 'v' visual mode, 'nore' no recurse, 'map' map
 " here we remap control-c to copy the current visual selection to the OS clipboard
-vnoremap <c-c> y:call ScrSetClipboard()<cr>
+vnoremap <c-c> y:call ScrSetClipboard(@")<cr>
 nnoremap <c-v> :call ScrPasteClipboard()<cr>
