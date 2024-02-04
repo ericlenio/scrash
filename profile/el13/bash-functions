@@ -258,3 +258,10 @@ c() {
     fi
   done
 )
+
+-linux-install-node() {
+  # reference: https://github.com/nodesource/distributions?tab=readme-ov-file#ubuntu-versions
+  local NODE_VERSION=${1:-16}
+  read -p "press return to install node $NODE_VERSION, or ctrl-c to exit"
+  curl -fsSL https://deb.nodesource.com/setup_lts.x | perl -pe "s/^(NODE_VERSION)=.*/\$1=$NODE_VERSION.x/"
+}
