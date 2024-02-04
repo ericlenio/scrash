@@ -1008,7 +1008,7 @@ my $socket0=create_unix_domain_socket($SSH_AUTH_SOCK);
 my $socket1=create_proxy_socket($SCR_PORT,$otp,$connect_dest);
 bi_directional_pipe($socket0,$socket0,$socket1);
 '
-  perl -e "$perl_code" $SCR_PORT "$otp" SCR_SSH_AUTH_SOCK_REQUEST $SSH_AUTH_SOCK &
+  perl <(echo "$perl_code") $SCR_PORT "$otp" SCR_SSH_AUTH_SOCK_REQUEST $SSH_AUTH_SOCK &
   pid=$!
   until [ -S $SSH_AUTH_SOCK ]; do
     sleep 0.1
@@ -1036,7 +1036,7 @@ my ($SCR_PORT,$otp,$connect_dest)=@ARGV;
 my $socket=create_proxy_socket($SCR_PORT,$otp,$connect_dest);
 bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 '
-  exec perl -e "$perl_code" $SCR_PORT "$otp" $connect_dest
+  exec perl <(echo "$perl_code") $SCR_PORT "$otp" $connect_dest
 }
 
 -sxx-scr-server-known-hosts() {
