@@ -1,7 +1,11 @@
 # vim:filetype=bash
 -edit() {
   cd "$SCR_HOME"
-  v README.md package.json scrash server.js profile/*/* src/js/*.js src/bash/* src/vim/* tests/*
+  v -S <(
+    for f in v package.json scrash server.js profile/*/* src/js/*.js src/bash/* src/vim/* tests/*; do
+      printf ':badd %s\n' "$f"
+    done
+  ) README.md
 }
 
 -totp() {
