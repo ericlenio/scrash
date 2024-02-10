@@ -531,7 +531,7 @@ ssh() {
   # https://github.com/openssh/openssh-portable/blob/V_9_3_P1/ssh.c#L710
   local SCR_PORT_FORWARD bootstr OPTIND \
     ssh_legal_opts="1246ab:c:e:fgi:kl:m:no:p:qstvxACD:E:F:GI:J:KL:MNO:PQ:R:S:TVw:W:XYy" \
-    opt ssh_user_host cmd=(-sxx-init) start=1 rc cmdline_ssh_host \
+    opt ssh_user_host cmd=(-sxx-init) start=1 rc=0 cmdline_ssh_host \
     h ssh_config=$HOME/.ssh/config prefetch_otps=0 \
     M_flag=0 N_flag=0 S_flag=0
   if [ ${SCR_SSH_EXEC:-0} = 1 ]; then
@@ -611,8 +611,11 @@ ssh() {
       printf "SCR_PORT_FORWARD=%s\n" $SCR_PORT_FORWARD
     fi
   fi
-  "${cmd[@]}"
-  rc=$?
+  if "${cmd[@]}"; then
+    :
+  else
+    rc=$?
+  fi
   if [ $N_flag = 0 ]; then
     [ "$STY" ] && printf "\033k${HOSTNAME}\033\134" >/dev/tty
   fi
