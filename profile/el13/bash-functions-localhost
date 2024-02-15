@@ -47,6 +47,32 @@
   fi
 }
 
+# extract a TOTP secret from a QR code exported from Google Authenticator
+-totp-extractor() (
+  set -e
+  omd_dir=$HOME/incubator/otpauth-migration-decoder
+  cd "$omd_dir"
+  source .direnv/python-3.11/bin/activate
+  qrcode_img="$1"
+  if [ ! -f "$qrcode_img" ]; then
+    echo "usage: $FUNCNAME qrcode-img-file" >&2
+    return 1
+  fi
+  zbarimg_output=$(zbarimg "$qrcode_img")
+  if ! [[ "$zbarimg_output" =~ QR-Code:(.+) ]]; then
+    echo "$FUNCNAME: zbarimg failed: $zbarimg_output" >&2
+    return 1
+  fi
+  qrcode_data=${BASH_REMATCH[1]}
+  decoded=$(python3 src/decoder.py decode --migration "$qrcode_data")
+  if ! [[ "$decoded" =~ secret=([[:alnum:]]+) ]]; then
+    echo "$FUNCNAME: failed to find secret: $decoded" >&2
+    return 1
+  fi
+  secret=${BASH_REMATCH[1]}
+  echo $secret
+)
+
 #
 # Usage: -ra [filter] [command ...]
 # where filter is used as a simple search filter against all currently
