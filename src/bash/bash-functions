@@ -24,9 +24,9 @@
 
 -tty-echo() {
   local tty=/dev/tty
-  if [ "$SSH_CLIENT" ]; then
-    tty=$SSH_TTY
-  fi
+  #if [ "$SSH_CLIENT" ]; then
+    #tty=$SSH_TTY
+  #fi
   if [ -e "$tty" ]; then
     echo "$@" >$tty
   fi
@@ -231,7 +231,7 @@ screen() {
     fi
     cmd+=(-c $rcfile)
   fi
-  if [ "$SSH_TTY" ]; then
+  if [ $SCR_SSH_LEVEL -gt 0 ]; then
     esc=^Ee
   fi
   [ $TERM = dumb ] && TERM=screen
