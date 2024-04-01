@@ -17,7 +17,7 @@
 
 -add-path() {
   while [ $# -gt 0 ]; do
-    [ -d "$1" ] && [[ ":$PATH:" != *":$1:"* ]] && PATH="$1:$PATH"
+    [ -d "$1" ] && [[ ":$PATH:" != *":$1:"* ]] && PATH="$1:$PATH" && export PATH
     shift
   done
 }
