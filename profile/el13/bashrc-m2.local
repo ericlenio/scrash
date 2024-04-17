@@ -14,3 +14,4 @@ if [ ! -f $RA_SSH ]; then
   } > $RA_SSH
   chmod 755 $RA_SSH
 fi
+export RA_SERVER_ID=ra
