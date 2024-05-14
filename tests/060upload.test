@@ -4,16 +4,16 @@
 [ "$SCR_SSH_USER_KNOWN_HOSTS" ]
 [ ! -f "$SCR_SSH_USER_KNOWN_HOSTS" ]
 cd $SCR_TMPDIR
--upload /etc/passwd
-[ $(-md5 /etc/passwd) = $(-md5 passwd) ]
-rm passwd
+-upload /etc/services
+[ $(-md5 /etc/services) = $(-md5 services) ]
+rm services
 ! -upload /no-such-file-exists
 # test upload a file with a space in the name
-f="/tmp/passwd file"
-cp /etc/passwd "$f"
+f="/tmp/services file"
+cp /etc/services "$f"
 -upload "$f"
 basename=$(basename "$f")
-[ $(-md5 /etc/passwd) = $(-md5 "$basename") ]
-rm "$f"
+[ $(-md5 /etc/services) = $(-md5 "$basename") ]
 cd "$OLDPWD"
+rm "$f"
 [ -s "$SCR_SSH_USER_KNOWN_HOSTS" ]

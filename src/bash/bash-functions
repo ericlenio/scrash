@@ -1061,7 +1061,11 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
       -oProxyCommand="bash -c -- \"-ssh-proxy-connect $otp $SCR_SSH_HOST:22\""
       #-oProxyCommand="nc -X connect -x 127.0.0.1:$SCR_PORT localhost-otp-$otp 22"
     )
-    "${cmd[@]}" "$@"
+    for arg in "$@"; do
+      # handle filenames with spaces
+      cmd+=("${arg// /\\ }")
+    done
+    "${cmd[@]}"
   else
     return 1
   fi
@@ -1070,7 +1074,9 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 -upload() {
   local upload_file="$1"
   if [ "$upload_file" ]; then
-    -sxx-scr-server scp $SCR_SSH_USER@$SCR_SSH_HOST:"${upload_file// /\ }" .
+    shift
+    [ $# -eq 0 ] && set -- .
+    -sxx-scr-server scp $SCR_SSH_USER@$SCR_SSH_HOST:"$upload_file" "$@"
   else
     -sxx-scr-server sftp $SCR_SSH_USER@$SCR_SSH_HOST
   fi
