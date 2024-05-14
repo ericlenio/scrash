@@ -265,3 +265,75 @@ c() {
   read -p "press return to install node $NODE_VERSION, or ctrl-c to exit"
   curl -fsSL https://deb.nodesource.com/setup_lts.x | perl -pe "s/^(NODE_VERSION)=.*/\$1=$NODE_VERSION.x/"
 }
+
+-linux-install-ra-agent() (
+  local f
+  local NODESOURCE_PPA_KEY_URL=https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+  local NODE_MAJOR=16
+  local RA_UBUNTU_MAJOR_VER=$(v=$(lsb_release -rs) && echo ${v%%.*})
+  local RA_UBUNTU_CODENAME=$(lsb_release -cs)
+  local apt_source_file=/etc/apt/sources.list.d/lincware.list
+  local agt_pem=/usr/local/etc/ra-agent/ra-agent.pem
+  local lw_apt_detail
+  lw_apt_detail() {
+    apt_id=lincware
+    apt_key_url=http://apt.lincware.com/apt.lincware.com.gpg.asc
+    apt_source_detail="http://apt.lincware.com/ubuntu $RA_UBUNTU_CODENAME core"
+  }
+  local node_apt_detail
+  node_apt_detail() {
+    apt_id=nodesource
+    apt_key_url=$NODESOURCE_PPA_KEY_URL
+    apt_source_detail="https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main"
+  }
+  local arch=$(uname -m)
+
+  set -e
+
+  case $arch in
+    (x86_64)
+      ARCH=amd64
+      ;;
+    (aarch64)
+      ARCH=arm64
+      ;;
+    (*)
+      echo "$FUNCNAME: unknown arch: $arch" >&2
+      return 1
+      ;;
+  esac
+  apt_key_dir=$([ $RA_UBUNTU_MAJOR_VER -ge 22 ] && echo /etc/apt/keyrings || echo /etc/apt/trusted.gpg.d)
+  for f in lw_apt_detail node_apt_detail; do
+    $f
+    #eval "apt_detail=(\${$apt_detail[*]})"
+    apt_key=$apt_key_dir/$apt_id.gpg
+    if [ $RA_UBUNTU_MAJOR_VER -ge 22 ]; then
+      apt_key+=.asc
+    fi
+    source_file=/etc/apt/sources.list.d/$apt_id.list
+    apt_source_opts=(arch=$ARCH)
+    if [ ! -f $source_file ]; then
+      echo "create $source_file"
+      if [ $RA_UBUNTU_MAJOR_VER -ge 22 ]; then
+        apt_source_opts+=(signed-by=$apt_key)
+      fi
+      echo "deb [${apt_source_opts[*]}] $apt_source_detail" >$source_file
+    fi
+    if [ ! -f $apt_key ]; then
+      echo "create $apt_key"
+      if [ $RA_UBUNTU_MAJOR_VER -ge 22 ]; then
+        curl -fsSL $apt_key_url >$apt_key
+      else
+        curl -fsSL $apt_key_url | gpg --dearmor >$apt_key
+      fi
+    fi
+  done
+  if [ ! -f $agt_pem ]; then
+    read -p "need to upload $(basename $agt_pem), ok to proceed (default=y)? "
+    if [ ${#REPLY} -eq 0 -o "$REPLY" = y ]; then
+      mkdir -p $(dirname $agt_pem)
+      -upload ./incubator/remoteadmin/ssl/ra-agent.pem $agt_pem
+      chmod 600 $agt_pem
+    fi
+  fi
+)
