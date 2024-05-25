@@ -839,7 +839,7 @@ ssh() {
 # anything; 2 user gave some other bogus choice
 #
 -pick-something() {
-  local tty=$(tty) intro_label="$1" pick_list="$2" use_idx="$3" i l c
+  local tty=/dev/tty intro_label="$1" pick_list="$2" use_idx="$3" i l c
   local -a pick_array
   IFS=$'\n' read -d '' -a pick_array <<< "$pick_list"
   local indexes=${!pick_array[@]}
