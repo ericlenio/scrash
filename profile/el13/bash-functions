@@ -336,4 +336,8 @@ c() {
       chmod 600 $agt_pem
     fi
   fi
+  read -p "apt install ra-agent now (default=y)? "
+  if [ ${#REPLY} -eq 0 -o "$REPLY" = y ]; then
+    apt update && apt install ra-agent
+  fi
 )
