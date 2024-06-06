@@ -32,7 +32,7 @@ ra-runtime-config() {
   #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['faizan.shabbir'].push('issworld.com')" | openssl enc -a -A)
   #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['jhowell.corotan'].push('pratt.edu')" | openssl enc -a -A)
   #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['mayowa.ijigade']=['ltc.admitplus.work']" | openssl enc -a -A)
-  code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['rado'].push('ltc.admitplus.work')" | openssl enc -a -A)
+  #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['rado'].push('ltc.admitplus.work')" | openssl enc -a -A)
   #code64=$(printf "JSON.stringify(self.config.RA_USER_AUTHORIZED_HOSTS['abdel.mawla'])" | openssl enc -a -A)
   #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['aarti.sharma'].push('lincdoc-test.aomofny.com')" | openssl enc -a -A)
   #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['zaheer.amed'].push('lincdoc-dev.aomofny.com')" | openssl enc -a -A)
@@ -40,6 +40,7 @@ ra-runtime-config() {
   #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['aarti.sharma'].push('lincdoc-test.aomofny.com')" | openssl enc -a -A)
   #code64=$(printf "console.log('ans:',self.config.RA_SYSTEM_SECRETS.systems['ldap.lincware.com'])" | openssl enc -a -A)
   #code64=$(printf "self.secrets.getSecretsForHost('ldap.lincware.com')" | openssl enc -a -A)
+  code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['sreeraj.punnoli']=['ltc.admitplus.work','devops','fundltc-test','training.admit.work']" | openssl enc -a -A)
 
   code64b=$(printf "
     var a=[];
