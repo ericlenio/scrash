@@ -299,10 +299,10 @@ vim() {
     echo "$FUNCNAME: EDITOR is not set" >&2
     return 1
   fi
-  local d=$(dirname "$EDITOR")
+  local p d=$(dirname "$EDITOR")
   [ ! -d "$d" ] && mkdir -p "$d"
   if [ ! -e "$EDITOR" ]; then
-    local p='#!/usr/bin/env bash\n[ "$1" = "--version" ] && exec vim "$@"\n%s\n-shell-init\nexec vim "$@"\n'
+    p='#!/usr/bin/env bash\n[ "$1" = "--version" ] && exec vim "$@"\n%s\n-shell-init\nexec vim "$@"\n'
     #local url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
     #eval "$(curl -S -f -s --compressed $url)"
     printf "$p" "$(-shell-init -D)" > "$EDITOR"
@@ -311,13 +311,13 @@ vim() {
       return 1
     }
   fi
-  if [ ! -d "$SCR_VIMRUNTIME/plugin" ]; then
-    if mkdir -p "$SCR_VIMRUNTIME/plugin"; then
-      -vim-plugin-clipboard > "$SCR_VIMRUNTIME/plugin/clipboard.vim"
+  p="$SCR_VIMRUNTIME/plugin/clipboard.vim"
+  if [ ! -e "$p" ]; then
+    if ! mkdir -p $(dirname "$p") || ! -vim-plugin-clipboard > "$p"; then
+      return 1
     fi
   fi
   if [ ! -e "$SCR_VIMRC" ]; then
-    #-ws /scr-get-vimrc --compressed > $SCR_VIMRC
     -vimrc > "$SCR_VIMRC"
   fi
   "$EDITOR" "$@"

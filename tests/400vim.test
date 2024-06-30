@@ -57,3 +57,11 @@ vim -s $t1 $t3
 grep '^fox jumps over$' $t3 >/dev/null
 grep '^the lazy dogbb cc$' $t3 >/dev/null
 [ "$(tail -1 $t3)" = line2 ]
+
+# make sure clipboard.vim exists
+[ -d "$SCR_VIMRUNTIME" ]
+rm -rf "$SCR_VIMRUNTIME"
+printf "/^root\015vey:call ScrSetClipboard(@\")\015:q\015" > $t1
+vim -s $t1 /etc/passwd
+#'rm $t1
+[ root = $(-get-clipboard) ]
