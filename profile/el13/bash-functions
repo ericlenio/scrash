@@ -313,11 +313,14 @@ c() {
     source_file=/etc/apt/sources.list.d/$apt_id.list
     apt_source_opts=(arch=$ARCH)
     if [ ! -f $source_file ]; then
-      echo "create $source_file"
       if [ $RA_UBUNTU_MAJOR_VER -ge 22 ]; then
         apt_source_opts+=(signed-by=$apt_key)
       fi
-      echo "deb [${apt_source_opts[*]}] $apt_source_detail" >$source_file
+      apt_line="deb [${apt_source_opts[*]}] $apt_source_detail"
+      if ! fgrep -q "$apt_line" $(find $(dirname $source_file) -name '*.list') /dev/null; then
+        echo "create $source_file"
+        echo "$apt_line" >$source_file
+      fi
     fi
     if [ ! -f $apt_key ]; then
       echo "create $apt_key"
