@@ -19,3 +19,4 @@ vbell_msg DING
 defmonitor off
 msgwait 2
 shelltitle "$ |:"
+defbce on

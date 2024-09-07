@@ -93,3 +93,18 @@ fu ScrSetClipboard(contents)
     echo v:exception
   endtry
 endf
+
+fu ScrNextColorScheme(incr)
+  if ! exists('s:mycolors')
+    let l:paths = split(globpath(&runtimepath,'colors/*.vim'),"\n")
+    let s:mycolors = sort(map(l:paths,'fnamemodify(v:val,":t:r")'))
+    let s:mycolors_idx = exists('g:colors_name') ? index(s:mycolors,g:colors_name)+a:incr : (a:incr==1 ? 0 : -1)
+  else
+    let s:mycolors_idx += a:incr
+  endif
+  let l:idx=s:mycolors_idx % len(s:mycolors)
+  execute 'colorscheme '.s:mycolors[l:idx]
+  redraw
+  let l:idx=index(s:mycolors,g:colors_name)+1
+  echo "applied colorscheme:" g:colors_name "(".l:idx."/".len(s:mycolors).")"
+endf

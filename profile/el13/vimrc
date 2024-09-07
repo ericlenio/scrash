@@ -64,7 +64,12 @@ if has("autocmd")
   augroup END
 endif
 
-colorscheme elflord
+colorscheme murphy
+" map F8 to go to the next colorscheme
+nnoremap <F8> :call ScrNextColorScheme(1)<CR>
+" mac terminal shift-F8 to go backward in the colorscheme list
+nnoremap <ESC>[29~ :call ScrNextColorScheme(-1)<CR>
+
 syntax enable
 set cursorline noswapfile number hlsearch incsearch sw=2 ignorecase wrap
 set ruler ai nocindent indentexpr= showmatch modeline modelines=5 nobackup nowritebackup textwidth=0

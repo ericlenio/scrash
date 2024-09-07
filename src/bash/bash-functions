@@ -311,9 +311,9 @@ vim() {
       return 1
     }
   fi
-  p="$SCR_VIMRUNTIME/plugin/clipboard.vim"
+  p="$SCR_VIMRUNTIME/plugin/functions.vim"
   if [ ! -e "$p" ]; then
-    if ! mkdir -p $(dirname "$p") || ! -vim-plugin-clipboard > "$p"; then
+    if ! mkdir -p $(dirname "$p") || ! -vim-plugin-functions > "$p"; then
       return 1
     fi
   fi

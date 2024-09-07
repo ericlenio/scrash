@@ -17,3 +17,4 @@ if [ "$SSH_CLIENT" -a ${SCR_SSH_KEY_SWAP_CHECKED:=0} != 1 -a -t 0 -a -t 1 ]; the
   -ssh-swap-key
   export SCR_SSH_KEY_SWAP_CHECKED=1
 fi
+export PGTZ=America/New_York
