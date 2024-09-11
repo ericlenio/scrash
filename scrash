@@ -25,10 +25,6 @@ init() {
   # force lowercase hostname for SCR_SSH_HOST because ssh-keyscan forces
   # lowercase hostnames in it's output
   export SCR_SSH_HOST=$(hostname|tr "[:upper:]" "[:lower:]")
-  if [ "$SSH_AUTH_SOCK" ]; then
-    export SCR_SSH_AUTH_SOCK=$SSH_AUTH_SOCK
-  fi
-  unset SSH_AUTH_SOCK
   export SCR_ENV=${SCR_ENV:=dev}
   while builtin getopts "hp:P:tg:" opt; do
     case $opt in
@@ -129,6 +125,11 @@ scr_function_list_dump() {
 export -f scr_function_list_dump
 
 scr_server() {
+  if [ "$SSH_AUTH_SOCK" ]; then
+    env screen -X setenv SCR_SSH_AUTH_SOCK $SSH_AUTH_SOCK
+    env screen -X unsetenv SSH_AUTH_SOCK
+    unset SSH_AUTH_SOCK
+  fi
   scr_function_list_dump | npm start --prefix="$SCR_HOME" -- -p $SCR_PORT
   echo "$FUNCNAME: server has stopped, \"$FUNCNAME\" to restart it" >&2
   exec bash
@@ -140,7 +141,12 @@ main() {
   case $mode in
     (client_server)
       load_bash_functions
-      shell_init_args+=(-s $(-ssh-serialize-cmd screen bash -c scr_server))
+      # due to https://github.com/theseal/ssh-askpass/issues/54, in which it
+      # was documented that on Mac that launchctl cannot properly set
+      # environment variables for the default ssh-agent, we wrap the whole
+      # scrash session under a fresh ssh-agent
+      export DISPLAY=unknown SSH_ASKPASS=$SCR_HOME/src/bash/scr-ssh-askpass
+      shell_init_args+=(-s $(-ssh-serialize-cmd screen ssh-agent bash -c scr_server))
       ;;
     (test)
       load_bash_functions

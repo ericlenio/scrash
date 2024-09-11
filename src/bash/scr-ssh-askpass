@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+fifo=$(mktemp)
+trap "rm -f $fifo" EXIT INT
+rm -f $fifo
+mkfifo $fifo
+env screen -X screen bash -c 'fifo=$1;shift;echo "$@";read -p "approve ssh private key access (y/n, default=n)? "; echo "$REPLY" > $fifo' -- $fifo "$@"
+read < $fifo
+if [ "$REPLY" = y ]; then
+  exit 0
+fi
+exit 1
