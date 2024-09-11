@@ -126,7 +126,8 @@ export -f scr_function_list_dump
 
 scr_server() {
   if [ "$SSH_AUTH_SOCK" ]; then
-    env screen -X setenv SCR_SSH_AUTH_SOCK $SSH_AUTH_SOCK
+    export SCR_SSH_AUTH_SOCK=$SSH_AUTH_SOCK
+    env screen -X setenv SCR_SSH_AUTH_SOCK $SCR_SSH_AUTH_SOCK
     env screen -X unsetenv SSH_AUTH_SOCK
     unset SSH_AUTH_SOCK
   fi

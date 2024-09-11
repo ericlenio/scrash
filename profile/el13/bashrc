@@ -1,4 +1,4 @@
-export SCR_PS1='\[\e[0;100m\]\u\[\e[0;100m\]@\[\e[0;100m\]\h\[\e[0m\]:\[\e[0m\]\w\[\e[0m\]:\[\e[0m\]\v\[\e[0m\]\$ \[\e[0m\]'
+export SCR_PS1='\[\e[0;100m\]\u\[\e[0;100m\]@\[\e[0;100m\]\H\[\e[0m\]:\[\e[0m\]\w\[\e[0m\]:\[\e[0m\]\v\[\e[0m\]\$ \[\e[0m\]'
 export PS1=$SCR_PS1
 export HISTCONTROL=ignoreboth:erasedups
 export PAGER=less
