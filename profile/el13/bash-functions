@@ -344,3 +344,113 @@ c() {
     apt update && apt install ra-agent
   fi
 )
+
+
+-update-cacerts() {
+  # Update java cacerts file with SSL cert from given host:port
+  local cacerts=/etc/ssl/certs/java/cacerts
+  if [ $# = 2 ]; then
+    cacerts="$1"
+    if [ ! -f "$cacerts" ]; then
+      $FUNCNAME usage
+      return
+    fi
+    shift
+  fi
+  local storepass=changeit
+  local sslhost=${1%%:*}
+  local alias startdate enddate
+  local sslport=${1##*:}
+  local ans
+
+  get_cert() {
+    perl -- - "$@" cert_idx << 'EOF'
+my $cert_source=shift;
+my $cert_idx=shift;
+my $idx=1;
+while ($cert_source=~m{(-----BEGIN CERT.*?-----END CERTIFICATE-----)}sg) {
+  if ($idx==$cert_idx) {
+    print $1;
+    exit;
+  }
+  $idx++;
+}
+EOF
+  }
+
+  get_cert_cn() {
+    {
+      [ -f "$1" ] && cat "$1" || echo "$1"
+    } | openssl x509 -noout -subject | perl -pe 's{.*?CN=(.*)}{$1}'
+  }
+
+  get_cert_date() {
+    local which_date=$1
+    {
+      [ -f "$2" ] && cat "$2" || echo "$2"
+    } | openssl x509 -noout -$which_date
+  }
+
+  get_num_certs() {
+    echo "$1" | grep -c -- '-----BEGIN'
+  }
+  
+  if [ $# != 1 -a $# != 2 ]; then
+    $FUNCNAME usage
+    return
+  fi
+
+  if [ "$1" = usage ]; then
+    echo "Usage:"
+    echo "$FUNCNAME [/path/to/cacerts] server.example.com:port"
+    echo "$FUNCNAME [/path/to/cacerts] some-cert.pem"
+    return
+  fi
+
+  echo "Warning: this will overwrite $cacerts without making a backup."
+  read -p "OK to continue (y/n)? " ans
+  [ "$ans" != y ] && return
+
+  local cert_source num_certs cert
+
+  if [ -f "$1" ]; then
+    cert_source=$(cat "$1")
+  else
+    [ -z "$sslhost" -o "$sslhost" = "$sslport" ] && {
+      $FUNCNAME usage
+      return
+    }
+    cert_source="$(echo|openssl s_client -showcerts -connect $sslhost:$sslport 2>/dev/null)"
+  fi
+
+  num_certs=$(get_num_certs "$cert_source")
+  echo "detected $num_certs cert(s)"
+  local did_one=0
+  for ((i=1; i<=$num_certs; i++)); do
+    cert=$(get_cert "$cert_source" $i)
+    alias=$(get_cert_cn "$cert")
+    echo "cert #$i alias: $alias"
+    startdate=$(get_cert_date startdate "$cert")
+    echo "cert #$i start date: $startdate"
+    enddate=$(get_cert_date enddate "$cert")
+    echo "cert #$i end date: $enddate"
+
+    read -p "Add $alias to $cacerts (y/n)? " ans
+    [ "$ans" = y ] && {
+      # first delete any existing alias of the same name
+      keytool -keystore $cacerts -storepass "$storepass" -delete -alias "$alias" >/dev/null 2>&1
+      # now actually add the cert
+      echo "$cert" | keytool -keystore $cacerts -storepass "$storepass" -noprompt -alias "$alias" -importcert
+      #keytool -keystore $cacerts -storepass "$storepass" -list -alias "$alias"
+      did_one=1
+    }
+    echo
+
+  done
+
+  if [ $did_one = 1 ]; then
+    echo "Restart tomcat for changes to take effect in tomcat."
+  else
+    echo "No changes made to $cacerts."
+  fi
+}
