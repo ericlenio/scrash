@@ -1,6 +1,8 @@
 # vim:filetype=bash
-if [ -s "$SCR_PASSWORD_FILE" -a -z "$RA_USER" ]; then
+if [ -z "$RA_USER" ]; then
   export RA_USER=eml
+fi
+if [ -s "$SCR_PASSWORD_FILE" -a -z "$RA_USER_PASSWORD_64" ]; then
   export RA_USER_PASSWORD_64=$(-pw -b "LincWare LDAP")
 fi
 export JAVA_HOME=/opt/homebrew/opt/openjdk@11/libexec/openjdk.jdk/Contents/Home
