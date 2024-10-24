@@ -364,8 +364,7 @@ c() {
   local ans
 
   get_cert() {
-    perl -- - "$@" cert_idx << 'EOF'
-my $cert_source=shift;
+    perl -e 'my $cert_source=shift;
 my $cert_idx=shift;
 my $idx=1;
 while ($cert_source=~m{(-----BEGIN CERT.*?-----END CERTIFICATE-----)}sg) {
@@ -374,8 +373,7 @@ while ($cert_source=~m{(-----BEGIN CERT.*?-----END CERTIFICATE-----)}sg) {
     exit;
   }
   $idx++;
-}
-EOF
+}' -- "$@"
   }
 
   get_cert_cn() {
