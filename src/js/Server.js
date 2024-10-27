@@ -10,13 +10,15 @@ import readline from 'readline';
 //import pty from 'node-pty';
 import ReadableString from './ReadableString.js';
 import OtpCache from './OtpCache.js';
+import pkgjson from '../../package.json' assert {type: 'json'};
 
-const SCR_HOME=process.env.npm_config_local_prefix;
+
+const SCR_HOME=process.env.SCR_HOME;
 const SCR_ENV=process.env.SCR_ENV || process.env.npm_package_config_SCR_ENV;
-const SCR_VERSION=process.env.npm_package_version;
+const SCR_VERSION=pkgjson.version;
 const SCR_PROFILE=process.env.SCR_PROFILE || process.env.npm_package_config_SCR_PROFILE;
 const SCR_PROFILE_DIR=`${SCR_HOME}/profile/${SCR_PROFILE}`;
-const SCR_APP_NAME=process.env.npm_package_name;
+const SCR_APP_NAME=pkgjson.name;
 const SCR_PORT_0=process.env.SCR_PORT_0;
 const SCR_SSH_USER=process.env.SCR_SSH_USER;
 const SCR_SSH_HOST=process.env.SCR_SSH_HOST;
@@ -24,12 +26,14 @@ const SCR_SSH_AUTH_SOCK=process.env.SCR_SSH_AUTH_SOCK;
 
 const E_OS_PROG_ENUM={
   COPY:{
-    linux:["clipit"],
+    //linux:["clipit"],
+    linux:["xclip","-i","-selection","clipboard"],
     darwin:["pbcopy"],
     openbsd:["/usr/local/bin/xclip","-i","-selection","clipboard"],
   },
   PASTE:{
-    linux:["clipit","-c"],
+    //linux:["clipit","-c"],
+    linux:["xclip","-o","-selection","clipboard"],
     darwin:["pbpaste"],
     openbsd:["/usr/local/bin/xclip","-o","-selection","clipboard"],
   },

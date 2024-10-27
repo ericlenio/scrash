@@ -84,6 +84,12 @@ on `SSH-KEY`:
 
 Type `-pw -h` for a few other options.
 
+# copying gpg pub/private keys to another system
+
+    keyid=62E8908EA7F905BFA49B6C04A4E70411424EAD8E
+    gpg --export $keyid | ssh new-system gpg --import
+    gpg --export-secret-key $keyid | ssh new-system gpg --import
+
 # Testing
 Test cases are found in `./tests/*.test`, and they are just bash scripts that
 get executed with shell options `set -o errexit -o errtrace` enabled, meaning
