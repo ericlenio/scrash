@@ -131,7 +131,7 @@ scr_server() {
     env screen -X unsetenv SSH_AUTH_SOCK
     unset SSH_AUTH_SOCK
   fi
-  scr_function_list_dump | node server.js -- -p $SCR_PORT
+  scr_function_list_dump | node "$SCR_HOME"/server.js -- -p $SCR_PORT
   echo "$FUNCNAME: server has stopped, \"$FUNCNAME\" to restart it" >&2
   exec bash
 }
