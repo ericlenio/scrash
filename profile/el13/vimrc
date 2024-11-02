@@ -73,7 +73,11 @@ nnoremap <ESC>[29~ :call ScrNextColorScheme(-1)<CR>
 syntax enable
 set cursorline noswapfile number hlsearch incsearch sw=2 ignorecase wrap
 set ruler ai nocindent indentexpr= showmatch modeline modelines=5 nobackup nowritebackup textwidth=0
-set expandtab formatoptions=croql nojoinspaces scrolloff=0 laststatus=2
+set formatoptions=croql nojoinspaces scrolloff=0 laststatus=2
+if &filetype == "make"
+  set tabstop=2
+  set noexpandtab
+endif
 set wildmenu wildignore=*.o,*.class,*.jar,*.png,*.pdf,$PWD/**node_modules/**,build/**,.git/**,.svn/**,dist/**,tmp/** path=.,,**
 set runtimepath+=$SCR_VIMRUNTIME iskeyword+=-
 if v:version>=704
