@@ -159,10 +159,15 @@ c() {
   ntpdate -u pool.ntp.org
 }
 
--tlog() {
+-tlog() (
+  # running as subshell as a workaround because otherwise would sometimes get
+  # this when running ra-server:
+  #   bash(35391,0x1f9348f40) malloc: Heap corruption detected, free list is damaged at 0x6000027008e0
+  #   *** Incorrect guard value: 1651481446624
+  #   bash(35391,0x1f9348f40) malloc: *** set a breakpoint in malloc_error_break to debug
   local logfile=$(basename -- "$1").log
   time -- "$@" 2>&1 | tee -- "$logfile"
-}
+)
 
 -openbsd-pkg-search() {
   local search_term="$1"
