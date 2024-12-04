@@ -78,7 +78,7 @@ if &filetype == "make"
   set tabstop=2
   set noexpandtab
 endif
-set wildmenu wildignore=*.o,*.class,*.jar,*.png,*.pdf,$PWD/**node_modules/**,build/**,.git/**,.svn/**,dist/**,tmp/** path=.,,**
+set wildmenu wildignore=*.o,*.class,*.jar,*.png,*.pdf,$PWD/**node_modules/**,build/**,.git/**,.svn/**,dist/**,tmp/** path=.,,** wildignorecase
 set runtimepath+=$SCR_VIMRUNTIME iskeyword+=-
 if v:version>=704
   " make editing .ts (typescript) files easier
