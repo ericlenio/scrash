@@ -42,7 +42,8 @@ ra-runtime-config() {
   #code64=$(printf "self.secrets.getSecretsForHost('ldap.lincware.com')" | openssl enc -a -A)
   #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['sreeraj.punnoli']=['ltc.admitplus.work','devops','fundltc-test','training.admit.work']" | openssl enc -a -A)
   #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['sreeraj.punnoli'].push('pruitthealth.admit.work')" | openssl enc -a -A)
-  code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['faizan.shabbir'].push('ltc.admitplus.work')" | openssl enc -a -A)
+  #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['faizan.shabbir'].push('ltc.admitplus.work')" | openssl enc -a -A)
+  code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['asif.mehmood']=['ltc.admitplus.work','devops','fundltc-test','training.admit.work']" | openssl enc -a -A)
 
   code64b=$(printf "
     var a=[];
