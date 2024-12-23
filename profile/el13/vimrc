@@ -62,6 +62,7 @@ if has("autocmd")
     " file has been written.
     autocmd BufWritePost,FileWritePost *.gpg u
   augroup END
+  autocmd FileType make setlocal tabstop=2 noexpandtab
 endif
 
 colorscheme murphy
@@ -74,10 +75,6 @@ syntax enable
 set cursorline noswapfile number hlsearch incsearch sw=2 ignorecase wrap
 set ruler ai nocindent indentexpr= showmatch modeline modelines=5 nobackup nowritebackup textwidth=0
 set formatoptions=croql nojoinspaces scrolloff=0 laststatus=2
-if &filetype == "make"
-  set tabstop=2
-  set noexpandtab
-endif
 set wildmenu wildignore=*.o,*.class,*.jar,*.png,*.pdf,$PWD/**node_modules/**,build/**,.git/**,.svn/**,dist/**,tmp/** path=.,,** wildignorecase
 set runtimepath+=$SCR_VIMRUNTIME iskeyword+=-
 if v:version>=704
