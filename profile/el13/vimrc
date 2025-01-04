@@ -1,5 +1,5 @@
 " vim:comments+=b\:"
-set nocompatible
+set nocompatible expandtab tabstop=2
 
 if has("autocmd")
   let g:scrPrevLine=-1
@@ -62,7 +62,7 @@ if has("autocmd")
     " file has been written.
     autocmd BufWritePost,FileWritePost *.gpg u
   augroup END
-  autocmd FileType make setlocal tabstop=2 noexpandtab
+  autocmd FileType make setlocal noexpandtab
 endif
 
 colorscheme murphy
