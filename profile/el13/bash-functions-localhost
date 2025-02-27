@@ -476,7 +476,7 @@
   local known_vpn_ip=10.0.0.10 known_internet_ip=8.8.8.8
   -get-if-from-ip() {
     # finds the network interface for a given IP address
-    route get $1 | grep interface: | cut -d: -f2 | tr -d ' '
+    route -n get $1 | grep interface: | cut -d: -f2 | tr -d ' '
   }
   set -e
   vpn_iface=$(
