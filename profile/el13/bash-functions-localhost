@@ -35,8 +35,12 @@
   if base32_key=$(-pw "$key_id"); then
     if otp=$(oathtool --totp -b $base32_key); then
       #printf "%s:%s\n" "$key_id" $otp
-      printf $otp | -set-clipboard
-      echo "TOTP for \"$key_id\" was copied to the OS clipboard ($otp)"
+      if [ -t 1 ]; then
+        printf $otp | -set-clipboard
+        echo "TOTP for \"$key_id\" was copied to the OS clipboard ($otp)" >&2
+      else
+        echo $otp
+      fi
     else
       echo "$FUNCNAME: oathtool failed key: $key_id" >&2
       return 1
@@ -849,3 +853,53 @@ and ~/.aws/credentials (or set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY):
 
   main "$@"
 )
+
+-tunnelblick() {
+  local profile="lw-vpn-eml" username=eml op=connect otp passphrase_key="eml-p12-passphrase" passphrase
+  if [ "$1" = -h ]; then
+    echo "$FUNCNAME: connect or disconnect Tunnelblick VPN (using profile: \"$profile\")"
+    echo "to connect:    $FUNCNAME"
+    echo "to disconnect: $FUNCNAME -d"
+    return
+  elif [ "$1" = -d ]; then
+    op=disconnect
+  else
+    if ! otp=$(oathtool --totp -b $(-pw "TOTP $profile")); then
+      echo "$FUNCNAME: failed to get OTP" >&2
+      return 1
+    fi
+    if ! passphrase=$(-pw "$passphrase_key"); then
+      echo "$FUNCNAME: failed to get passphrase" >&2
+      return 1
+    fi
+  fi
+  osascript -l JavaScript - $op "$profile" $username "$otp" "$passphrase" << 'EOF'
+const tunnelblick = Application("Tunnelblick");
+
+function run(argv) {
+  const [operation,profile,username,password,passphrase]=argv;
+  switch(operation) {
+    case "connect":
+      if (!tunnelblick.deleteAllCredentialsFor(profile)) {
+        throw "failed to delete old credentials";
+      }
+      if (!tunnelblick.saveUsername(username,{for:profile})) {
+        throw "failed to set username";
+      }
+      if (!tunnelblick.savePassword(password,{for:profile})) {
+        throw "failed to set password";
+      }
+      if (!tunnelblick.savePassphrase(passphrase,{for:profile})) {
+        throw "failed to set passphrase";
+      }
+      tunnelblick.connect(profile);
+      break;
+    case "disconnect":
+      tunnelblick.disconnect(profile);
+      break;
+    default:
+      throw `no such operation: ${operation}`;
+  }
+}
+EOF
+}
