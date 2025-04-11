@@ -643,9 +643,10 @@ EOF
   set -e
 
   usage() {
-    echo 'usage: ${FUNCNAME[2]} [-h][-d]
+    echo 'usage: ${FUNCNAME[2]} [-h][-d][-p profile]
 simple front end for LincWare AWS EC2 operations
 -h: this help
+-p: specify a particular AWS credentials
 -d: pass --dry-run flag to ec2 command
 
 set up ~/.aws/config (or set AWS_DEFAULT_OUTPUT, AWS_DEFAULT_REGION):
@@ -685,7 +686,7 @@ and ~/.aws/credentials (or set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY):
     local i
     [ ${#VM_INSTANCE_DATA[@]} -gt 0 ] && return
     #aws ec2 describe-instances --filters Name=tag:Name,Values=ai2 --query 'Reservations[*].Instances[*].[InstanceId]' --output text
-    IFS=$'\n' read -d '' -a VM_INSTANCE_DATA <<< "$(aws ec2 describe-instances --query 'Reservations[].Instances[].[Tags[?Key==`Name`].Value|[0],InstanceId,InstanceType,State.Name,PrivateIpAddress]' --output text | sort -f)" || true
+    IFS=$'\n' read -d '' -a VM_INSTANCE_DATA <<< "$(aws ec2 describe-instances --profile $aws_profile --query 'Reservations[].Instances[].[Tags[?Key==`Name`].Value|[0],InstanceId,InstanceType,State.Name,PrivateIpAddress]' --output text | sort -f)" || true
     for((i=0;i<${#VM_INSTANCE_DATA[@]};i++)); do
       VM_INSTANCE_DATA[$i]=$(printf "%-24s %-20s %-12s %-12s %s" ${VM_INSTANCE_DATA[$i]})
     done
@@ -770,7 +771,7 @@ and ~/.aws/credentials (or set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY):
     local cmd=$1 ec2_cmd=$2 instance_idx=$3 aws_cmd instance_id ans
     instance_id=$(get_instance_id $instance_idx)
     validate_instance_id "$instance_id"
-    aws_cmd=(aws ec2 $ec2_cmd)
+    aws_cmd=(aws ec2 --profile $aws_profile $ec2_cmd)
     [ $dry_run = 1 ] && aws_cmd+=(--dry-run)
     case $ec2_cmd in
       (get-console-*) aws_cmd+=(--instance-id)
@@ -817,11 +818,13 @@ and ~/.aws/credentials (or set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY):
   }
 
   main() {
-    local opt opts=hd OPTIND choice fcn_array fcn fcn_args n_fcn_args i arg instance_idx PS3
+    local opt opts=hdp: OPTIND choice fcn_array fcn fcn_args n_fcn_args i arg instance_idx PS3 aws_profile=default
     while builtin getopts $opts opt; do
       case $opt in
         (h) usage
           return
+          ;;
+        (p) aws_profile=$OPTARG
           ;;
         (d) dry_run=1
           ;;
