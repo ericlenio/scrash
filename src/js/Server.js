@@ -135,6 +135,7 @@ class Server extends http.Server {
   }
 
   onConnect(req,socket,head) {
+    socket.pause();
     console.log("onConnect:",req.url)
     /*
     const m=req.url.match(/^localhost-otp-(\d+):22/);
@@ -249,15 +250,17 @@ class Server extends http.Server {
   onSshConnect(req,response,sshHost,sshPort) {
     const socket=new net.Socket();
     socket.on('error',e=>{
-      console.log("onSshConnect socket: "+e);
+      console.error("onSshConnect socket: "+e);
       response.statusCode=500;
       response.send();
     });
-    socket.connect(sshPort,sshHost,()=>{
-      response.send(()=>{
-        socket.pipe(req.socket);
-        req.socket.pipe(socket);
-      });
+    socket.connect(sshPort,sshHost,()=>response.send());
+    req.socket.resume();
+    // wait for client to send banner before responding, else on slow
+    // connection it might miss the banner being sent from this side
+    req.socket.once('data',data=>{
+      req.socket.unshift(data);
+      socket.pipe(req.socket).pipe(socket);
     });
   }
 
@@ -632,18 +635,14 @@ class Server extends http.Server {
   }
 
   onSshAuthSockConnect(req,response) {
+    console.log("onSshAuthSockConnect");
     const socket=new net.Socket();
     socket.on('error',e=>{
       console.log("onSshAuthSockConnect socket: "+e);
       response.statusCode=500;
       response.send();
     });
-    socket.connect(SCR_SSH_AUTH_SOCK,()=>{
-      response.send(()=>{
-        socket.pipe(req.socket);
-        req.socket.pipe(socket);
-      });
-    });
+    socket.connect(SCR_SSH_AUTH_SOCK,()=>response.send(()=>socket.pipe(req.socket).pipe(socket)));
   }
 }
 

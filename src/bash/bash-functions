@@ -876,7 +876,9 @@ ssh() {
 # function acts as the perl source
 -perl-proxying-subroutines() {
 echo '
-use IO::Socket;
+use IO::Socket::INET;
+use IO::Select;
+
 sub create_proxy_socket {
   my ($SCR_PORT,$otp,$connect_dest)=@_;
 
@@ -885,7 +887,7 @@ sub create_proxy_socket {
     Blocking=>1,
     PeerAddr=>"127.0.0.1",
     PeerPort=>$SCR_PORT) or die "Cannot create socket - $IO::Socket::errstr\n";
-  #$socket->autoflush(1);
+  $socket->autoflush(1);
 
   # send request headers
   $socket->send(sprintf("CONNECT %s HTTP/1.0\r\n",$connect_dest));
@@ -911,27 +913,27 @@ sub create_proxy_socket {
 sub bi_directional_pipe {
   my ($stdin,$stdout,$socket)=@_;
   $|=1;
-  my $c;
-  if (my $pid=fork) {
-    $SIG{HUP}=sub {
-      kill("HUP",$pid);
-      exit(0);
-    };
-    while (1) {
-      my $n=sysread($stdin,$c,512);
-      if ($n==0) {
-        last;
+  my $select=IO::Select->new();
+  $select->add($stdin);
+  $select->add($socket);
+  while (1) {
+    my @ready=$select->can_read;
+    for my $fh (@ready) {
+      if ($fh==$stdin) {
+          my $input;
+          my $bytes=sysread($stdin,$input,4096);
+          if (!defined $bytes || $bytes==0) {
+            exit 0;
+          }
+          syswrite($socket,$input,$bytes);
+      } elsif ($fh==$socket) {
+          my $output;
+          my $bytes=sysread($socket,$output,4096);
+          if (!defined $bytes || $bytes==0) {
+            exit 0;
+          }
+          syswrite($stdout,$output,$bytes);
       }
-      print $socket $c;
-    }
-    kill("TERM",$pid);
-  } else {
-    while (1) {
-      my $n=sysread($socket,$c,512);
-      if ($n==0) {
-        last;
-      }
-      print $stdout $c;
     }
   }
 }
@@ -1056,6 +1058,7 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
     -sxx-scr-server-known-hosts
     cmd=(
       $sxx
+      #-oLogLevel=DEBUG3
       -oConnectTimeout=10
       -oUserKnownHostsFile="$SCR_SSH_USER_KNOWN_HOSTS"
       -oProxyCommand="bash -c -- \"-ssh-proxy-connect $otp $SCR_SSH_HOST:22\""
