@@ -916,23 +916,24 @@ sub bi_directional_pipe {
   my $select=IO::Select->new();
   $select->add($stdin);
   $select->add($socket);
+  my $read_size=4096;
   while (1) {
     my @ready=$select->can_read;
     for my $fh (@ready) {
       if ($fh==$stdin) {
-          my $input;
-          my $bytes=sysread($stdin,$input,4096);
-          if (!defined $bytes || $bytes==0) {
-            exit 0;
-          }
-          syswrite($socket,$input,$bytes);
+        my $input;
+        my $bytes=sysread($stdin,$input,$read_size);
+        if (!defined $bytes || $bytes==0) {
+          exit 0;
+        }
+        syswrite($socket,$input,$bytes);
       } elsif ($fh==$socket) {
-          my $output;
-          my $bytes=sysread($socket,$output,4096);
-          if (!defined $bytes || $bytes==0) {
-            exit 0;
-          }
-          syswrite($stdout,$output,$bytes);
+        my $output;
+        my $bytes=sysread($socket,$output,$read_size);
+        if (!defined $bytes || $bytes==0) {
+          exit 0;
+        }
+        syswrite($stdout,$output,$bytes);
       }
     }
   }
