@@ -227,7 +227,7 @@ screen() {
   if [ -z "$rcfile" -a "$session_id" ]; then
     rcfile=$SCR_SCREENRC
     if [ ! -f $rcfile ]; then
-      -screenrc | while read line; do
+      -screenrc | while read -r line; do
         if [[ "$line" =~ ^([[:digit:]]+):(.*)$ ]]; then
           ver=${BASH_REMATCH[1]}
           line="${BASH_REMATCH[2]}"
