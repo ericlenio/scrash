@@ -1,3 +1,4 @@
+5:backtick 97 0 10 bash -c -- -load
 # periodically make sure vim script exists
 backtick 98 360 360 bash -c 'vim --version >/dev/null'
 backtick 99 999999999 0 bash -c 'if [ -z "$SSH_TTY" ]; then echo " v$SCR_VERSION:$SCR_ENV"; fi'
@@ -5,7 +6,8 @@ backtick 99 999999999 0 bash -c 'if [ -z "$SSH_TTY" ]; then echo " v$SCR_VERSION
 # to make sure the proper window height is set, otherwise the window height
 # will be detected 1 line bigger than it actually is (resulting in vim, less,
 # etc. not behaving well)
-caption always "%{= kw}%-w%{= BW}%n%t%{-}%+w %-= @%H %{= Y}%l%{-} %m/%d %0c%99`"
+4:caption always "%{= kw}%-w%{= BW}%n%t%{-}%+w %-= @%H %{= Y}%l%{-} %m/%d %0c%99`"
+5:caption always "%{= 7;0}%-w%{=+b 7;4}%n%t%{-}%+w %-= @%H %{=+b 3}%97`%{-} %m/%d %0c%99`"
 multiuser off
 autodetach on
 bind / screen bash -c "v \"\$SCR_PASSWORD_FILE\""

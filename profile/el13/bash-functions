@@ -457,3 +457,19 @@ while ($cert_source=~m{(-----BEGIN CERT.*?-----END CERTIFICATE-----)}sg) {
     echo "No changes made to $cacerts."
   fi
 }
+
+-jargrep() {
+  local f output pattern="$1" jarfiles
+  shift
+  if [ $# -eq 0 ]; then
+    jarfiles=($(ls *.jar))
+  else
+    jarfiles=("$@")
+  fi
+  for f in "${jarfiles[@]}"; do
+    output=$(jar tvf $f | grep "$pattern")
+    if [ "$output" ]; then
+      echo "$f: $output"
+    fi
+  done
+}

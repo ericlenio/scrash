@@ -5,7 +5,7 @@ fi
 if [ -s "$SCR_PASSWORD_FILE" -a -z "$RA_USER_PASSWORD_64" ]; then
   export RA_USER_PASSWORD_64=$(-pw -b "LincWare LDAP")
 fi
-export JAVA_HOME=/opt/homebrew/opt/openjdk@11/libexec/openjdk.jdk/Contents/Home
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
 export MANPATH=:/opt/homebrew/opt/node@16/lib/node_modules/npm/man
 export RA_SSH=$SCR_TMPDIR/ssh-exec
 if [ ! -f $RA_SSH ]; then

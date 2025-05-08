@@ -63,11 +63,17 @@ get_function_names() {
 }
 
 build_func() {
-  local funcname=$1 file="${2:-/dev/stdin}" host_specific_funcname
+  local funcname=$1 file="${2:-/dev/stdin}" host_specific_funcname comment_lead='#' comment_regex
   host_specific_funcname=$funcname-$(hostname | tr "[:upper:]" "[:lower:]")
+  case $funcname in
+    (-vimrc) comment_lead='"'
+      ;;
+  esac
+  # we strip out comments from the rcfiles
+  comment_regex="^ *$comment_lead"
   printf -- "%s() { echo '%s' | openssl enc -d -a -A | gzip -dc; declare -f -- %s >/dev/null 2>&1 && %s || true; }" \
     $funcname \
-    $(gzip -9c <"$file" | openssl enc -a -A) \
+    $(egrep -v "$comment_regex" <"$file" | gzip -9c | openssl enc -a -A) \
     $host_specific_funcname \
     $host_specific_funcname
 }

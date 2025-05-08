@@ -151,7 +151,9 @@
 
 # wrapper around gnu screen
 screen() {
-  local i i2 next_arg rcfile session_id_prefix="scr" session_id opt cmd=() screen_cmd=() esc=^Aa update=0 command=0 skip=0
+  local i i2 next_arg rcfile session_id_prefix="scr" session_id opt cmd=() screen_cmd=() esc=^Aa update=0 \
+    command=0 skip=0 line \
+    screen_ver=$([[ $(env screen -version) =~ ([[:digit:]]+) ]] && echo ${BASH_REMATCH[1]})
   for ((i=1;i<=$#;i++)); do
     i2=$((i+1))
     next_arg="${!i2}"
@@ -225,9 +227,17 @@ screen() {
   if [ -z "$rcfile" -a "$session_id" ]; then
     rcfile=$SCR_SCREENRC
     if [ ! -f $rcfile ]; then
-      if ! -screenrc > $rcfile; then
-        return $?
-      fi
+      -screenrc | while read line; do
+        if [[ "$line" =~ ^([[:digit:]]+):(.*)$ ]]; then
+          ver=${BASH_REMATCH[1]}
+          line="${BASH_REMATCH[2]}"
+          if [ $ver -eq $screen_ver ]; then
+            echo "$line"
+          fi
+        else
+          echo "$line"
+        fi
+      done > $rcfile
     fi
     cmd+=(-c $rcfile)
   fi
@@ -1295,3 +1305,7 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
     echo "$output"
   fi
 )
+
+-load() {
+  uptime | awk '{print $(NF-2), $(NF-1), $NF}' | tr -d ,
+}
