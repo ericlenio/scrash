@@ -906,3 +906,8 @@ function run(argv) {
 }
 EOF
 }
+
+ra-ssh() {
+  SCR_SSH_EXEC=1 env ra-ssh "$@"
+}
+export -f ra-ssh
