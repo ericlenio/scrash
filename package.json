@@ -1,6 +1,6 @@
 {
   "name": "scrash",
-  "version": "1.6.64",
+  "version": "1.6.65",
   "description": "",
   "type": "module",
   "main": "index.js",
