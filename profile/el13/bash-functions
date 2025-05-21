@@ -7,6 +7,7 @@
     unalias -a
   fi
   PS1=$SCR_PS1
+  printf "\033k${HOSTNAME}\033\134" >/dev/tty
   if [ "$STY" -a ${#SUDO_USER} -eq 0 -a ! -f "$EDITOR" ]; then
     if [ $(($(date +%s)-$SCR_SCREEN_START)) -gt 3600 ]; then
       # for a long running gnu screen session, make sure $EDITOR exists; it

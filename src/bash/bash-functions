@@ -626,9 +626,6 @@ ssh() {
   else
     rc=$?
   fi
-  if [ $N_flag = 0 ]; then
-    [ "$STY" ] && printf "\033k${HOSTNAME}\033\134" >/dev/tty
-  fi
   if [ $prefetch_otps = 1 -a -p "$SCR_OTP_CACHE_FIFO" ]; then
     rm -f $SCR_OTP_CACHE_FIFO
   fi
