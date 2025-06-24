@@ -47,7 +47,8 @@ ra-runtime-config() {
   #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['safee.butt']=['ltc.admitplus.work']" | openssl enc -a -A)
   #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['safee.butt'].push('fundltc-test.admit.work')" | openssl enc -a -A)
   #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['sivesh.chaturvedi']=['ltc.admitplus.work']" | openssl enc -a -A)
-  code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['sivesh.chaturvedi'].push('lincwareweb01dev.altercareonline.com')" | openssl enc -a -A)
+  #code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['sivesh.chaturvedi'].push('lincwareweb01dev.altercareonline.com')" | openssl enc -a -A)
+  code64=$(printf "self.config.RA_USER_AUTHORIZED_HOSTS['sivesh.chaturvedi'].push('fundltc-test.admit.work')" | openssl enc -a -A)
 
   code64b=$(printf "
     var a=[];
