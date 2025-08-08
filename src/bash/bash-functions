@@ -484,7 +484,7 @@ vim() {
   else
     start=1
   fi
-  printf 'eval -- "$(curl --noproxy %s --connect-timeout 5 -S -f -s --compressed http://%s:%s/scr-get-bash-functions?platform=$(uname)\&hostname=$(hostname)\&start=%s\&ssh_level=%s || echo false)"' \
+  printf 'eval -- "$(NO_PROXY=%s curl --connect-timeout 5 -S -f -s --compressed http://%s:%s/scr-get-bash-functions?platform=$(uname)\&hostname=$(hostname)\&start=%s\&ssh_level=%s || echo false)"' \
     $curl_host \
     $curl_host \
     $remote_port \
