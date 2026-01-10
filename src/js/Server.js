@@ -10,7 +10,7 @@ import readline from 'readline';
 //import pty from 'node-pty';
 import ReadableString from './ReadableString.js';
 import OtpCache from './OtpCache.js';
-import pkgjson from '../../package.json' assert {type: 'json'};
+import pkgjson from '../../package.json' with {type: 'json'};
 
 
 const SCR_HOME=process.env.SCR_HOME;
