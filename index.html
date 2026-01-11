@@ -3,17 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Secure GitHub Decryptor</title>
+    <title>Passwords</title>
     
     <script src="https://cdn.jsdelivr.net/npm/openpgp@6.3.0/dist/openpgp.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; line-height: 1.6; color: #333; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6; color: #333; }
         h1 { border-bottom: 2px solid #eee; padding-bottom: 10px; }
         .step { background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #ddd; }
         label { font-weight: bold; display: block; margin-bottom: 5px; }
-        input[type="text"], input[type="file"] { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
+        
+        input[type="text"], input[type="password"] { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
         
         button { background: #2ea44f; color: white; border: none; padding: 12px 24px; border-radius: 6px; font-size: 16px; cursor: pointer; width: 100%; margin-bottom: 10px; }
         button:hover { background: #2c974b; }
@@ -31,26 +32,44 @@
         .status-fail { background: #ffdce0; color: #d73a49; }
         .status-loading { background: #dbedff; color: #0366d6; }
 
-        /* Camera UI Styles */
         #cameraContainer { display: none; margin-top: 15px; position: relative; background: #000; border-radius: 8px; overflow: hidden; }
         #cameraVideo { width: 100%; display: block; }
         #cameraOverlay { position: absolute; bottom: 10px; left: 0; right: 0; text-align: center; color: white; text-shadow: 0 1px 3px rgba(0,0,0,0.8); pointer-events: none; }
+
+        /* NEW: Table Styling */
+        table.decrypted-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; /* Fixed Font */
+            color: #e6edf3;
+            font-size: 0.9em;
+        }
+        table.decrypted-table td {
+            border: 1px solid #444;
+            padding: 8px 12px;
+            vertical-align: top;
+        }
+        /* Style for Section Headers */
+        table.decrypted-table tr.section-header td {
+            background-color: #444;
+            color: #fff;
+            font-weight: bold;
+            text-align: left;
+            border-top: 2px solid #666;
+            padding-top: 15px;
+        }
     </style>
 </head>
 <body>
 
-    <h1>🔓 Client-Side Decryptor</h1>
+    <h1>Passwords</h1>
     
     <p>Loading file: <code>./profile/el13/passwords.gpg</code> <span id="fileStatus"></span></p>
 
     <div class="step">
-        <label>1. Upload Key (QR Image OR .bin file)</label>
+        <label>1. Upload Key</label>
         
-        <input type="file" id="qrInput" accept="image/*, .bin, .asc, .gpg">
-        
-        <div style="text-align: center; margin: 10px 0; font-size: 0.9em; color: #666;">- OR -</div>
-
-        <button class="secondary" id="scanBtn" onclick="startCameraScan()">📸 Scan QR with Camera</button>
+        <button class="secondary" id="scanBtn" onclick="startCameraScan()">Scan QR with Camera</button>
         
         <div id="cameraContainer">
             <video id="cameraVideo" playsinline></video>
@@ -58,13 +77,17 @@
             <button class="cancel" onclick="stopCameraScan()" style="position: absolute; top: 10px; right: 10px; width: auto; padding: 5px 10px; font-size: 0.8em;">Stop</button>
         </div>
 
-        <div id="qrStatus" style="font-size: 0.9em; color: #666;"></div>
+        <div id="qrStatus" style="font-size: 1em; color: #666;"></div>
     </div>
 
     <div class="step">
         <label>2. Enter Key Passphrase</label>
-        <input type="text" id="passphrase" placeholder="Passphrase...">
-        <button id="decryptBtn" onclick="decryptProcess()" disabled>Decrypt File</button>
+        
+        <form onsubmit="event.preventDefault(); decryptProcess();">
+            <input type="password" id="passphrase" placeholder="Passphrase..." autocomplete="current-password">
+            <button type="submit" id="decryptBtn" disabled>Decrypt File</button>
+        </form>
+
         <div id="errorMsg" class="error"></div>
     </div>
 
@@ -75,18 +98,16 @@
         let encryptedFileContent = null;
         const TARGET_FILE = './profile/el13/passwords.gpg';
         
-        // Camera Variables
         let videoStream = null;
         let isScanning = false;
 
-        // --- 1. Auto-Load Encrypted File ---
         window.onload = async function() {
             updateFileStatus('loading', 'Fetching file...');
             try {
                 const response = await fetch(TARGET_FILE);
                 if (!response.ok) throw new Error(`HTTP ${response.status} Not Found`);
                 encryptedFileContent = await response.text();
-                updateFileStatus('ok', `Ready (Armored Text)`);
+                updateFileStatus('ok', `Ready (Armored Text, ${encryptedFileContent.length} characters)`);
                 checkReadyState();
             } catch (e) {
                 updateFileStatus('fail', `Failed to load: ${e.message}`);
@@ -100,7 +121,6 @@
             el.innerText = msg;
         }
 
-        // --- 2. Camera Scanning Logic (NEW) ---
         async function startCameraScan() {
             const video = document.getElementById('cameraVideo');
             const container = document.getElementById('cameraContainer');
@@ -112,13 +132,11 @@
             }
 
             try {
-                // Request camera (prefer back camera 'environment' for phones)
                 videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
                 video.srcObject = videoStream;
-                video.setAttribute("playsinline", true); // required for iOS
+                video.setAttribute("playsinline", true);
                 video.play();
                 
-                // Show UI
                 container.style.display = "block";
                 btn.style.display = "none";
                 isScanning = true;
@@ -137,88 +155,45 @@
             const btn = document.getElementById('scanBtn');
 
             isScanning = false;
-            
-            // Stop all video tracks to release camera
             if (videoStream) {
                 videoStream.getTracks().forEach(track => track.stop());
                 videoStream = null;
             }
-            
             container.style.display = "none";
             btn.style.display = "inline-block";
         }
 
         function tick() {
             if (!isScanning) return;
-            
             const video = document.getElementById('cameraVideo');
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                // Draw video frame to temporary canvas
                 const canvas = document.createElement("canvas");
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
                 const ctx = canvas.getContext("2d");
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                 
-                // Scan for QR
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                const code = jsQR(imageData.data, imageData.width, imageData.height, {
-                    inversionAttempts: "dontInvert",
-                });
+                const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "dontInvert" });
 
                 if (code) {
-                    console.log("QR Found!");
-                    stopCameraScan(); // Stop camera immediately
-                    loadKeyBinary(new Uint8Array(code.binaryData)); // Load the key
+                    stopCameraScan();
+                    loadKeyBinary(new Uint8Array(code.binaryData));
                 }
             }
             requestAnimationFrame(tick);
         }
 
-        // --- 3. File Input Handler (Legacy) ---
-        document.getElementById('qrInput').addEventListener('change', async function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            // Direct Key File
-            if (file.name.endsWith('.bin') || file.name.endsWith('.asc') || file.name.endsWith('.gpg')) {
-                updateQrStatus('loading', 'Reading key file...');
-                const reader = new FileReader();
-                reader.onload = (ev) => loadKeyBinary(new Uint8Array(ev.target.result));
-                reader.readAsArrayBuffer(file);
-                return;
-            }
-
-            // Image File Scan
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                const img = new Image();
-                img.onload = function() {
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    canvas.width = img.width; 
-                    canvas.height = img.height;
-                    ctx.drawImage(img, 0, 0);
-                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                    const code = jsQR(imageData.data, imageData.width, imageData.height);
-                    
-                    if (code) loadKeyBinary(new Uint8Array(code.binaryData));
-                    else showError("No QR code found in image.");
-                };
-                img.src = event.target.result;
-            };
-            reader.readAsDataURL(file);
-        });
+        // REMOVED: File Input Event Listener (Code block removed as requested)
 
         function updateQrStatus(type, msg) {
             document.getElementById('qrStatus').innerHTML = `<span class='status-tag status-${type}'>${msg}</span>`;
         }
 
-        // --- 4. Load Key Logic ---
         async function loadKeyBinary(binaryKeyData) {
             try {
                 privateKeyObj = await openpgp.readKey({ binaryKey: binaryKeyData });
-                document.getElementById('qrStatus').innerHTML = `<span class='status-tag status-ok'>Key Loaded: ${privateKeyObj.getKeyID().toHex()}</span>`;
+                document.getElementById('qrStatus').innerHTML = `<span class='status-tag status-ok'>Key was successfully loaded: ${privateKeyObj.getKeyID().toHex()}</span>`;
                 document.getElementById('errorMsg').style.display = 'none';
                 checkReadyState();
             } catch (err) {
@@ -233,7 +208,6 @@
             }
         }
 
-        // --- 5. Decryption Process ---
         async function decryptProcess() {
             const pass = document.getElementById('passphrase').value;
             const outputDiv = document.getElementById('output');
@@ -244,21 +218,70 @@
             if (!pass) { showError("Enter passphrase."); return; }
 
             try {
-                // Unlock Key
                 const decryptedKey = await openpgp.decryptKey({
                     privateKey: privateKeyObj,
                     passphrase: pass
                 });
 
-                // Decrypt File (Armored)
                 const message = await openpgp.readMessage({ armoredMessage: encryptedFileContent });
                 const { data: decrypted } = await openpgp.decrypt({
                     message: message,
                     decryptionKeys: decryptedKey
                 });
 
+                // --- Format as Table ---
+                const lines = decrypted.split('\n');
+                let tableHtml = '<table class="decrypted-table">';
+                let headerBuffer = "";
+                
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (!line) continue;
+
+                    // CHECK FOR SECTION HEADER (#)
+                    if (line.startsWith('#')) {
+                        // Strip leading '#' and whitespace
+                        const cleanLine = line.replace(/^#+\s*/, '');
+                        // Add to buffer (space separated if multiple lines)
+                        headerBuffer += (headerBuffer ? " " : "") + cleanLine;
+                    } 
+                    else {
+                        // If we have a buffered header, output it now
+                        if (headerBuffer) {
+                            tableHtml += `
+                                <tr class="section-header">
+                                    <td colspan="100%">${headerBuffer}</td>
+                                </tr>`;
+                            headerBuffer = ""; // Reset
+                        }
+
+                        // Normal Data Row
+                        const parts = line.split(':');
+                        tableHtml += '<tr>';
+                        
+                        parts.forEach((part, index) => {
+                            let text = part.trim();
+                            // Truncate 2nd column and beyond (index > 0) to 20 chars
+                            if (index > 0 && text.length > 20) {
+                                text = text.substring(0, 20) + "...";
+                            }
+                            tableHtml += `<td>${text}</td>`;
+                        });
+                        
+                        tableHtml += '</tr>';
+                    }
+                }
+
+                // Flush remaining header if file ends with one
+                if (headerBuffer) {
+                    tableHtml += `<tr class="section-header"><td colspan="100%">${headerBuffer}</td></tr>`;
+                }
+
+                tableHtml += '</table>';
+
                 outputDiv.style.display = 'block';
-                outputDiv.innerText = decrypted;
+                outputDiv.innerHTML = tableHtml;
+
             } catch (err) {
                 showError(err.message);
             }
@@ -269,30 +292,6 @@
             el.innerText = msg;
             el.style.display = 'block';
         }
-    </script>
-    
-    <div class="step" style="border: 2px solid #0366d6; background: #f0f6fc; margin-top: 40px;">
-        <h3>🛠 Generator</h3>
-        <p>Create a browser-compatible key.</p>
-        <input type="text" id="genPass" placeholder="Set a Passphrase">
-        <button onclick="createNewKey()">Generate & Download Key</button>
-        <div id="genResult" style="margin-top: 15px; font-family: monospace; font-size: 0.8em;"></div>
-    </div>
-    <script>
-    async function createNewKey() {
-        const pass = document.getElementById('genPass').value;
-        const out = document.getElementById('genResult');
-        if (!pass) { alert("Set password!"); return; }
-        out.innerHTML = "Generating...";
-        try {
-            const { privateKey } = await openpgp.generateKey({
-                type: 'ecc', curve: 'curve25519', userIDs: [{ name: 'User', email: 'me@example.com' }],
-                passphrase: pass, format: 'binary'
-            });
-            const url = URL.createObjectURL(new Blob([privateKey], { type: "application/octet-stream" }));
-            out.innerHTML = `<a href="${url}" download="key_raw.bin">Download key_raw.bin</a>`;
-        } catch (err) { out.innerHTML = "Error: " + err.message; }
-    }
     </script>
 </body>
 </html>
