@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure GitHub Decryptor</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/openpgp@6.3.0/dist/openpgp.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; line-height: 1.6; color: #333; }
+        h1 { border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .step { background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #ddd; }
+        label { font-weight: bold; display: block; margin-bottom: 5px; }
+        input[type="text"], input[type="file"] { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
+        
+        button { background: #2ea44f; color: white; border: none; padding: 12px 24px; border-radius: 6px; font-size: 16px; cursor: pointer; width: 100%; margin-bottom: 10px; }
+        button:hover { background: #2c974b; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        button.secondary { background: #0366d6; }
+        button.secondary:hover { background: #0255b3; }
+        button.cancel { background: #d73a49; }
+        button.cancel:hover { background: #b92b3a; }
+
+        #output { background: #222; color: #0f0; padding: 15px; border-radius: 5px; overflow-x: auto; white-space: pre-wrap; display: none; margin-top: 20px; }
+        .error { color: #d73a49; background: #ffdce0; padding: 10px; border-radius: 5px; display: none; margin-top: 10px; }
+        
+        .status-tag { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-left: 10px; }
+        .status-ok { background: #dafbe1; color: #1a7f37; }
+        .status-fail { background: #ffdce0; color: #d73a49; }
+        .status-loading { background: #dbedff; color: #0366d6; }
+
+        /* Camera UI Styles */
+        #cameraContainer { display: none; margin-top: 15px; position: relative; background: #000; border-radius: 8px; overflow: hidden; }
+        #cameraVideo { width: 100%; display: block; }
+        #cameraOverlay { position: absolute; bottom: 10px; left: 0; right: 0; text-align: center; color: white; text-shadow: 0 1px 3px rgba(0,0,0,0.8); pointer-events: none; }
+    </style>
+</head>
+<body>
+
+    <h1>🔓 Client-Side Decryptor</h1>
+    
+    <p>Loading file: <code>./profile/el13/passwords.gpg</code> <span id="fileStatus"></span></p>
+
+    <div class="step">
+        <label>1. Upload Key (QR Image OR .bin file)</label>
+        
+        <input type="file" id="qrInput" accept="image/*, .bin, .asc, .gpg">
+        
+        <div style="text-align: center; margin: 10px 0; font-size: 0.9em; color: #666;">- OR -</div>
+
+        <button class="secondary" id="scanBtn" onclick="startCameraScan()">📸 Scan QR with Camera</button>
+        
+        <div id="cameraContainer">
+            <video id="cameraVideo" playsinline></video>
+            <div id="cameraOverlay">Point camera at QR Code...</div>
+            <button class="cancel" onclick="stopCameraScan()" style="position: absolute; top: 10px; right: 10px; width: auto; padding: 5px 10px; font-size: 0.8em;">Stop</button>
+        </div>
+
+        <div id="qrStatus" style="font-size: 0.9em; color: #666;"></div>
+    </div>
+
+    <div class="step">
+        <label>2. Enter Key Passphrase</label>
+        <input type="text" id="passphrase" placeholder="Passphrase...">
+        <button id="decryptBtn" onclick="decryptProcess()" disabled>Decrypt File</button>
+        <div id="errorMsg" class="error"></div>
+    </div>
+
+    <div id="output"></div>
+
+    <script>
+        let privateKeyObj = null;
+        let encryptedFileContent = null;
+        const TARGET_FILE = './profile/el13/passwords.gpg';
+        
+        // Camera Variables
+        let videoStream = null;
+        let isScanning = false;
+
+        // --- 1. Auto-Load Encrypted File ---
+        window.onload = async function() {
+            updateFileStatus('loading', 'Fetching file...');
+            try {
+                const response = await fetch(TARGET_FILE);
+                if (!response.ok) throw new Error(`HTTP ${response.status} Not Found`);
+                encryptedFileContent = await response.text();
+                updateFileStatus('ok', `Ready (Armored Text)`);
+                checkReadyState();
+            } catch (e) {
+                updateFileStatus('fail', `Failed to load: ${e.message}`);
+                console.error(e);
+            }
+        };
+
+        function updateFileStatus(type, msg) {
+            const el = document.getElementById('fileStatus');
+            el.className = `status-tag status-${type}`;
+            el.innerText = msg;
+        }
+
+        // --- 2. Camera Scanning Logic (NEW) ---
+        async function startCameraScan() {
+            const video = document.getElementById('cameraVideo');
+            const container = document.getElementById('cameraContainer');
+            const btn = document.getElementById('scanBtn');
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert("Camera API not supported in this browser (Note: requires HTTPS or localhost)");
+                return;
+            }
+
+            try {
+                // Request camera (prefer back camera 'environment' for phones)
+                videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                video.srcObject = videoStream;
+                video.setAttribute("playsinline", true); // required for iOS
+                video.play();
+                
+                // Show UI
+                container.style.display = "block";
+                btn.style.display = "none";
+                isScanning = true;
+                
+                requestAnimationFrame(tick);
+                updateQrStatus('loading', 'Searching for QR code...');
+            } catch (err) {
+                console.error(err);
+                alert("Could not access camera: " + err.message);
+            }
+        }
+
+        function stopCameraScan() {
+            const video = document.getElementById('cameraVideo');
+            const container = document.getElementById('cameraContainer');
+            const btn = document.getElementById('scanBtn');
+
+            isScanning = false;
+            
+            // Stop all video tracks to release camera
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+            
+            container.style.display = "none";
+            btn.style.display = "inline-block";
+        }
+
+        function tick() {
+            if (!isScanning) return;
+            
+            const video = document.getElementById('cameraVideo');
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                // Draw video frame to temporary canvas
+                const canvas = document.createElement("canvas");
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Scan for QR
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: "dontInvert",
+                });
+
+                if (code) {
+                    console.log("QR Found!");
+                    stopCameraScan(); // Stop camera immediately
+                    loadKeyBinary(new Uint8Array(code.binaryData)); // Load the key
+                }
+            }
+            requestAnimationFrame(tick);
+        }
+
+        // --- 3. File Input Handler (Legacy) ---
+        document.getElementById('qrInput').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // Direct Key File
+            if (file.name.endsWith('.bin') || file.name.endsWith('.asc') || file.name.endsWith('.gpg')) {
+                updateQrStatus('loading', 'Reading key file...');
+                const reader = new FileReader();
+                reader.onload = (ev) => loadKeyBinary(new Uint8Array(ev.target.result));
+                reader.readAsArrayBuffer(file);
+                return;
+            }
+
+            // Image File Scan
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = img.width; 
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const code = jsQR(imageData.data, imageData.width, imageData.height);
+                    
+                    if (code) loadKeyBinary(new Uint8Array(code.binaryData));
+                    else showError("No QR code found in image.");
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        function updateQrStatus(type, msg) {
+            document.getElementById('qrStatus').innerHTML = `<span class='status-tag status-${type}'>${msg}</span>`;
+        }
+
+        // --- 4. Load Key Logic ---
+        async function loadKeyBinary(binaryKeyData) {
+            try {
+                privateKeyObj = await openpgp.readKey({ binaryKey: binaryKeyData });
+                document.getElementById('qrStatus').innerHTML = `<span class='status-tag status-ok'>Key Loaded: ${privateKeyObj.getKeyID().toHex()}</span>`;
+                document.getElementById('errorMsg').style.display = 'none';
+                checkReadyState();
+            } catch (err) {
+                showError("Failed to parse key: " + err.message);
+            }
+        }
+
+        function checkReadyState() {
+            if (privateKeyObj && encryptedFileContent) {
+                document.getElementById('decryptBtn').disabled = false;
+                document.getElementById('decryptBtn').innerText = "Decrypt File";
+            }
+        }
+
+        // --- 5. Decryption Process ---
+        async function decryptProcess() {
+            const pass = document.getElementById('passphrase').value;
+            const outputDiv = document.getElementById('output');
+            
+            outputDiv.style.display = 'none';
+            document.getElementById('errorMsg').style.display = 'none';
+
+            if (!pass) { showError("Enter passphrase."); return; }
+
+            try {
+                // Unlock Key
+                const decryptedKey = await openpgp.decryptKey({
+                    privateKey: privateKeyObj,
+                    passphrase: pass
+                });
+
+                // Decrypt File (Armored)
+                const message = await openpgp.readMessage({ armoredMessage: encryptedFileContent });
+                const { data: decrypted } = await openpgp.decrypt({
+                    message: message,
+                    decryptionKeys: decryptedKey
+                });
+
+                outputDiv.style.display = 'block';
+                outputDiv.innerText = decrypted;
+            } catch (err) {
+                showError(err.message);
+            }
+        }
+
+        function showError(msg) {
+            const el = document.getElementById('errorMsg');
+            el.innerText = msg;
+            el.style.display = 'block';
+        }
+    </script>
+    
+    <div class="step" style="border: 2px solid #0366d6; background: #f0f6fc; margin-top: 40px;">
+        <h3>🛠 Generator</h3>
+        <p>Create a browser-compatible key.</p>
+        <input type="text" id="genPass" placeholder="Set a Passphrase">
+        <button onclick="createNewKey()">Generate & Download Key</button>
+        <div id="genResult" style="margin-top: 15px; font-family: monospace; font-size: 0.8em;"></div>
+    </div>
+    <script>
+    async function createNewKey() {
+        const pass = document.getElementById('genPass').value;
+        const out = document.getElementById('genResult');
+        if (!pass) { alert("Set password!"); return; }
+        out.innerHTML = "Generating...";
+        try {
+            const { privateKey } = await openpgp.generateKey({
+                type: 'ecc', curve: 'curve25519', userIDs: [{ name: 'User', email: 'me@example.com' }],
+                passphrase: pass, format: 'binary'
+            });
+            const url = URL.createObjectURL(new Blob([privateKey], { type: "application/octet-stream" }));
+            out.innerHTML = `<a href="${url}" download="key_raw.bin">Download key_raw.bin</a>`;
+        } catch (err) { out.innerHTML = "Error: " + err.message; }
+    }
+    </script>
+</body>
+</html>
