@@ -25,7 +25,7 @@ A profile may contain these files:
 | path                                         | notes                     |
 | -------------------------------------------- | ------------------------- |
 | `profile/MYPROFILE/bashrc`                   | this file is sourced for every new shell |
-| `profile/MYPROFILE/bashrc-my.host            | this file is sourced for every new shell (after the normal bashrc) but only if running on host `my.host` |
+| `profile/MYPROFILE/bashrc-my.host`           | this file is sourced for every new shell (after the normal bashrc) but only if running on host `my.host` |
 | `profile/MYPROFILE/bash-functions`           | this file is for your own custom functions, available with every shell |
 | `profile/MYPROFILE/bash-functions-localhost` | this file is for your own custom functions, but only available with shells on your local machine |
 | `profile/MYPROFILE/vimrc`                    | vimrc sourced for all vim sessions (see below) |
@@ -69,11 +69,25 @@ then store your passwords in your profile (`$SCR_PASSWORD_FILE`) with this
 colon-delimited format for each line: `description:username:password`, for
 example,
 
-    gmail:eric@lincware.com:my-secret-password
+    mail.google.com:eric@lincware.com:my-secret-password
 
-then, calling `-pw gmail | -set-clipboard` from the shell would copy your Gmail
-password onto the OS clipboard. Note that a colon cannot be used as part of the
-password since it is the delimeter.
+then, calling `-pw mail.google.com | -set-clipboard` from the shell would copy
+your Gmail password onto the OS clipboard. Note that a colon cannot be used as
+part of the password since it is the delimeter.
+
+By default, when scrash starts it will initialize your password file if it does
+not exist. You also need to set `SCR_PASSWORD_KEY_ID` to the short ID of your
+preferred gpg key to use for encryption/decryption of the password file. Here's
+what I ran on my Mac to initialize a gpg key for the password file if you need
+it:
+
+    gpg --quick-generate-key "Eric Lenio <eric@lincware.com>" ed25519 default never
+    # now inspect output of "gpg --list-secret-keys --keyid-format short", and
+    # set SCR_PASSWORD_KEY_ID to the 8 character ID. This next command adds a
+    # subkey necessary for encryption when using ed25519.
+    gpg --batch --quick-add-key $SCR_PASSWORD_KEY_ID cv25519 encr never
+
+Finall, add `export SCR_PASSWORD_KEY_ID=xxxxxxxx` into your personal bashrc.
 
 You can control which part of the line gets returned by passing `-i X`, where
 `X` is the 0th index of the line you want returned when splitting on colons.
