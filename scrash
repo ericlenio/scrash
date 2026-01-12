@@ -49,9 +49,10 @@ init() {
         ;;
     esac
   done
-  export SCR_PASSWORD_FILE="$SCR_HOME/profile/$SCR_PROFILE/passwords.gpg"
+  export SCR_PASSWORD_FILE="$SCR_HOME/profile/$SCR_PROFILE/passwords.asc"
   export SCR_PORT_0=$SCR_PORT
   BASH_FUNCTIONS="$SCR_HOME"/src/bash/bash-functions
+  BASH_FUNCTIONS_LOCALHOST="$SCR_HOME"/src/bash/bash-functions-localhost
   BASH_FUNCTIONS_TEST="$SCR_HOME"/src/bash/bash-functions-test
   PROFILE_BASH_FUNCTIONS="$SCR_HOME"/profile/$SCR_PROFILE/bash-functions
   PROFILE_BASH_FUNCTIONS_LOCALHOST="$SCR_HOME"/profile/$SCR_PROFILE/bash-functions-localhost
@@ -59,6 +60,9 @@ init() {
 
 get_function_names() {
   local file="$1"
+  if [ ! -f "$file" ]; then
+    return
+  fi
   env -i bash --norc --noprofile -c "source \"$file\"; compgen -A function"
 }
 
@@ -81,7 +85,7 @@ build_func() {
 load_bash_functions() {
   # funclist: maintain a list of all loaded bash functions used by scrash
   local funclist=()
-  local bash_files=("$BASH_FUNCTIONS" "$PROFILE_BASH_FUNCTIONS" "$PROFILE_BASH_FUNCTIONS_LOCALHOST") host_specific_rcfile
+  local bash_files=("$BASH_FUNCTIONS" "$BASH_FUNCTIONS_LOCALHOST" "$PROFILE_BASH_FUNCTIONS" "$PROFILE_BASH_FUNCTIONS_LOCALHOST") host_specific_rcfile
   if [ $SCR_ENV = test ]; then
     bash_files+=($BASH_FUNCTIONS_TEST)
   fi
@@ -90,7 +94,7 @@ load_bash_functions() {
     source "$f"
     funclist+=($(get_function_names "$f"))
   done
-  export SCR_LOCALHOST_FUNCS=$([ -f "$PROFILE_BASH_FUNCTIONS_LOCALHOST" ] && get_function_names "$PROFILE_BASH_FUNCTIONS_LOCALHOST")
+  export SCR_LOCALHOST_FUNCS=$(get_function_names "$BASH_FUNCTIONS_LOCALHOST"; get_function_names "$PROFILE_BASH_FUNCTIONS_LOCALHOST")
   for rcfile in screenrc bashrc vimrc; do
     funcname="-$rcfile"
     # create stub, it might get overwritten in the next for loop
@@ -137,6 +141,7 @@ scr_server() {
     env screen -X unsetenv SSH_AUTH_SOCK
     unset SSH_AUTH_SOCK
   fi
+  -pw -I
   scr_function_list_dump | node "$SCR_HOME"/server.js -- -p $SCR_PORT
   echo "$FUNCNAME: server has stopped, \"$FUNCNAME\" to restart it" >&2
   exec bash

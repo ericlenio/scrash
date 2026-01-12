@@ -1,0 +1,3 @@
+# vim:filetype=bash
+#
+# functions here will only load for the system on which scrash is running

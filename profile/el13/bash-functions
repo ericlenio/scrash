@@ -72,8 +72,8 @@ c() {
 )
 
 -pwgen() {
-  local length=${1:-32}
-  # skip colons, I use them in passwords.gpg as a delimeter
+  local length=${1:-16}
+  # skip colons, I use them in passwords.asc as a delimeter
   pwgen -cnyr : $length 1
 }
 

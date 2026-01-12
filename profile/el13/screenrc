@@ -10,7 +10,7 @@ backtick 99 999999999 0 bash -c 'if [ -z "$SSH_TTY" ]; then echo " v$SCR_VERSION
 5:caption always "%{= 7;0}%-w%{=+b 7;4}%n%t%{-}%+w %-= @%H %{=+b 3}%97`%{-} %m/%d %0c%99`"
 multiuser off
 autodetach on
-bind / screen bash -c "v \"\$SCR_PASSWORD_FILE\""
+bind / screen bash -c -- "-pw -e"
 # bind "%" to take a screenshot, and open a new window to edit it
 #bind % exec bash -c 'f=$(mktemp); t=$RANDOM; env screen -X hardcopy $f; env screen -t $t sh -c "$EDITOR -c \"set nonumber\" $f; rm $f"; env screen -X select $t'
 bind % exec bash -c -- -screen-shot
