@@ -75,6 +75,16 @@ then, calling `-pw mail.google.com | -set-clipboard` from the shell would copy
 your Gmail password onto the OS clipboard. Note that a colon cannot be used as
 part of the password since it is the delimeter.
 
+You can control which part of the line gets returned by passing `-i X`, where
+`X` is the 0th index of the line you want returned when splitting on colons.
+For example, this will return all descriptions in the password file that match
+on `SSH-KEY`:
+
+    -pw -i 0 SSH-KEY
+
+Type `-pw -h` for a few other options.
+
+## gpg setup
 By default, when scrash starts it will initialize your password file if it does
 not exist. You also need to set `SCR_PASSWORD_KEY_ID` to the short ID of your
 preferred gpg key to use for encryption/decryption of the password file. Here's
@@ -87,18 +97,9 @@ it:
     # subkey necessary for encryption when using ed25519.
     gpg --batch --quick-add-key $SCR_PASSWORD_KEY_ID cv25519 encr never
 
-Finall, add `export SCR_PASSWORD_KEY_ID=xxxxxxxx` into your personal bashrc.
+Finally, add `export SCR_PASSWORD_KEY_ID=xxxxxxxx` into your personal bashrc.
 
-You can control which part of the line gets returned by passing `-i X`, where
-`X` is the 0th index of the line you want returned when splitting on colons.
-For example, this will return all descriptions in the password file that match
-on `SSH-KEY`:
-
-    -pw -i 0 SSH-KEY
-
-Type `-pw -h` for a few other options.
-
-# copying gpg pub/private keys to another system
+## copying gpg pub/private keys to another system
 
     keyid=62E8908EA7F905BFA49B6C04A4E70411424EAD8E
     gpg --export $keyid | ssh new-system gpg --import
