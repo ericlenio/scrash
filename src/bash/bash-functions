@@ -1071,11 +1071,12 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
       -oUserKnownHostsFile="$SCR_SSH_USER_KNOWN_HOSTS"
       -oProxyCommand="bash -c -- \"-ssh-proxy-connect $otp $SCR_SSH_HOST:22\""
       #-oProxyCommand="nc -X connect -x 127.0.0.1:$SCR_PORT localhost-otp-$otp 22"
+      "$@"
     )
-    for arg in "$@"; do
-      # handle filenames with spaces
-      cmd+=("${arg// /\\ }")
-    done
+    #for arg in "$@"; do
+    #  # handle filenames with spaces
+    #  cmd+=("${arg// /\\ }")
+    #done
     "${cmd[@]}"
   else
     return 1
@@ -1115,7 +1116,7 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 
 -deserialize-args() {
   # to do: replace -ssh-deserialize-cmd perhaps with this?
-  IFS=$'\037' read -d '' -a args < <(printf %s "$(openssl enc -d -a -A <<<$1)")
+  IFS=$'\037' read -d '' -a args < <(printf %s "$(openssl enc -d -a -A <<<$1)") || true
 }
 
 # -pw retrieves a password based on the given key, which can be supplied as arg
@@ -1124,11 +1125,11 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 # limitation: password cannot contain a colon because that is assumed to be the
 # delimiter here
 -pw() {
-  local args=("$@") local stdin="-"
+  local stdin="-"
   if [ $SCR_SSH_LEVEL = 0 ]; then
     -pw-localhost "$@"
   else
-    [ -t 1 ] && stdin=/dev/null
+    [ -t 1 ] && stdin=/dev/null || true
     if -ws -o /scr-get-password?args64=$(-serialize-args "$@") -d @$stdin; then
       :
     else

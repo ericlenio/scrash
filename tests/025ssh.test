@@ -42,6 +42,6 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
   SCR_SSH_EXEC=0 $t1 | grep -q "$m1"
   ! SCR_SSH_EXEC=1 $t1 | grep -q "$m1"
 else
-  echo "WARNING $(basename $TEST_SOURCE_FILE): skipping some tests, no value for $SCR_SSH_AUTH_SOCK" >&2
+  echo "WARNING $(basename $TEST_SOURCE_FILE): skipping some tests, no value for SCR_SSH_AUTH_SOCK" >&2
 fi
 SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION=0

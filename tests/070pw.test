@@ -19,11 +19,11 @@ add_pw() {
       echo "$pwlines"
     fi
     printf "%s:%s:%s\n" "$pwkey" "$user" "$pw"
-  } | gpg --default-recipient-self -ea > $SCR_PASSWORD_FILE
+  } | gpg -r $SCR_PASSWORD_KEY_ID -ea > $SCR_PASSWORD_FILE
 }
 
 -ssh-pw() {
-  ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -c -- '"$@"' -- -pw -p $SCR_PASSWORD_FILE "$@"
+  ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -c -- '"$@"' -- -pw -p $SCR_PASSWORD_FILE "$@" </dev/null
 }
 
 pwkey1="my password key with funky chars &/"
