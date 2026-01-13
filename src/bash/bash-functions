@@ -1125,12 +1125,10 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 # limitation: password cannot contain a colon because that is assumed to be the
 # delimiter here
 -pw() {
-  local stdin="-"
   if [ $SCR_SSH_LEVEL = 0 ]; then
     -pw-localhost "$@"
   else
-    [ -t 1 ] && stdin=/dev/null || true
-    if -ws -o /scr-get-password?args64=$(-serialize-args "$@") -d @$stdin; then
+    if -ws -o /scr-get-password?args64=$(-serialize-args "$@"); then
       :
     else
       echo "$FUNCNAME: failed" >&2
