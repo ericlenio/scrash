@@ -99,7 +99,7 @@ class Server extends http.Server {
         //case "/scr-upload-file":
           //return this.uploadFile(req,res);
         case "/scr-get-password":
-          return this.getPassword(req,res);
+          return this.getPassword(url,req,res);
         case "/scr-ssh-user-known-hosts":
           return this.getSshUserKnownHosts(req,res);
         default:
@@ -553,45 +553,33 @@ class Server extends http.Server {
   }
   */
 
-  getPassword(req,res) {
+  getPassword(url,req,res) {
     if (!req.hasValidOtp) {
       res.statusCode=401;
       return Promise.reject(new Error("Unauthorized"));
     }
+    if (!url.searchParams.has('args64')) {
+      res.statusCode=400;
+      const e=new Error(`getPassword: missing parameter: args64`);
+      return reject(e);
+    }
     return new Promise((resolve,reject)=>{
-      const queryParams={};
-      readline.createInterface({input:req}).on('line',line=>{
-        const qp=new URLSearchParams(line);
-        qp.forEach((value,name)=>queryParams[name]=value);
-      }).on('close',()=>{
-        const searchKey=queryParams.searchKey;
-        if (!searchKey) {
-          const e=new Error("no search key provided");
+      const args64=url.searchParams.get('args64');
+      const p=child_process.spawn("/usr/bin/env",['bash','-c','"$@"','--','-pw-localhost','-A',args64],
+        {stdio:['pipe','pipe',process.stderr]});
+      p.on("error",reject);
+      p.on('exit',(rc,signal)=>{
+        if (rc>0) {
+          res.statusCode=400;
+          const e=new Error(`getPassword`);
           return reject(e);
         }
-        const pwFile=queryParams.pwFile || process.env.SCR_PASSWORD_FILE;
-        const pw_args=['-p',pwFile];
-        if (queryParams.b64==='1') {
-          pw_args.push("-b");
-        }
-        if ('index' in queryParams) {
-          pw_args.push("-i",queryParams.index);
-        }
-        pw_args.push(searchKey);
-        const p=child_process.spawn("/usr/bin/env",['bash','-c','"$@"','--','-pw',...pw_args],
-          {stdio:['ignore','pipe',process.stderr]});
-        p.on("error",reject);
-        p.on('exit',(rc,signal)=>{
-          if (rc>0) {
-            const e=new Error(`failed to acquire password for search key: ${searchKey}`);
-            return reject(e);
-          }
-          res.end();
-          resolve();
-        });
-        res.setHeader('Content-Type','text/plain');
-        p.stdout.on('data',data=>res.write(data));
+        res.end();
+        resolve();
       });
+      res.setHeader('Content-Type','text/plain');
+      req.pipe(p.stdin);
+      p.stdout.on('data',data=>res.write(data));
     });
   }
 

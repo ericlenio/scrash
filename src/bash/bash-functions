@@ -1108,101 +1108,34 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
   -sxx-scr-server scp "$@" $SCR_SSH_USER@$SCR_SSH_HOST:/tmp
 }
 
+-serialize-args() {
+  # to do: replace -ssh-serialize-cmd perhaps with this?
+  printf "%s\037" "$@" | openssl enc -a -A
+}
+
+-deserialize-args() {
+  # to do: replace -ssh-deserialize-cmd perhaps with this?
+  IFS=$'\037' read -d '' -a args < <(printf %s "$(openssl enc -d -a -A <<<$1)")
+}
+
 # -pw retrieves a password based on the given key, which can be supplied as arg
 # 1 or passed in stdin
 #
 # limitation: password cannot contain a colon because that is assumed to be the
 # delimiter here
 -pw() {
-  local opt OPTIND search_key pw_line pw n index=-1 split_char=':' b64=0 pw_file="$SCR_PASSWORD_FILE" found=0 mode=query
-  while builtin getopts "hbi:p:eI" opt; do
-    case $opt in
-      (h)
-        echo "usage: $FUNCNAME [-hbeI][-i index][-p password_file] search_key"
-        echo "-h: this help"
-        echo "-b: base64 encode the result"
-        echo "-e: edit the password file"
-        echo "-i: for each matched line, return this index value of the line when it is split by \"$split_char\""
-        echo "-I: check for existence of password file, and initialize it if necessary"
-        echo "-p: specify an alternate password file, default=$pw_file"
-        return
-        ;;
-      (b)
-        b64=1
-        ;;
-      (i)
-        # for each line found, within that line what part of the line do we want?
-        # default is the last index
-        index=$OPTARG
-        ;;
-      (I)
-        mode=init
-        ;;
-      (p)
-        pw_file="$OPTARG"
-        ;;
-      (e)
-        mode=edit
-        ;;
-    esac
-  done
-  case $mode in
-    (init)
-      if [ $SCR_SSH_LEVEL -gt 0 ]; then
-        echo "cannot do this at SCR_SSH_LEVEL=$SCR_SSH_LEVEL" >&2
-        return 1
-      fi
-      if [ ! -f "$pw_file" ]; then
-        # create a blank password file
-        local tmpfile=$(mktemp)
-        printf "#\n# enter secrets here in this format:\n# <login url or description>:<username>:<password>\n#\n" > $tmpfile
-        gpg -ea -r $SCR_PASSWORD_KEY_ID -o $pw_file $tmpfile
-        rm $tmpfile
-        read -p "just created $pw_file, you should add it to git now"
-      fi
-      ;;
-    (edit)
-      if [ $SCR_SSH_LEVEL -gt 0 ]; then
-        echo "cannot do this at SCR_SSH_LEVEL=$SCR_SSH_LEVEL" >&2
-        return 1
-      fi
-      vim "$pw_file"
-      ;;
-    (query)
-      shift $(($OPTIND-1))
-      search_key="$1"
-      shift
-      if [ $SCR_SSH_LEVEL = 0 ]; then
-        if [ ! -r "$pw_file" ]; then
-          echo "$FUNCNAME: could not read password file: $pw_file" >&2
-          return 1
-        fi
-        while read -r pw_line; do
-          found=1
-          IFS="$split_char" builtin read -r -a pw_line <<<"$pw_line"
-          if [ "$index" ]; then
-            let n=$index || true
-          else
-            let n=${#pw_line[*]}-1
-          fi
-          pw="${pw_line[$n]}"
-          if [ $b64 = 0 ]; then
-            echo "$pw"
-          else
-            printf "%s\n" $(printf %s "$pw" | openssl enc -a -A)
-          fi
-        done < <(gpg -qd "$pw_file" | grep "$search_key")
-        if [ $found = 0 ]; then
-          return 1
-        fi
-      elif -ws -o /scr-get-password --data-urlencode "searchKey=$search_key" --data-urlencode "b64=$b64"  --data-urlencode "index=$index" --data-urlencode "pwFile=$pw_file" "$@"; then
-        :
-      else
-        echo "$FUNCNAME: problem with OTP" >&2
-        return 1
-      fi
-      ;;
-  esac
+  local args=("$@") local stdin="-"
+  if [ $SCR_SSH_LEVEL = 0 ]; then
+    -pw-localhost "$@"
+  else
+    [ -t 1 ] && stdin=/dev/null
+    if -ws -o /scr-get-password?args64=$(-serialize-args "$@") -d @$stdin; then
+      :
+    else
+      echo "$FUNCNAME: failed" >&2
+      return 1
+    fi
+  fi
 }
 
 #
