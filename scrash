@@ -53,7 +53,6 @@ init() {
         ;;
     esac
   done
-  SCR_PASSWORD_FILE="$SCR_HOME/profile/$SCR_PROFILE/passwords.asc"
   SCR_PORT_0=$SCR_PORT
   BASH_FUNCTIONS="$SCR_HOME"/src/main/bash/bash-functions
   BASH_FUNCTIONS_LOCALHOST="$SCR_HOME"/src/main/bash/bash-functions-localhost

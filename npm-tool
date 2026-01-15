@@ -28,7 +28,10 @@ case "$npm_lifecycle_event" in
   (postinstall)
     if [ ! -f "$SCR_CONFIG_FILE" ]; then
       mkdir -p $(dirname "$SCR_CONFIG_FILE")
-      printf "SCR_GIT_PROJECT_DIR=$npm_config_local_prefix\n" > "$SCR_CONFIG_FILE"
+      {
+        printf "SCR_PASSWORD_FILE=/path/to/your/passwords.asc\n"
+        printf "SCR_GIT_PROJECT_DIR=$npm_config_local_prefix\n"
+      } > "$SCR_CONFIG_FILE"
       echo "created $SCR_CONFIG_FILE"
     fi
     ;;
