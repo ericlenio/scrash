@@ -29,9 +29,9 @@ if has("autocmd")
   " when editing the passwords file, remap * to copy the current word to OS
   " clipboard use the expand() function to highlight the current word (cword)
   " nmap: "n" means we are mapping a key in vim's normal mode
-  "autocmd BufReadPre,FileReadPre *.gpg nmap <buffer> * :let @/=expand("<cword>")<cr>:let @"=@/<cr>:call ScrSetClipboard()<cr>
-  autocmd BufReadPre,FileReadPre passwords.gpg nnoremap <c-c> :call ScrSetClipboard(@p)<cr>
-  autocmd CursorMoved passwords.gpg :call ScrSelectPassword()
+  "autocmd BufReadPre,FileReadPre *.asc nmap <buffer> * :let @/=expand("<cword>")<cr>:let @"=@/<cr>:call ScrSetClipboard()<cr>
+  autocmd BufReadPre,FileReadPre passwords.asc nnoremap <c-c> :call ScrSetClipboard(@p)<cr>
+  autocmd CursorMoved passwords.asc :call ScrSelectPassword()
 
   " Transparent editing of gpg encrypted files.
   " By Wouter Hanegraaff

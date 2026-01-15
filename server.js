@@ -1,5 +1,5 @@
 //import chroot from 'chroot';
-import Server from './src/js/Server.js';
+import Server from './src/main/js/Server.js';
 
 if (!process.env.SCR_ENV) {
   process.env.SCR_ENV='dev';

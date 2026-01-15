@@ -126,7 +126,7 @@ same as above, but also include test case file(s) matching on \"vim\":
     return 1
   fi
   # disable "Warning: Permanently added ..." by using error log level
-  ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oLogLevel=error "$@"
+  ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oLogLevel=error -oPreferredAuthentications=publickey "$@"
 }
 
 -ssh-localhost() {

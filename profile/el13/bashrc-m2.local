@@ -7,7 +7,7 @@ if [ -s "$SCR_PASSWORD_FILE" -a -z "$RA_USER_PASSWORD_64" ]; then
 fi
 export SCR_PASSWORD_KEY_ID=5BB3738A
 export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
-export MANPATH=:/opt/homebrew/opt/node@16/lib/node_modules/npm/man
+export MANPATH=:/opt/homebrew/opt/node@20/lib/node_modules/npm/man
 export RA_SSH=$SCR_TMPDIR/ssh-exec
 if [ ! -f $RA_SSH ]; then
   {
