@@ -1,0 +1,39 @@
+#! /usr/bin/env bash
+
+set -e
+
+SCR_PROFILE_DIR="$PWD/profile/${SCR_PROFILE:-$USER}"
+SCR_CONFIG_FILE="$HOME/.config/scrash/config"
+DIST_DIR=./dist
+
+case "$npm_lifecycle_event" in
+  (clean)
+    rm -rf $DIST_DIR
+    ;;
+  (build)
+    npm run clean
+    mkdir -p $DIST_DIR
+    npm pack --pack-destination=$DIST_DIR
+    echo SUCCESS
+    ;;
+  (test)
+    ./scrash -t
+    ;;
+  (preinstall)
+    if [ ! -d "$SCR_PROFILE_DIR" ]; then
+      echo "$0: expected $SCR_PROFILE_DIR (or override SCR_PROFILE to use alternate profile)" >&2
+      exit 1
+    fi
+    ;;
+  (postinstall)
+    if [ ! -f "$SCR_CONFIG_FILE" ]; then
+      mkdir -p $(dirname "$SCR_CONFIG_FILE")
+      printf "SCR_GIT_PROJECT_DIR=$npm_config_local_prefix\n" > "$SCR_CONFIG_FILE"
+      echo "created $SCR_CONFIG_FILE"
+    fi
+    ;;
+  (*)
+    echo "no value for npm_lifecycle_event, exiting" >&2
+    exit 1
+    ;;
+esac

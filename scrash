@@ -13,21 +13,21 @@ options:
 
 developer options:
 -t           test mode (runs all the test cases)
--g           in test mode, specifies a particular test group to be run
+-g           in test mode, specifies a particular test group to be run (1 or more space-separated glob expressions)
 "
 }
 
 init() {
-  eval $(node -r fs -r path -e 'const h=path.join(fs.realpathSync(process.argv[1]),".."); const p=require(path.join(h,"package.json")); console.log(`export SCR_HOME="${h}" SCR_VERSION=${p.version}`);' -- $0)
-  export SCR_PORT=4553
-  export SCR_PROFILE=$USER
-  export SCR_SSH_USER=$USER
+  eval $(node -r fs -r path -e 'const h=path.join(fs.realpathSync(process.argv[1]),".."); const p=require(path.join(h,"package.json")); console.log(`SCR_HOME="${h}" SCR_VERSION=${p.version}`);' -- $0)
+  SCR_PORT=4553
+  SCR_PROFILE=$USER
+  SCR_SSH_USER=$USER
   # force lowercase hostname for SCR_SSH_HOST because ssh-keyscan forces
   # lowercase hostnames in it's output
-  export SCR_SSH_HOST=$(hostname|tr "[:upper:]" "[:lower:]")
-  export SCR_ENV=${SCR_ENV:=dev}
+  SCR_SSH_HOST=$(hostname|tr "[:upper:]" "[:lower:]")
+  SCR_ENV=${SCR_ENV:=dev}
   if [ "$SSH_AUTH_SOCK" ]; then
-    export SCR_SSH_AUTH_SOCK=$SSH_AUTH_SOCK
+    SCR_SSH_AUTH_SOCK=$SSH_AUTH_SOCK
     unset SSH_AUTH_SOCK
   fi
   while builtin getopts "hp:P:tg:" opt; do
@@ -53,13 +53,18 @@ init() {
         ;;
     esac
   done
-  export SCR_PASSWORD_FILE="$SCR_HOME/profile/$SCR_PROFILE/passwords.asc"
-  export SCR_PORT_0=$SCR_PORT
-  BASH_FUNCTIONS="$SCR_HOME"/src/bash/bash-functions
-  BASH_FUNCTIONS_LOCALHOST="$SCR_HOME"/src/bash/bash-functions-localhost
-  BASH_FUNCTIONS_TEST="$SCR_HOME"/src/bash/bash-functions-test
+  SCR_PASSWORD_FILE="$SCR_HOME/profile/$SCR_PROFILE/passwords.asc"
+  SCR_PORT_0=$SCR_PORT
+  BASH_FUNCTIONS="$SCR_HOME"/src/main/bash/bash-functions
+  BASH_FUNCTIONS_LOCALHOST="$SCR_HOME"/src/main/bash/bash-functions-localhost
   PROFILE_BASH_FUNCTIONS="$SCR_HOME"/profile/$SCR_PROFILE/bash-functions
   PROFILE_BASH_FUNCTIONS_LOCALHOST="$SCR_HOME"/profile/$SCR_PROFILE/bash-functions-localhost
+  user_config="$HOME/.config/scrash/config"
+  if [ -e "$user_config" ]; then
+    source "$user_config"
+  fi
+  BASH_FUNCTIONS_TEST="$SCR_GIT_PROJECT_DIR"/src/test/bash/bash-functions-test
+  export $(compgen -v SCR)
 }
 
 get_function_names() {
@@ -98,7 +103,7 @@ load_bash_functions() {
     source "$f"
     funclist+=($(get_function_names "$f"))
   done
-  export SCR_LOCALHOST_FUNCS=$(get_function_names "$BASH_FUNCTIONS_LOCALHOST"; get_function_names "$PROFILE_BASH_FUNCTIONS_LOCALHOST")
+  SCR_LOCALHOST_FUNCS=$(get_function_names "$BASH_FUNCTIONS_LOCALHOST"; get_function_names "$PROFILE_BASH_FUNCTIONS_LOCALHOST")
   for rcfile in screenrc bashrc vimrc; do
     funcname="-$rcfile"
     # create stub, it might get overwritten in the next for loop
@@ -115,7 +120,7 @@ load_bash_functions() {
       funclist+=($funcname)
     done
   done
-  for vim_plugin in $(find "$SCR_HOME"/src/vim -name '*.vim'); do
+  for vim_plugin in $(find "$SCR_HOME"/src/main/vim -name '*.vim'); do
     plugin=$(basename "$vim_plugin" .vim)
     plugin_func="-vim-plugin-$plugin"
     funcdef=$(grep -v -e '^ *"' "$vim_plugin" | build_func $plugin_func)
@@ -140,7 +145,7 @@ export -f scr_function_list_dump
 
 scr_server() {
   -pw -I
-  scr_function_list_dump | node "$SCR_HOME"/server.js -- -p $SCR_PORT
+  scr_function_list_dump | SCR_LOCALHOST_FUNCS="$SCR_LOCALHOST_FUNCS" node "$SCR_HOME"/server.js -- -p $SCR_PORT
   echo "$FUNCNAME: server has stopped, \"$FUNCNAME\" to restart it" >&2
   exec bash
 }
@@ -157,13 +162,14 @@ main() {
       # environment variables for the default ssh-agent, we wrap the whole
       # scrash session under a fresh ssh-agent
       if [ $os = Darwin ]; then
-        export DISPLAY=unknown SSH_ASKPASS=$SCR_HOME/src/bash/scr-ssh-askpass
+        export DISPLAY=unknown SSH_ASKPASS=$SCR_HOME/src/main/bash/scr-ssh-askpass
       fi
       shell_init_args+=(-s $(-ssh-serialize-cmd screen ssh-agent bash -c scr_server))
       ;;
     (test)
       load_bash_functions
-      cd $SCR_HOME
+      cd $SCR_GIT_PROJECT_DIR
+      export SCR_LOCALHOST_FUNCS
       cmd=(exec ./tests/test)
       if [ "$test_groups" ]; then
         cmd+=(-g "$test_groups")

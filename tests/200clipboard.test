@@ -33,7 +33,7 @@ uname -a > "$t2"
 -set-clipboard "$t2"
 [ "$(-get-clipboard)" = "$(uname -a)" ]
 paste_prog=$(node << 'EOF'
-import("./src/js/Server.js").then(module=>{
+import("./src/main/js/Server.js").then(module=>{
 const Server=module.default;
 const s=new Server();
 console.log(s.getOsProgram("PASTE").join(' '));

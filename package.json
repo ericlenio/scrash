@@ -1,17 +1,33 @@
 {
   "name": "scrash",
-  "version": "1.7.3",
+  "version": "1.8.0",
   "description": "",
   "type": "module",
   "main": "index.js",
+  "bin": {
+    "scrash": "./scrash"
+  },
+  "files":[
+    "src/main",
+    "profile",
+    "server.js",
+    "npm-tool"
+  ],
   "scripts": {
-    "test": "./scrash -t"
+    "preinstall": "./npm-tool",
+    "postinstall": "./npm-tool",
+    "test": "./npm-tool",
+    "clean": "./npm-tool",
+    "build": "./npm-tool"
   },
   "author": "",
   "license": "AGPL-3.0-only",
-  "dependencies": {},
   "config": {
     "SCR_ENV": "dev",
-    "SCR_PROFILE": "el13"
+    "SCR_PROFILE": "el13",
+    "SCR_1": "${npm_package_config_SCR_PROFILE}/"
+  },
+  "devDependencies": {
+    "ssh2": "^1.17.0"
   }
 }
