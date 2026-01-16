@@ -79,6 +79,12 @@
         return 1
       fi
       vim "$pw_file"
+      if ! $FUNCNAME -d; then
+        read -p "commit changes to $pw_file (y/n, default=n)? "
+        if [ "$REPLY" = y ]; then
+          $FUNCNAME -c
+        fi
+      fi
       ;;
     (query)
       search_key="$1"
