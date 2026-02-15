@@ -6,25 +6,31 @@ num_otps=3
 [ ${#SCR_OTP_CACHE[*]} -eq $num_otps ]
 export SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION=1
 if [ "$SCR_SSH_AUTH_SOCK" ]; then
-  [ ! -f $SCR_SSH_USER_KNOWN_HOSTS ] && -sxx-scr-server-known-hosts
+  rm -f $SCR_SSH_USER_KNOWN_HOSTS
+  -sxx-scr-server-known-hosts
   [ -f $SCR_SSH_USER_KNOWN_HOSTS ]
-  hostname=$(ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST hostname)
+  hostname=$(ssh -p $SCR_SSH_PORT -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST hostname)
   [ "$hostname" ]
   [ ${#SCR_OTP_CACHE[*]} -eq $num_otps ]
-  [ ! -f $SCR_SSH_USER_KNOWN_HOSTS ] && -sxx-scr-server-known-hosts
+  -sxx-scr-server-known-hosts
   [ -f $SCR_SSH_USER_KNOWN_HOSTS ]
-  ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST hostname
+  ssh -p $SCR_SSH_PORT -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST hostname
   [ ${#SCR_OTP_CACHE[*]} -eq $(($num_otps-1)) ]
   [ "$hostname" = $(hostname) ]
 
   # test out -ssh-proxy-jump
   [ -f "$SCR_SSH_PROXY_JUMP" ]
   known_hosts=$SCR_TMPDIR/ssh-known-hosts
-  ssh-keyscan $SCR_SSH_HOST,myhost >$known_hosts
+  ssh-keyscan -p $SCR_SSH_PORT $SCR_SSH_HOST,myhost >$known_hosts
   ssh_config=$SCR_TMPDIR/ssh-config
-  echo "Host myhost
+  cat > $ssh_config <<EOF
+Host *
+  Port $SCR_SSH_PORT
   UserKnownHostsFile $known_hosts
-  ProxyCommand \${SCR_SSH_PROXY_JUMP} \${SCR_SSH_HOST} $SCR_SSH_HOST -oUserKnownHostsFile=$known_hosts" > $ssh_config
+Host myhost
+  #ProxyCommand \${SCR_SSH_PROXY_JUMP} \${SCR_SSH_HOST} $SCR_SSH_HOST:$TEST_SSHD_PORT -p $TEST_SSHD_PORT -oUserKnownHostsFile=$known_hosts
+  ProxyCommand \${SCR_SSH_PROXY_JUMP} \${SCR_SSH_HOST} $SCR_SSH_HOST:%p -F $ssh_config
+EOF
   u1=$(ssh -F $ssh_config myhost uname -a)
   u2=$(uname -a)
   [ "$u1" = "$u2" ]

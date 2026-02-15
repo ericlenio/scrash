@@ -104,12 +104,14 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
   num_ssh_keys=$(count_ssh_agent_keys)
   [ $num_ssh_keys -gt 0 ]
 
-  [ ! -f $SCR_SSH_USER_KNOWN_HOSTS ] && -sxx-scr-server-known-hosts
+  -sxx-scr-server-known-hosts
   # -totp function should NOT be loaded inside ssh session (see SCR_LOCALHOST_FUNCS)
-  if ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -c '"$@"' -- -totp; then
+  #if ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -c '"$@"' -- -totp 2>/dev/null; then
+  if ssh -p $SCR_SSH_PORT -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -c '"$@"' -- -totp 2>/dev/null; then
     echo "expected -totp to fail" >&2
     false
   fi
+
 
   if [ "$RA_USER_PASSWORD_64" ] && online remoteadmin.private:3333; then
     ra_host=ltc.admitplus.work
@@ -120,12 +122,12 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
     [[ "$h" =~ $ra_host[[:space:]]*$ ]]
     rm -f /tmp/passwd
     echo "testing remoteadmin file download from $ra_host ..."
-    -ra $ra_host bash -c -- "'-download /etc/passwd'"
+    -ra $ra_host bash -c -- "'-clear-cache; -download /etc/passwd'"
     [ -f /tmp/passwd ]
 
     # test host-specific bashrc: bashrc-m2.local should set JAVA_HOME
-    [ ! -f $SCR_SSH_USER_KNOWN_HOSTS ] && -sxx-scr-server-known-hosts
-    s=$(ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST compgen -v JAVA_HOME)
+    -sxx-scr-server-known-hosts
+    s=$(ssh -p $SCR_SSH_PORT -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST compgen -v JAVA_HOME)
     [ "$s" ]
     [ "$s" = JAVA_HOME ]
     ! -ra $ra_host compgen -v JAVA_HOME >/dev/null

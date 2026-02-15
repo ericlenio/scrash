@@ -108,3 +108,35 @@ fu ScrNextColorScheme(incr)
   let l:idx=index(s:mycolors,g:colors_name)+1
   echo "applied colorscheme:" g:colors_name "(".l:idx."/".len(s:mycolors).")"
 endf
+
+if has("autocmd")
+  " Transparent editing of gpg encrypted files.
+  " By Wouter Hanegraaff
+  augroup encrypted
+    au!
+
+    " First make sure nothing is written to ~/.viminfo while editing
+    " an encrypted file.
+    autocmd BufReadPre,FileReadPre *.gpg,*.asc set viminfo=
+    " We don't want a swap file, as it writes unencrypted data to disk
+    autocmd BufReadPre,FileReadPre *.gpg,*.asc set noswapfile
+
+    " Switch to binary mode to read the encrypted file
+    autocmd BufReadPre,FileReadPre *.gpg,*.asc set bin
+    autocmd BufReadPre,FileReadPre *.gpg,*.asc let ch_save = &ch|set ch=2
+    " (If you use tcsh, you may need to alter this line.)
+    autocmd BufReadPost,FileReadPost *.gpg,*.asc '[,']!gpg -d 2>/dev/null
+
+    " Switch to normal mode for editing
+    autocmd BufReadPost,FileReadPost *.gpg,*.asc set nobin
+    autocmd BufReadPost,FileReadPost *.gpg,*.asc let &ch = ch_save|unlet ch_save
+    autocmd BufReadPost,FileReadPost *.gpg,*.asc execute ":doautocmd BufReadPost " . expand("%:r")
+
+    " Convert all text to encrypted text before writing (If you use tcsh, you
+    " may need to alter this line.)
+    autocmd BufWritePre,FileWritePre *.gpg,*.asc '[,']!gpg -r $SCR_PASSWORD_KEY_ID -ae 2>/dev/null
+    " Undo the encryption so we are back in the normal text, directly after the
+    " file has been written.
+    autocmd BufWritePost,FileWritePost *.gpg,*.asc u
+  augroup END
+endif

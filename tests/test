@@ -39,17 +39,6 @@ same as above, but also include test case file(s) matching on \"vim\":
   trap -- -on-exit EXIT
   shopt -s gnu_errfmt
 
-  fifo=/tmp/scr-test-fifo
-  if [ ! -e $fifo ]; then
-    mkfifo $fifo
-  fi
-  npm start -- -p $SCR_PORT -n $fifo < <(scr_function_list_dump) &
-  # once this read is done, we know the server is up and listening
-  read port <$fifo
-  rm $fifo
-  if ! [[ "$port" =~ ^[0-9]+$ ]]; then
-    exit 1
-  fi
 
   #url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
   #eval -- "$(curl -S -f -s --compressed $url)"
@@ -63,6 +52,7 @@ same as above, but also include test case file(s) matching on \"vim\":
   # sessions)
   TEST_CLEANUP_FILE="$SCR_TMPDIR/cleanup"
   rm -f "$TEST_ERROR_FILE" "$TEST_CLEANUP_FILE"
+  node test.js < <(scr_function_list_dump)
 }
 
 -on-error() {
@@ -120,13 +110,9 @@ same as above, but also include test case file(s) matching on \"vim\":
 }
 
 -ssh-not-strict() {
-  # confirm ssh-agent is running so we can automatically do some ssh stuff
-  if [ -z "$SCR_SSH_AUTH_SOCK" ]; then
-    echo "$FUNCNAME: expected SCR_SSH_AUTH_SOCK to be set for password-less ssh" >&2
-    return 1
-  fi
   # disable "Warning: Permanently added ..." by using error log level
-  ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oLogLevel=error -oPreferredAuthentications=publickey "$@"
+  #ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oLogLevel=error -oPreferredAuthentications=publickey "$@"
+  ssh -p $SCR_SSH_PORT -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oLogLevel=error "$@"
 }
 
 -ssh-localhost() {

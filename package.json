@@ -1,6 +1,6 @@
 {
   "name": "scrash",
-  "version": "1.8.2",
+  "version": "1.9.0",
   "description": "",
   "type": "module",
   "main": "index.js",
@@ -24,8 +24,7 @@
   "license": "AGPL-3.0-only",
   "config": {
     "SCR_ENV": "dev",
-    "SCR_PROFILE": "el13",
-    "SCR_1": "${npm_package_config_SCR_PROFILE}/"
+    "SCR_PROFILE": "el13"
   },
   "devDependencies": {
     "ssh2": "^1.17.0"

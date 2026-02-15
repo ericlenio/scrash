@@ -23,7 +23,7 @@ add_pw() {
 }
 
 -ssh-pw() {
-  ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -c -- '"$@"' -- -pw -p $SCR_PASSWORD_FILE "$@" </dev/null
+  ssh -p $SCR_SSH_PORT -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -c -- '"$@"' -- -pw -p $SCR_PASSWORD_FILE "$@" </dev/null
 }
 
 pwkey1="my password key with funky chars &/"

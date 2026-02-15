@@ -25,6 +25,7 @@ init() {
   # force lowercase hostname for SCR_SSH_HOST because ssh-keyscan forces
   # lowercase hostnames in it's output
   SCR_SSH_HOST=$(hostname|tr "[:upper:]" "[:lower:]")
+  SCR_SSH_PORT=22
   SCR_ENV=${SCR_ENV:=dev}
   if [ "$SSH_AUTH_SOCK" ]; then
     SCR_SSH_AUTH_SOCK=$SSH_AUTH_SOCK
@@ -47,6 +48,7 @@ init() {
         SCR_ENV=test
         #SCR_PORT=$((50000+$RANDOM % 10000))
         SCR_PORT=55554
+        SCR_SSH_PORT=4222
         ;;
       (g)
         test_groups="$OPTARG"

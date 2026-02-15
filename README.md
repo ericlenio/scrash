@@ -63,11 +63,15 @@ proceed with the ssh-agent http proxy. For convenience, once the OTP is pasted
 to the clipboard.
 
 # passwords
-scrash includes a `-pw` shell function to retrieve your passwords from a
-gpg-encrypted file. Here's how it works: set up your system to run `gpg-agent`,
-then store your passwords in your profile (`$SCR_PASSWORD_FILE`) with this
-colon-delimited format for each line: `description:username:password`, for
-example,
+scrash includes a `-pw` shell function to retrieve and manage your passwords
+from a gpg-encrypted file. Here's how it works: set up your system to run
+`gpg-agent` (note: this is automatic on Mac), then set up
+`$HOME/.config/scrash/config` like this:
+
+    SCR_PASSWORD_FILE=/path/to/passwords.asc
+
+with this colon-delimited format for each line:
+`description:username:password`, for example,
 
     mail.google.com:eric@lincware.com:my-secret-password
 
@@ -82,7 +86,8 @@ on `SSH-KEY`:
 
     -pw -i 0 SSH-KEY
 
-Type `-pw -h` for a few other options.
+To edit your password file in vim, simply run `-pw -e`. Type `-pw -h` for a few
+other options.
 
 ## gpg setup
 By default, when scrash starts it will initialize your password file if it does

@@ -484,7 +484,7 @@ vim() {
   else
     start=1
   fi
-  printf 'eval -- "$(NO_PROXY=%s curl --connect-timeout 5 -S -f -s --compressed http://%s:%s/scr-get-bash-functions?platform=$(uname)\&hostname=$(hostname)\&start=%s\&ssh_level=%s || echo false)"' \
+  printf 'eval -- "$(NO_PROXY=%s curl --connect-timeout 5 -Sfs --compressed http://%s:%s/scr-get-bash-functions?platform=$(uname)\&hostname=$(hostname)\&start=%s\&ssh_level=%s || echo false)"' \
     $curl_host \
     $curl_host \
     $remote_port \
@@ -520,6 +520,9 @@ scp() {
 #
 #   ProxyCommand ${SCR_SSH_PROXY_JUMP} user@jump_host_here dest_host_here
 #
+# special case: if ssh daemon on dest host is not 22 you can do dest_host:xxxx,
+# where xxxx is the dest ssh daemon listening port
+#
 # so if we wanted to jump to root@ops.lincware.com first, then get to
 # apt.lincware.com we use this:
 #
@@ -531,9 +534,13 @@ scp() {
     echo "$FUNCNAME: cannot run this here" >&2
     return 1
   fi
-  local jump_host=$1 dest_host=$2
+  local jump_host=$1 dest_host=$2 dest_port=22
   shift 2
-  SCR_SSH_EXEC=1 ssh "$@" $jump_host nc $dest_host 22
+  if [[ "$dest_host" =~ ^([-\.[:alnum:]]+):([0-9]+)$ ]]; then
+    dest_host=${BASH_REMATCH[1]}
+    dest_port=${BASH_REMATCH[2]}
+  fi
+  SCR_SSH_EXEC=1 ssh "$@" $jump_host nc $dest_host $dest_port
 }
 
 ssh() {
@@ -1021,7 +1028,9 @@ my $socket0=create_unix_domain_socket($SSH_AUTH_SOCK);
 my $socket1=create_proxy_socket($SCR_PORT,$otp,$connect_dest);
 bi_directional_pipe($socket0,$socket0,$socket1);
 '
-  perl <(echo "$perl_code") $SCR_PORT "$otp" SCR_SSH_AUTH_SOCK_REQUEST $SSH_AUTH_SOCK &
+  # important: our perl ssh-agent will inherit file descriptors, so we must
+  # redirect standard I/O to /dev/null
+  perl <(echo "$perl_code") $SCR_PORT "$otp" SCR_SSH_AUTH_SOCK_REQUEST $SSH_AUTH_SOCK >/dev/null 2>&1 </dev/null &
   pid=$!
   until [ -S $SSH_AUTH_SOCK ]; do
     sleep 0.1
@@ -1067,9 +1076,10 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
     cmd=(
       $sxx
       #-oLogLevel=DEBUG3
+      -oPort=$SCR_SSH_PORT
       -oConnectTimeout=10
       -oUserKnownHostsFile="$SCR_SSH_USER_KNOWN_HOSTS"
-      -oProxyCommand="bash -c -- \"-ssh-proxy-connect $otp $SCR_SSH_HOST:22\""
+      -oProxyCommand="bash -c -- \"-ssh-proxy-connect $otp $SCR_SSH_HOST:$SCR_SSH_PORT\""
       #-oProxyCommand="nc -X connect -x 127.0.0.1:$SCR_PORT localhost-otp-$otp 22"
       "$@"
     )

@@ -4,14 +4,14 @@ export SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION=1
 -sxx-scr-server-known-hosts
 [ -f $SCR_SSH_USER_KNOWN_HOSTS ]
 if [ "$SCR_SSH_AUTH_SOCK" ]; then
-  hostname=$(ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST hostname)
+  hostname=$(ssh -p $SCR_SSH_PORT -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST hostname)
   [ "$hostname" ]
   [ "$hostname" = $(hostname) ]
 
   # IF THIS FILE WAS RUN ON IT'S OWN (npm t -g ssh), then the above ssh should
   # have deleted $SCR_SSH_USER_KNOWN_HOSTS, because no version file existed
   # (so, there should have been a forced cache clear)
-  [ ! -f $SCR_SSH_USER_KNOWN_HOSTS ] && -sxx-scr-server-known-hosts
+  -sxx-scr-server-known-hosts
   [ -f $SCR_SSH_USER_KNOWN_HOSTS ]
 
   # add in some tests around the version file
@@ -20,7 +20,7 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
   rm $version_file
   # this next ssh session should use the same $SCR_TMPDIR, and re-create the
   # version file
-  hostname=$(ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST hostname)
+  hostname=$(ssh -p $SCR_SSH_PORT -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST hostname)
   [ "$hostname" = $(hostname) ]
   [ -f $version_file ]
 
@@ -31,7 +31,8 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
   [ $(-md5 /tmp/passwd) = $(-md5 /etc/passwd) ]
   rm /tmp/passwd
 
-  ssh_cmd=(ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -c -- -vars)
+  -sxx-scr-server-known-hosts
+  ssh_cmd=(ssh -p $SCR_SSH_PORT -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -c -- -vars)
   "${ssh_cmd[@]}" | grep -q SCR_TMPDIR
 
   m1="should_not_see_this_string_because_exec_should_effectively_hide_it"

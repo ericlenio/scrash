@@ -22,6 +22,7 @@ const SCR_APP_NAME=pkgjson.name;
 const SCR_PORT_0=process.env.SCR_PORT_0;
 const SCR_SSH_USER=process.env.SCR_SSH_USER;
 const SCR_SSH_HOST=process.env.SCR_SSH_HOST;
+const SCR_SSH_PORT=process.env.SCR_SSH_PORT;
 const SCR_SSH_AUTH_SOCK=process.env.SCR_SSH_AUTH_SOCK;
 
 const E_OS_PROG_ENUM={
@@ -49,18 +50,14 @@ class Server extends http.Server {
   #otpCache;
   #shellFunctions={};
 
-  init({notify,port}) {
-    console.log(`starting Server.js v${SCR_VERSION}, configuration: ${SCR_ENV}, profile: ${SCR_PROFILE}`);
+  init({port}) {
+    console.error(`starting Server.js v${SCR_VERSION}, configuration: ${SCR_ENV}, profile: ${SCR_PROFILE}`);
     this.#otpCache=new OtpCache();
-    this.once('listening',()=>console.log("listening on port:",this.address().port));
-    if (notify) {
-      this.once('listening',()=>fsPromises.appendFile(notify,this.address().port+"\n").catch(e=>console.error(e)));
-    }
+    this.once('listening',()=>console.error("listening on port:",this.address().port));
     this.on('request',(req,res)=>this.onRequest(req,res));
     this.on('connect',(req,socket,head)=>this.onConnect(req,socket,head));
     return this.loadBashFunctions()
-      .then(()=>this.listen(port,'127.0.0.1'))
-      .then(()=>new Promise(resolve=>this.once('listening',resolve)));
+      .then(()=>new Promise(resolve=>this.listen(port,'127.0.0.1',resolve)));
   }
 
   onRequest(req,res) {
@@ -168,7 +165,7 @@ class Server extends http.Server {
         socket.unshift(head);
       }
       switch(req.url) {
-        case `${SCR_SSH_HOST}:22`:
+        case `${SCR_SSH_HOST}:${SCR_SSH_PORT}`:
           const m=req.url.match(/^([-\.\w]+):(\d+)$/);
           const sshHost=m[1];
           const sshPort=m[2];
@@ -318,13 +315,16 @@ class Server extends http.Server {
       const start=url.searchParams.get('start');
       this.sendFunctions(write,platform,hostname);
       if (start) {
-        write(`export SCR_PORT=${url.port}\n`);
-        write(`export SCR_PORT_0=${SCR_PORT_0}\n`);
-        write(`export SCR_ENV=${SCR_ENV}\n`);
-        write(`export SCR_VERSION=${SCR_VERSION}\n`);
-        write(`export SCR_SSH_USER=${SCR_SSH_USER}\n`);
-        write(`export SCR_SSH_HOST=${SCR_SSH_HOST}\n`);
-        write(`export SCR_SSH_LEVEL=${sshLevel ? sshLevel : 0}\n`);
+        write(`export `);
+        write(`SCR_PORT=${url.port} `);
+        write(`SCR_PORT_0=${SCR_PORT_0} `);
+        write(`SCR_ENV=${SCR_ENV} `);
+        write(`SCR_VERSION=${SCR_VERSION} `);
+        write(`SCR_SSH_USER=${SCR_SSH_USER} `);
+        write(`SCR_SSH_HOST=${SCR_SSH_HOST} `);
+        write(`SCR_SSH_PORT=${SCR_SSH_PORT} `);
+        write(`SCR_SSH_LEVEL=${sshLevel ? sshLevel : 0} `);
+        write(`\n`);
         write(`-shell-init -s ${start}\n`);
       }
       console.log("getBashFunctions: sent",bytesWritten,"bytes");
@@ -586,7 +586,7 @@ class Server extends http.Server {
   loadSshUserKnownHosts() {
     return new Promise((resolve,reject)=>{
       let userKnownHosts='';
-      const p=child_process.spawn("/usr/bin/env",['ssh-keyscan','-H',SCR_SSH_HOST],
+      const p=child_process.spawn("/usr/bin/env",['ssh-keyscan','-p',SCR_SSH_PORT,'-t','ed25519','-H',SCR_SSH_HOST],
         {stdio:['ignore','pipe',process.stderr]});
       p.on('exit',(code,sig)=>(code>0 ? reject(new Error("ssh-keyscan non-zero return code")) : null));
       p.on('error',reject);

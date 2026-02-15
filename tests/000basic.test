@@ -33,6 +33,7 @@ echo "$s" > $t
 ! -md5 /no-such-file
 rm $t
 # ssh
+-ssh-localhost true
 h=$(-ssh-localhost hostname)
 [ $h = $(hostname) ]
 remote_port=$(eval $(-ssh-localhost declare -p SCR_PORT); echo $SCR_PORT)
@@ -46,8 +47,8 @@ u=$(-ssh-localhost bash -c -- "uname -a")
 [ "$u" = "$(uname -a)" ]
 a=$(-ssh-localhost bash -c -- 'a=asdf;echo $a')
 [ $a = asdf ]
--psg node | grep -w $SCR_PORT
--psg -w node | grep -w $SCR_PORT
+-psg node | grep -E test.js
+-psg -w node | grep -E test.js
 ! -psg -kp 2>/dev/null
 pids=($(-psg -pw node))
 [ ${#pids[@]} -gt 0 ]
