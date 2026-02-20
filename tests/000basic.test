@@ -33,19 +33,19 @@ echo "$s" > $t
 ! -md5 /no-such-file
 rm $t
 # ssh
--ssh-localhost true
-h=$(-ssh-localhost hostname)
+-ssh-scr-server true
+h=$(-ssh-scr-server hostname)
 [ $h = $(hostname) ]
-remote_port=$(eval $(-ssh-localhost declare -p SCR_PORT); echo $SCR_PORT)
+remote_port=$(eval $(-ssh-scr-server declare -p SCR_PORT); echo $SCR_PORT)
 [ $remote_port != $SCR_PORT ]
 [[ $remote_port =~ ^[0-9]+$ ]]
-scr_env2=$(-ssh-localhost bash -c 'echo $SCR_ENV')
+scr_env2=$(-ssh-scr-server bash -c 'echo $SCR_ENV')
 [ "$scr_env2" = $SCR_ENV ]
 scr_env2=$(-s nobody bash -c 'echo $SCR_ENV')
 [ "$scr_env2" = $SCR_ENV ]
-u=$(-ssh-localhost bash -c -- "uname -a")
+u=$(-ssh-scr-server bash -c -- "uname -a")
 [ "$u" = "$(uname -a)" ]
-a=$(-ssh-localhost bash -c -- 'a=asdf;echo $a')
+a=$(-ssh-scr-server bash -c -- 'a=asdf;echo $a')
 [ $a = asdf ]
 -psg node | grep -E test.js
 -psg -w node | grep -E test.js

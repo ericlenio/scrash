@@ -53,6 +53,7 @@ same as above, but also include test case file(s) matching on \"vim\":
   TEST_CLEANUP_FILE="$SCR_TMPDIR/cleanup"
   rm -f "$TEST_ERROR_FILE" "$TEST_CLEANUP_FILE"
   node test.js < <(scr_function_list_dump)
+  SCR_SSH_HOST_KEY=$(-sxx-scr-server-host-key)
 }
 
 -on-error() {
@@ -109,16 +110,6 @@ same as above, but also include test case file(s) matching on \"vim\":
   stty sane
 }
 
--ssh-not-strict() {
-  # disable "Warning: Permanently added ..." by using error log level
-  #ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oLogLevel=error -oPreferredAuthentications=publickey "$@"
-  ssh -p $SCR_SSH_PORT -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oLogLevel=error "$@"
-}
-
--ssh-localhost() {
-  -ssh-not-strict localhost "$@"
-}
-
 -run-tests() {
   for TEST_SOURCE_FILE in $(find $(dirname $0) -name *.test | sort); do
     for test_group in $TEST_GROUPS; do
@@ -139,7 +130,7 @@ same as above, but also include test case file(s) matching on \"vim\":
     case "$opt" in
       (r)
         # start gnu screen "remotely" over localhost ssh
-        cmd=(-ssh-localhost "${cmd[@]}")
+        cmd=(-ssh-scr-server "${cmd[@]}")
         ;;
     esac
   done

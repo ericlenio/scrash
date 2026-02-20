@@ -1,18 +1,16 @@
 import fs from 'fs';
 import {spawn} from 'child_process';
 import ScrServer from './src/main/js/Server.js';
-import sshServer from "./src/test/js/SshServer.js";
+import SshServer from "./src/test/js/SshServer.js";
 
 const sshPort=process.env.SCR_SSH_PORT;
 
 // --- 1. Your Init Logic ---
 function runInit() {
-  console.log('[Child] Initializing server');
+  console.log('[child] initializing ssh and scrash servers');
+  const sshServer=SshServer.getInstance();
   const scrServer=new ScrServer();
-  return Promise.all([
-    scrServer.init({port:process.env.SCR_PORT}),
-    new Promise(resolve=>sshServer.listen(sshPort,resolve)),
-  ]);
+  return sshServer.init(sshPort).then(()=>scrServer.init({port:process.env.SCR_PORT}));
 }
 
 // --- 2. The Logic to Spawn & Wait ---

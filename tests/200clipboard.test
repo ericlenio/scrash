@@ -21,7 +21,7 @@ IFS= read -d '' ans <$t0 || true
 # clipboard over ssh
 t=$(mktemp)
 uname -a > $t
--ssh-localhost -set-clipboard $t
+-ssh-scr-server -set-clipboard $t
 [ $(-md5 $t) = $(-get-clipboard | -md5) ]
 rm $t
 echo $r | -set-clipboard

@@ -104,10 +104,9 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
   num_ssh_keys=$(count_ssh_agent_keys)
   [ $num_ssh_keys -gt 0 ]
 
-  -sxx-scr-server-known-hosts
   # -totp function should NOT be loaded inside ssh session (see SCR_LOCALHOST_FUNCS)
   #if ssh -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -c '"$@"' -- -totp 2>/dev/null; then
-  if ssh -p $SCR_SSH_PORT -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -c '"$@"' -- -totp 2>/dev/null; then
+  if -ssh-scr-server bash -c '"$@"' -- -totp 2>/dev/null; then
     echo "expected -totp to fail" >&2
     false
   fi
@@ -126,8 +125,7 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
     [ -f /tmp/passwd ]
 
     # test host-specific bashrc: bashrc-m2.local should set JAVA_HOME
-    -sxx-scr-server-known-hosts
-    s=$(ssh -p $SCR_SSH_PORT -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST compgen -v JAVA_HOME)
+    s=$(-ssh-scr-server compgen -v JAVA_HOME)
     [ "$s" ]
     [ "$s" = JAVA_HOME ]
     ! -ra $ra_host compgen -v JAVA_HOME >/dev/null

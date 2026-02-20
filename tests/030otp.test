@@ -6,16 +6,11 @@ num_otps=3
 [ ${#SCR_OTP_CACHE[*]} -eq $num_otps ]
 export SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION=1
 if [ "$SCR_SSH_AUTH_SOCK" ]; then
-  rm -f $SCR_SSH_USER_KNOWN_HOSTS
-  -sxx-scr-server-known-hosts
-  [ -f $SCR_SSH_USER_KNOWN_HOSTS ]
-  hostname=$(ssh -p $SCR_SSH_PORT -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST hostname)
+  hostname=$(-ssh-scr-server hostname)
   [ "$hostname" ]
   [ ${#SCR_OTP_CACHE[*]} -eq $num_otps ]
-  -sxx-scr-server-known-hosts
-  [ -f $SCR_SSH_USER_KNOWN_HOSTS ]
-  ssh -p $SCR_SSH_PORT -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST hostname
-  [ ${#SCR_OTP_CACHE[*]} -eq $(($num_otps-1)) ]
+  -ssh-scr-server hostname
+  [ ${#SCR_OTP_CACHE[*]} -lt $num_otps ]
   [ "$hostname" = $(hostname) ]
 
   # test out -ssh-proxy-jump

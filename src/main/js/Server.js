@@ -1,4 +1,4 @@
-import child_process from 'child_process';
+import {spawn} from 'child_process';
 import http from 'http';
 import os from 'os';
 import zlib from 'zlib';
@@ -24,6 +24,7 @@ const SCR_SSH_USER=process.env.SCR_SSH_USER;
 const SCR_SSH_HOST=process.env.SCR_SSH_HOST;
 const SCR_SSH_PORT=process.env.SCR_SSH_PORT;
 const SCR_SSH_AUTH_SOCK=process.env.SCR_SSH_AUTH_SOCK;
+let SCR_SSH_HOST_KEY;
 
 const E_OS_PROG_ENUM={
   COPY:{
@@ -56,8 +57,12 @@ class Server extends http.Server {
     this.once('listening',()=>console.error("listening on port:",this.address().port));
     this.on('request',(req,res)=>this.onRequest(req,res));
     this.on('connect',(req,socket,head)=>this.onConnect(req,socket,head));
-    return this.loadBashFunctions()
-      .then(()=>new Promise(resolve=>this.listen(port,'127.0.0.1',resolve)));
+    return Promise.all([this.loadBashFunctions(),this.loadSshUserKnownHosts().then(k=>{
+      SCR_SSH_HOST_KEY=k.trim();
+      return new Promise((resolve,reject)=>spawn("/usr/bin/env",["screen","-X","setenv","SCR_SSH_HOST_KEY",SCR_SSH_HOST_KEY],{stdio:'ignore'})
+        .on('error',reject)
+        .on('close',resolve));
+    })]).then(()=>new Promise(resolve=>this.listen(port,'127.0.0.1',resolve)));
   }
 
   onRequest(req,res) {
@@ -323,6 +328,7 @@ class Server extends http.Server {
         write(`SCR_SSH_USER=${SCR_SSH_USER} `);
         write(`SCR_SSH_HOST=${SCR_SSH_HOST} `);
         write(`SCR_SSH_PORT=${SCR_SSH_PORT} `);
+        write(`SCR_SSH_HOST_KEY="${SCR_SSH_HOST_KEY}" `);
         write(`SCR_SSH_LEVEL=${sshLevel ? sshLevel : 0} `);
         write(`\n`);
         write(`-shell-init -s ${start}\n`);
@@ -443,7 +449,7 @@ class Server extends http.Server {
     return new Promise((resolve,reject)=>{
       let clipboard='';
       const paste_prog=this.getOsProgram(E_OS_PROG_ENUM.PASTE);
-      const p=child_process.spawn(paste_prog[0],paste_prog.slice(1),
+      const p=spawn(paste_prog[0],paste_prog.slice(1),
         {stdio:['ignore','pipe',process.stderr]});
       p.on("error",reject);
       p.stdout.on('data',buf=>clipboard+=buf);
@@ -454,7 +460,7 @@ class Server extends http.Server {
   setClipboard(stream) {
     return new Promise((resolve,reject)=>{
       const cp_prog=this.getOsProgram(E_OS_PROG_ENUM.COPY);
-      const p=child_process.spawn(cp_prog[0],cp_prog.slice(1),{stdio:['pipe','ignore',process.stderr]});
+      const p=spawn(cp_prog[0],cp_prog.slice(1),{stdio:['pipe','ignore',process.stderr]});
       let numBytes=0;
       stream.on('data',buf=>numBytes+=buf.length);
       stream.pipe(p.stdin);
@@ -483,7 +489,7 @@ class Server extends http.Server {
     }
     return new Promise((resolve,reject)=>{
       const paste_prog=this.getOsProgram(E_OS_PROG_ENUM.PASTE);
-      const p=child_process.spawn(paste_prog[0],paste_prog.slice(1),
+      const p=spawn(paste_prog[0],paste_prog.slice(1),
         {stdio:['ignore','pipe',process.stderr]});
       p.on("error",reject);
       const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
@@ -565,7 +571,7 @@ class Server extends http.Server {
     }
     return new Promise((resolve,reject)=>{
       const args64=url.searchParams.get('args64');
-      const p=child_process.spawn("/usr/bin/env",['bash','-c','"$@"','--','-pw-localhost','-A',args64],
+      const p=spawn("/usr/bin/env",['bash','-c','"$@"','--','-pw-localhost','-A',args64],
         {stdio:['pipe','pipe',process.stderr]});
       p.on("error",reject);
       p.on('exit',(rc,signal)=>{
@@ -586,7 +592,7 @@ class Server extends http.Server {
   loadSshUserKnownHosts() {
     return new Promise((resolve,reject)=>{
       let userKnownHosts='';
-      const p=child_process.spawn("/usr/bin/env",['ssh-keyscan','-p',SCR_SSH_PORT,'-t','ed25519','-H',SCR_SSH_HOST],
+      const p=spawn("/usr/bin/env",['ssh-keyscan','-p',SCR_SSH_PORT,'-t','ed25519',SCR_SSH_HOST],
         {stdio:['ignore','pipe',process.stderr]});
       p.on('exit',(code,sig)=>(code>0 ? reject(new Error("ssh-keyscan non-zero return code")) : null));
       p.on('error',reject);
