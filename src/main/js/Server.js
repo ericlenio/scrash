@@ -138,7 +138,7 @@ class Server extends http.Server {
 
   onConnect(req,socket,head) {
     socket.pause();
-    console.log("onConnect:",req.url)
+    console.log("onConnect:",req.url);
     /*
     const m=req.url.match(/^localhost-otp-(\d+):22/);
     if (m) {

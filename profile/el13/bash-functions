@@ -474,3 +474,7 @@ while ($cert_source=~m{(-----BEGIN CERT.*?-----END CERTIFICATE-----)}sg) {
     fi
   done
 }
+
+-openbsd-fix-clock() {
+  sudo sh -c "rcctl stop ntpd; rdate -n pool.ntp.org; rcctl start ntpd"
+}

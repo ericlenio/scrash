@@ -560,15 +560,6 @@ ssh() {
   else
     cmd+=(env ssh)
   fi
-  if [[ "$1" =~ --otp=([[:print:]]*) ]]; then
-    # see -ssh-proxy-jump
-    SCR_PREAUTH_OTP=${BASH_REMATCH[1]}
-    if [ ${#SCR_PREAUTH_OTP} = 0 ]; then
-      echo "$FUNCNAME: --otp was specified with empty value" >&2
-      return 1
-    fi
-    shift
-  fi
   while builtin getopts $ssh_legal_opts opt; do
     #case $opt in
     #  f|N|M|V)
@@ -796,11 +787,6 @@ ssh() {
   if [ "${FUNCNAME[1]}" != -fetch-otps ]; then
     echo "$FUNCNAME: caller should always be -fetch-otps" >&2
     return 1
-  fi
-  if [ "$SCR_PREAUTH_OTP" ]; then
-    echo "$SCR_PREAUTH_OTP"
-    unset SCR_PREAUTH_OTP
-    return
   fi
   if otp_line=$(-ws /scr-set-otp?count=$count); then
     if [ ${#otp_line} -eq 0 ]; then
@@ -1077,7 +1063,7 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 }
 
 -ssh-scr-server() {
-  -sxx-scr-server ssh $SCR_SSH_HOST "$@"
+  -sxx-scr-server ssh $SCR_SSH_USER@$SCR_SSH_HOST "$@"
 }
 
 # run one of ssh, sftp, scp, etc. connecting back to the scrash server
