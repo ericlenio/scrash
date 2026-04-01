@@ -504,6 +504,7 @@
   echo "detected wifi interface: $wifi_iface"
   qemu_subnet=192.168.105.0/24
   vbox_subnet=192.168.5.0/24
+  tart_subnet=192.168.64.0/24
   vbox_iface=vboxnet0
 
   #sudo sysctl -w net.inet.ip.forwarding=1 net.inet.ip.fw.enable=1
@@ -529,8 +530,8 @@
       # forward VPN traffic to lincware VPN: also must set up a static route on
       # the router to pass 10.9.0.0/16 to elmbp's en0 IP address
       #echo "pass in quick proto { tcp udp } from 192.168.1.0/24 to 10.9.0.0/16 keep state"
-      echo "nat on $vpn_iface from { $vbox_subnet $qemu_subnet } to any -> $vpn_iface"
-      echo "nat on $wifi_iface from { $vbox_subnet $qemu_subnet } to any -> $wifi_iface"
+      echo "nat on $vpn_iface from { $vbox_subnet $qemu_subnet $tart_subnet } to any -> $vpn_iface"
+      echo "nat on $wifi_iface from { $vbox_subnet $qemu_subnet $tart_subnet } to any -> $wifi_iface"
     } | pfctl -e -f -
     pfctl -s nat
 EOF
