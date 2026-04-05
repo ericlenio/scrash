@@ -33,7 +33,7 @@
 }
 
 -vars() {
-  set | egrep '^(EDITOR|SCR|STY|VIM|SSH|GIT_SSH)' | sort
+  set | egrep '^(EDITOR|SCR|STY|VIM|SSH|GIT_SSH|PSQLRC)' | sort
 }
 
 -clear-cache() {
@@ -375,7 +375,9 @@ vim() {
     # set GIT_SSH so we can ensure SSH_AUTH_SOCK gets set when dealing with git
     # ssh-style URLs, see:
     # https://git-scm.com/book/en/v2/Git-Internals-Environment-Variables#_miscellaneous
-    export GIT_SSH=$SCR_TMPDIR/git-ssh
+    if which git >/dev/null; then
+      export GIT_SSH=$SCR_TMPDIR/git-ssh
+    fi
     export SCR_SSH_PROXY_JUMP=$SCR_TMPDIR/ssh-proxy-jump
     #[ -z "$SUDO_USER" ] && rm -f $EDITOR $SCR_VIMRC
     if [ ! -d $SCR_TMPDIR ]; then
@@ -401,7 +403,7 @@ vim() {
     if [ ! -f "$version_file" ]; then
       echo $SCR_VERSION > "$version_file"
     fi
-    if [ ! -f $GIT_SSH ]; then
+    if [ "$GIT_SSH" -a ! -f "$GIT_SSH" ]; then
       {
         echo '#!/usr/bin/env bash'
         -shell-init -D
@@ -413,6 +415,10 @@ vim() {
         echo '-sxx-init exec ssh "$@"'
       } > $GIT_SSH
       chmod 755 $GIT_SSH
+    fi
+    if declare -f -- -psqlrc >/dev/null; then
+      export PSQLRC=$SCR_TMPDIR/psqlrc
+      -psqlrc >$PSQLRC
     fi
   fi
   if [ "$(type -t -- -bashrc)" = function ]; then

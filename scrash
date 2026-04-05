@@ -82,6 +82,8 @@ build_func() {
   case $funcname in
     (-vimrc) comment_lead='"'
       ;;
+    (-psqlrc) comment_lead='--'
+      ;;
   esac
   # we strip out comments from the rcfiles
   comment_regex="^ *$comment_lead"
@@ -105,7 +107,7 @@ load_bash_functions() {
     funclist+=($(get_function_names "$f"))
   done
   SCR_LOCALHOST_FUNCS=$(get_function_names "$BASH_FUNCTIONS_LOCALHOST"; get_function_names "$PROFILE_BASH_FUNCTIONS_LOCALHOST")
-  for rcfile in screenrc bashrc vimrc; do
+  for rcfile in screenrc bashrc vimrc psqlrc; do
     funcname="-$rcfile"
     # create stub, it might get overwritten in the next for loop
     printf -v funcdef -- "%s() { :; }" $funcname
