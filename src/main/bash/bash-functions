@@ -375,7 +375,7 @@ vim() {
     # set GIT_SSH so we can ensure SSH_AUTH_SOCK gets set when dealing with git
     # ssh-style URLs, see:
     # https://git-scm.com/book/en/v2/Git-Internals-Environment-Variables#_miscellaneous
-    if which git >/dev/null; then
+    if command -v git >/dev/null; then
       export GIT_SSH=$SCR_TMPDIR/git-ssh
     fi
     export SCR_SSH_PROXY_JUMP=$SCR_TMPDIR/ssh-proxy-jump
