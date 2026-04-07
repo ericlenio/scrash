@@ -334,7 +334,7 @@ vim() {
 }
 
 -shell-init() {
-  local opts="CDvs:" opt OPTIND log_tty verbose=0 i fcns num_fcns test_mode=0 test_groups start clear_cache=0 declare_mode=0 show_test_groups version_file old_version
+  local opts="CDvs:" opt OPTIND log_tty verbose=0 f i fcns num_fcns test_mode=0 test_groups start clear_cache=0 declare_mode=0 show_test_groups version_file old_version
   while builtin getopts $opts opt; do
     case $opt in
       (v) verbose=1
@@ -416,9 +416,10 @@ vim() {
       } > $GIT_SSH
       chmod 755 $GIT_SSH
     fi
-    if declare -f -- -psqlrc >/dev/null; then
-      export PSQLRC=$SCR_TMPDIR/psqlrc
-      -psqlrc >$PSQLRC
+    f="$SCR_TMPDIR/psqlrc"
+    if declare -f -- -psqlrc >/dev/null && [ ! -f "$f" ]; then
+      -psqlrc >"$f"
+      export PSQLRC="$f"
     fi
   fi
   if [ "$(type -t -- -bashrc)" = function ]; then
