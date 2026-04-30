@@ -148,7 +148,7 @@ export -f scr_function_list_dump
 
 scr_server() {
   -pw -I
-  scr_function_list_dump | SCR_LOCALHOST_FUNCS="$SCR_LOCALHOST_FUNCS" node "$SCR_HOME"/server.js -- -p $SCR_PORT
+  scr_function_list_dump | node "$SCR_HOME"/server.js -- -p $SCR_PORT
   echo "$FUNCNAME: server has stopped, \"$FUNCNAME\" to restart it" >&2
   exec bash
 }
@@ -167,7 +167,7 @@ main() {
       if [ $os = Darwin ]; then
         export DISPLAY=unknown SSH_ASKPASS=$SCR_HOME/src/main/bash/scr-ssh-askpass
       fi
-      shell_init_args+=(-s $(-ssh-serialize-cmd screen ssh-agent bash -c scr_server))
+      shell_init_args+=(-s $(-ssh-serialize-cmd screen ssh-agent env SCR_LOCALHOST_FUNCS="$SCR_LOCALHOST_FUNCS" bash -c scr_server))
       ;;
     (test)
       load_bash_functions
