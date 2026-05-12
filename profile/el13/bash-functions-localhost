@@ -912,3 +912,537 @@ ra-ssh() {
   SCR_SSH_EXEC=1 env ra-ssh "$@"
 }
 export -f ra-ssh
+
+-vm-runner() (
+  format_apt_key_for_yaml() {
+    local apt_key="$1"
+    perl -pe 's{(.*)}{          $1}' "$apt_key"
+  }
+
+  create_user_data_legacy() {
+    [ -f $VM_CLOUD_INIT_USER_DATA ] && return
+    cat >$VM_CLOUD_INIT_USER_DATA <<EOF
+#cloud-config
+ssh_pwauth: true
+hostname: $VM_NAME
+timezone: $VM_TIMEZONE
+disable_root: false
+runcmd:
+  - [ sh, -c, echo "**************************************************" ]
+  - [ sh, -c, echo "*** the system is UP with IP address \$(hostname -I)" ]
+  - [ sh, -c, echo "**************************************************" ]
+chpasswd:
+  list: |
+    $USER:password
+  expire: false
+ssh_authorized_keys:
+  - $VM_SSH_PUBLIC_KEY
+users:
+  - name: $USER
+    ssh-authorized-keys:
+      - $VM_SSH_PUBLIC_KEY
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    groups: sudo
+    shell: /bin/bash
+$(extra_packages)
+apt_sources:
+  - source: "deb [arch=$DEB_ARCH] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main"
+    key: |
+$NODESOURCE_PPA_KEY_YAML
+  - source: "deb [arch=$DEB_ARCH] http://apt.lincware.com/ubuntu $VM_UBUNTU_CODENAME core"
+    key: |
+$LW_PPA_KEY_YAML
+EOF
+    lincdoc_user_data
+  }
+
+  extra_packages() {
+    if [ ${#VM_EXTRA_PACKAGES[*]} -gt 0 ]; then
+      IFS=,
+      printf "packages: [%s]\n" "${VM_EXTRA_PACKAGES[*]}"
+    fi
+  }
+
+  create_user_data() {
+    [ -f $VM_CLOUD_INIT_USER_DATA ] && return
+    cat >$VM_CLOUD_INIT_USER_DATA <<EOF
+#cloud-config
+ssh_pwauth: true
+hostname: $VM_NAME
+timezone: $VM_TIMEZONE
+disable_root: false
+ssh_authorized_keys:
+  - $VM_SSH_PUBLIC_KEY
+users:
+  - name: ubuntu
+    plain_text_passwd: password
+    ssh_authorized_keys:
+      - $VM_SSH_PUBLIC_KEY
+    lock_passwd: false
+  - name: $USER
+    ssh_authorized_keys:
+      - $VM_SSH_PUBLIC_KEY
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: sudo
+    shell: /bin/bash
+    plain_text_passwd: password
+    lock_passwd: false
+$(extra_packages)
+apt:
+  sources:
+    nodesource.list:
+      source: "deb [arch=$DEB_ARCH] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main"
+      key: |
+$NODESOURCE_PPA_KEY_YAML
+    lincware.list:
+      source: "deb [arch=$DEB_ARCH] http://apt.lincware.com/ubuntu $VM_UBUNTU_CODENAME core"
+      key: |
+$LW_PPA_KEY_YAML
+write_files:
+  - path: /etc/issue
+    content: |
+      \\S (\\s \\m \\r) \\l \\t \\4
+  - path: /etc/apt/preferences.d/lincware-node
+    content: |
+      # in Ubuntu Noble, override the default node 18
+      #Package: nodejs
+      #Pin: release n=nodistro
+      #Pin-Priority: 700
+EOF
+    lincdoc_user_data
+  }
+
+  lincdoc_user_data() {
+    # modify the user-data file to add support for installing LincDoc
+    if [ $INSTALL_LINCDOC = 1 ]; then
+      war_cache=$VM_CACHE_DIR/$(basename $VM_LINCDOC_WAR)
+      if [ ! -f "$war_cache" ]; then
+        point_release=${VM_LINCDOC_VERSION##*.}
+        war_url=https://jenkins-ext.lincware.com:5555/jenkins/job/LincDoc/job/$VM_LINCDOC_BRANCH/lastStableBuild/artifact/build/libs/lincdoc.war
+        curl -u "$CI_SERVER_USERNAME:$CI_SERVER_PASSWORD" -H "x-lincware-api-key: $CI_SERVER_API_KEY" "$war_url" > $war_cache
+      fi
+      if [ ! -f $VM_LINCDOC_WAR ]; then
+        cp $war_cache $VM_LINCDOC_WAR
+      fi
+      cat >>$VM_CLOUD_INIT_USER_DATA <<EOF
+write_files:
+  - path: /root/cloud-init-lw
+    permissions: '0700'
+    content: |
+      #! /bin/bash
+      set >/root/cloud-init-env
+      chmod 770 /etc/tomcat${TOMCAT_VERSION}/Catalina/localhost
+      chgrp \$(grep tomcat /etc/group | cut -d: -f1) /etc/tomcat${TOMCAT_VERSION}/tomcat-users.xml
+      # restart tomcat for new tomcat-users.xml to take effect
+      service tomcat${TOMCAT_VERSION} restart
+      sleep 2
+      sudo -u postgres psql </root/init.sql
+      tc_tmp=\$(find /tmp -maxdepth 1 -type d -name '*tomcat*')/tmp
+      if [ -d \$tc_tmp -a \$tc_tmp != /tmp ]; then
+        mv /tmp/context.xml \$tc_tmp
+      fi
+      mount /dev/vdb /mnt
+      tm_url="http://127.0.0.1:8080/manager/text/deploy?path=$LD_CONTEXT&config=file:/tmp/context.xml"
+      curl -v -T - -u "$TOMCAT_MGR_USERNAME:$TOMCAT_MGR_PASSWORD" "\$tm_url" < /mnt/$(basename $VM_LINCDOC_WAR)
+      umount /mnt
+      #rm -f /tmp/context.xml /root/init.sql
+  - path: /etc/tomcat${TOMCAT_VERSION}/tomcat-users.xml
+    defer: true
+    permissions: '0640'
+    content: |
+      <?xml version="1.0" encoding="UTF-8"?>
+      <tomcat-users xmlns="http://tomcat.apache.org/xml"
+                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xsi:schemaLocation="http://tomcat.apache.org/xml tomcat-users.xsd"
+                    version="1.0">
+        <user username="ra-agent" roles="manager-gui,manager-script,manager-jmx,admin-gui,admin-script" password="$TOMCAT_MGR_PASSWORD"/>
+      </tomcat-users>
+  - path: /root/init.sql
+    content: |
+      CREATE ROLE ${LD_PG_USER} PASSWORD '${LD_PG_PASS}' SUPERUSER;
+      ALTER USER ${LD_PG_USER} SET search_path='ld_admin';
+      ALTER USER ${LD_PG_USER} WITH CREATEROLE LOGIN;
+      CREATE DATABASE ${LD_DB_NAME} OWNER ${LD_PG_USER} ENCODING 'utf8';
+      GRANT ALL PRIVILEGES ON DATABASE ${LD_DB_NAME} TO ${LD_PG_USER} WITH GRANT OPTION;
+  - path: /tmp/context.xml
+    permissions: '0644'
+    content: |
+      <Context
+          allowLinking="true"
+          reloadable="false">
+        <Resource
+            factory="org.apache.naming.factory.BeanFactory"
+            type="com.zaxxer.hikari.HikariConfig"
+            name="jdbc/lincdocDataSource"
+            driverClassName="org.postgresql.Driver"
+            maximumPoolSize="30"
+            minimumIdle="5"
+            idleTimeout="300000"
+            maxLifetime="600000"
+            connectionTimeout="10000"
+            jdbcUrl="jdbc:$LD_PG_URL"
+            username="$LD_PG_USER"
+            password="$LD_PG_PASS"
+            connectionTestQuery="select 0"
+            />
+        <Environment
+            name="license"
+            type="java.lang.String"
+            value="$(perl -pe 'chomp;$_.=q(&#10;)' <$LD_LICENSE)"
+            />
+        <CookieProcessor sameSiteCookies="none" />
+      </Context>
+runcmd:
+  - /root/cloud-init-lw
+EOF
+    fi
+  }
+
+  create_meta_data() {
+    [ -f $VM_CLOUD_INIT_META_DATA ] && return
+    printf "instance-id: %s\nlocal-hostname: %s\n" $(uuidgen) $VM_NAME > $VM_CLOUD_INIT_META_DATA
+    if [ $VM_UBUNTU_CODENAME = trusty ]; then
+      echo "network-interfaces: \"auto lo\niface lo inet loopback\nauto $VM_IF_NAME\niface $VM_IF_NAME inet static\naddress $VM_STATIC_IP\nnetmask 255.255.255.0\ngateway $VM_DEFAULT_ROUTE\ndns-nameservers $VM_DNS_SERVER\"" >> $VM_CLOUD_INIT_META_DATA
+    fi
+  }
+
+  create_vendor_data() {
+    [ -f $VM_CLOUD_INIT_VENDOR_DATA ] && return
+    touch $VM_CLOUD_INIT_VENDOR_DATA
+  }
+
+  create_network_config() {
+    [ -f $VM_CLOUD_NETWORK_CONFIG ] && return
+    if [ $USE_DHCP = 1 ]; then
+      cp /dev/null $VM_CLOUD_NETWORK_CONFIG
+      return
+    fi
+    if [ $VM_UBUNTU_MAJOR_VERSION -ge 18 ]; then
+      cat >$VM_CLOUD_NETWORK_CONFIG <<EOF
+network:
+  version: 2
+  ethernets:
+    id0:
+      match:
+        name: e*
+      dhcp4: false
+      addresses:
+        - $VM_STATIC_IP/24
+      gateway4: $VM_DEFAULT_ROUTE
+      nameservers:
+        addresses: [$VM_DNS_SERVER]
+        search: [lincware.com]
+EOF
+    else
+      cat >$VM_CLOUD_NETWORK_CONFIG <<EOF
+network:
+  version: 1
+  config:
+    - type: physical
+      name: $VM_IF_NAME
+      subnets:
+        - type: static
+          address: $VM_STATIC_IP/24
+          gateway: $VM_DEFAULT_ROUTE
+          dns_nameservers:
+            - $VM_DNS_SERVER
+          dns_search:
+            - lincware.com
+EOF
+    fi
+  }
+
+  create_localds() {
+    local files=($VM_CLOUD_INIT_USER_DATA $VM_CLOUD_INIT_VENDOR_DATA $VM_CLOUD_INIT_META_DATA $VM_CLOUD_NETWORK_CONFIG)
+    if [ -f $VM_LINCDOC_WAR ]; then
+      files+=($VM_LINCDOC_WAR)
+    fi
+    mkisofs -root / -output $VM_LOCALDS -volid cidata -joliet -rock "${files[@]}"
+  }
+
+  get_disk_size() {
+    local disk="$1"
+    qemu-img info "$disk" --output=json | node -e 'console.log(Math.round(JSON.parse(fs.readFileSync(0))["virtual-size"]/2**30))'
+  }
+
+  parse_options() {
+    local opts="hm:s:dle:b" opt OPTIND OPTERR=1 codenames
+    IFS='|'
+    read codenames <<<"${VM_CODENAMES[*]}"
+    unset IFS
+    USE_DHCP=0
+    HEADLESS_MODE=0
+    VM_LINCDOC_BRANCH=5.0.2
+    INSTALL_LINCDOC=0
+    VM_EXTRA_PACKAGES=(ra-agent)
+    DEB_ARCH=arm64
+    VM_DISPLAY=()
+    while builtin getopts $opts opt; do
+      case $opt in
+        (h)
+          echo "usage: $(basename $0) [-e pkg [...]][-l][-d][-a A][-m M][-s S][-b] [$codenames]"
+          echo "-m: RAM size in MB"
+          echo "-s: disk size in GB"
+          echo "-d: use DHCP to acquire an IP address"
+          echo "-l: install LincDoc ($VM_LINCDOC_BRANCH)"
+          echo "-e: space-separated list of extra packages to be installed (default=${VM_EXTRA_PACKAGES[*]})"
+          echo "-b: run qemu in the background (headless mode)"
+          exit
+          ;;
+        (m)
+          VM_RAM=${OPTARG}
+          ;;
+        (s)
+          VM_DISK_SIZE_GB=$OPTARG
+          ;;
+        (d)
+          USE_DHCP=1
+          ;;
+        (l)
+          INSTALL_LINCDOC=1
+          ;;
+        (e)
+          VM_EXTRA_PACKAGES=($OPTARG)
+          ;;
+        (b)
+          VM_DISPLAY=(--no-graphics)
+          HEADLESS_MODE=1
+          ;;
+        (?)
+          exit 1
+          ;;
+      esac
+    done
+    shift $(($OPTIND-1))
+    if [ "$1" ]; then
+      VM_UBUNTU_CODENAME="$1"
+      if ! [[ "|$codenames|" =~ "|$VM_UBUNTU_CODENAME|" ]]; then
+        echo "invalid codename: $VM_UBUNTU_CODENAME" >&2
+        exit 1
+      fi
+    fi
+  }
+
+  get_ubuntu_version() {
+    local i codename=$1
+    for((i=0;i<${#VM_CODENAMES[*]};i++)); do
+      if [ $codename = ${VM_CODENAMES[$i]} ]; then
+        echo $(($UBUNTU_TRUSTY_VERSION+$i*2))
+        break
+      fi
+    done
+  }
+
+  get_static_ip() {
+    # static IP will be the LTS version number associated with the Ubuntu
+    # codename
+    local codename=$1
+    echo ${VM_SUBNET%%.0/*}.$(get_ubuntu_version $codename)
+  }
+
+  vm_exists() {
+    local VM_NAME=$1
+    tart list | grep -q "^$VM_NAME "
+  }
+
+  init() {
+    set -e
+
+    local_vars="$HOME/.ra-vm-builder-vars"
+    if [ -f "$local_vars" ]; then
+      source "$local_vars"
+    fi
+    export TART_HOME=/tmp/tart
+    UBUNTU_TRUSTY_VERSION=14
+    VM_CODENAMES=(trusty xenial bionic focal jammy noble resolute)
+    parse_options "$@"
+
+    : ${VM_ARCH:=$(uname -m)}
+    VM_CACHE_DIR=$HOME/.cache/remoteadmin/qemu
+
+    VM_EXEC=(
+      tart
+      run
+    )
+    VM_DISK_URLS=(
+      https://cloud-images.ubuntu.com/releases/trusty/release/ubuntu-14.04-server-cloudimg-${DEB_ARCH}-uefi1.img
+      https://cloud-images.ubuntu.com/releases/xenial/release/ubuntu-16.04-server-cloudimg-${DEB_ARCH}-uefi1.img
+      #https://cloud-images.ubuntu.com/releases/bionic/release/ubuntu-18.04-server-cloudimg-${DEB_ARCH}.img
+      #https://cloud-images.ubuntu.com/releases/focal/release/ubuntu-20.04-server-cloudimg-${DEB_ARCH}.img
+      #https://cloud-images.ubuntu.com/releases/jammy/release/ubuntu-22.04-server-cloudimg-${DEB_ARCH}.img
+    )
+    #VM_UBUNTU_CODENAME=$([[ $VM_DISK_URL =~ .*/releases/([[:alpha:]]+)/.* ]] && echo ${BASH_REMATCH[1]})
+    LW_PPA_KEY_URL=http://apt.lincware.com/apt.lincware.com.gpg.asc
+    LW_PPA_KEY=$(printf /tmp/%s $(basename $LW_PPA_KEY_URL))
+    if [ ! -f $LW_PPA_KEY ]; then
+      curl -sSLf $LW_PPA_KEY_URL > $LW_PPA_KEY
+    fi
+    NODE_MAJOR=16
+    NODESOURCE_PPA_KEY_URL=https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+    NODESOURCE_PPA_KEY=$(printf /tmp/%s $(basename $NODESOURCE_PPA_KEY_URL))
+    if [ ! -f $NODESOURCE_PPA_KEY ]; then
+      curl -sSLf $NODESOURCE_PPA_KEY_URL > $NODESOURCE_PPA_KEY
+    fi
+    NODESOURCE_PPA_KEY_YAML="$(format_apt_key_for_yaml $NODESOURCE_PPA_KEY)"
+    LW_PPA_KEY_YAML="$(format_apt_key_for_yaml $LW_PPA_KEY)"
+    VM_MACHINE_TYPE=q35
+    VM_CPU=max
+    VM_TIMEZONE=America/New_York
+    TOMCAT_MGR_USERNAME=ra-agent
+    TOMCAT_MGR_PASSWORD=$(pwgen -s 32 1)
+    LD_LICENSE=$HOME/.lincdocdev/license.key.cloud31
+    LD_CONTEXT=/lincdoc
+    LD_DB_NAME=lincdoc
+    LD_PG_URL="postgresql://127.0.0.1/$LD_DB_NAME"
+    LD_PG_USER="lincdoc"
+    LD_PG_PASS=lincdoc1
+    : ${CI_SERVER_USERNAME:=terraform}
+    : ${CI_SERVER_PASSWORD:=xxxx}
+    : ${CI_SERVER_API_KEY:=xxxx}
+    #VM_IMDS_PORT=8108
+    VM_SSH_PUBLIC_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMml8TCd3z4xOWrq0euNHvfLebEeMHiKsHA7Ul1SZ5E2 Eric Lenio 20231106"
+    VM_DISK_TYPE=raw
+    : ${VM_DISK_SIZE_GB:=8}
+    : ${VM_RAM:=2000}
+    #VM_DISPLAY_FOR_INSTALLATION="-nographic -serial telnet:127.0.0.1:4444,server=on,wait=on"
+
+    if [ -z "$VM_UBUNTU_CODENAME" ]; then
+      echo "Which version of Ubuntu is to be built?"
+      for ((i=0;i<${#VM_CODENAMES[*]};i++)); do
+        printf "%s. %s\n" $i ${VM_CODENAMES[$i]}
+      done
+      read -p "choice: " choice
+      if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 0 ] || [ "$choice" -ge ${#VM_CODENAMES[*]} ]; then
+        echo "invalid choice, exiting"
+        exit 1
+      fi
+      VM_UBUNTU_CODENAME=${VM_CODENAMES[$choice]}
+    fi
+    VM_UBUNTU_MAJOR_VERSION=$(get_ubuntu_version $VM_UBUNTU_CODENAME)
+    VM_DISK_URL=https://cloud-images.ubuntu.com/releases/$VM_UBUNTU_CODENAME/release/ubuntu-$VM_UBUNTU_MAJOR_VERSION.04-server-cloudimg-${DEB_ARCH}.img
+    for((i=0;i<${#VM_CODENAMES[@]};i++)); do
+      if [ ${VM_CODENAMES[$i]} = $VM_UBUNTU_CODENAME -a "${VM_DISK_URLS[$i]}" ]; then
+        VM_DISK_URL=${VM_DISK_URLS[$i]}
+        break
+      fi
+    done
+    VM_SUBNET=192.168.64.0/24
+    case $VM_UBUNTU_CODENAME in
+      (trusty)
+        TOMCAT_VERSION=7
+        VM_IF_NAME=eth0
+        ;;
+      (*)
+        case $VM_UBUNTU_CODENAME in
+          (xenial)
+            TOMCAT_VERSION=8
+            ;;
+          (*)
+            TOMCAT_VERSION=9
+            ;;
+        esac
+        if [ $VM_ARCH = x64 ]; then
+          VM_IF_NAME=enp0s2
+        else
+          VM_IF_NAME=enp0s1
+        fi
+        ;;
+    esac
+    if [ $INSTALL_LINCDOC = 1 ]; then
+      VM_EXTRA_PACKAGES+=(tomcat$TOMCAT_VERSION tomcat${TOMCAT_VERSION}-admin postgresql)
+    fi
+    VM_STATIC_IP=$(get_static_ip $VM_UBUNTU_CODENAME)
+    VM_DEFAULT_ROUTE=192.168.64.1
+    VM_DNS_SERVER=192.168.105.1
+    VM_NAME=q-$VM_UBUNTU_CODENAME-$VM_ARCH
+    VM_WORK_DIR=$TART_HOME/vms/$VM_NAME
+    for d in $VM_CACHE_DIR $VM_WORK_DIR; do
+      [ -d $d ] || mkdir -p $d
+    done
+    VM_CLOUD_INIT_USER_DATA=$VM_WORK_DIR/user-data
+    VM_CLOUD_INIT_META_DATA=$VM_WORK_DIR/meta-data
+    VM_CLOUD_INIT_VENDOR_DATA=$VM_WORK_DIR/vendor-data
+    VM_CLOUD_NETWORK_CONFIG=$VM_WORK_DIR/network-config
+    VM_LINCDOC_WAR=$VM_WORK_DIR/$LD_CONTEXT-$VM_LINCDOC_BRANCH.war
+    VM_LOCALDS=$VM_WORK_DIR/seed.img
+    VM_MAC_ADDR=$VM_WORK_DIR/mac-address
+    VM_DISK=$VM_WORK_DIR/disk.img
+    VM_DISK_CACHED=$VM_CACHE_DIR/${VM_DISK_URL##*/}
+    echo "building $VM_NAME ..."
+    echo "work directory: $VM_WORK_DIR"
+    echo "architecture: $VM_ARCH"
+    echo "RAM MB: $VM_RAM"
+    if [ $USE_DHCP = 1 ]; then
+      echo "IP address: DHCP"
+    else
+      echo "IP address: $VM_STATIC_IP"
+    fi
+    echo "disk size (GB): $VM_DISK_SIZE_GB"
+    echo "extra packages: ${VM_EXTRA_PACKAGES[*]}"
+    if [ $INSTALL_LINCDOC = 1 ]; then
+      echo "LincDoc branch to be installed: $VM_LINCDOC_BRANCH"
+    fi
+    echo "headless mode: $([ $HEADLESS_MODE = 0 ] && echo no || echo yes)"
+
+    read -p "clean out work dir first (y)? " ans
+    if [ -z "$ans" -o "$ans" = y ]; then
+      if vm_exists $VM_NAME; then
+        echo "deleting old instance of $VM_NAME"
+        tart delete $VM_NAME
+      fi
+      rm -f $VM_WORK_DIR/*
+    fi
+
+    if ! tart list | grep -q "^$VM_NAME "; then
+      echo "creating empty Linux VM structure..."
+      tart create --linux "$VM_NAME"
+      rm -f $VM_DISK
+    fi
+
+    if [ ! -f $VM_DISK_CACHED ]; then
+      curl -L -o $VM_DISK_CACHED $VM_DISK_URL
+    fi
+
+    if [ ! -f $VM_DISK ]; then
+      echo "generating fresh disk image $VM_DISK ..."
+      qemu-img convert -f qcow2 -O raw $VM_DISK_CACHED $VM_DISK
+      disk_size=$(get_disk_size $VM_DISK)
+      if [ $disk_size -lt $VM_DISK_SIZE_GB ]; then
+        qemu-img resize -f $VM_DISK_TYPE $VM_DISK ${VM_DISK_SIZE_GB}G
+      fi
+    fi
+
+    case $VM_UBUNTU_CODENAME in
+      (trusty|xenial)
+        create_user_data_legacy
+        ;;
+      (*)
+        create_user_data
+        ;;
+    esac
+    create_meta_data
+    create_vendor_data
+    create_network_config
+    create_localds
+    tart set $VM_NAME --memory $VM_RAM
+    VM_EXEC+=(
+      --root-disk-opts "caching=cached,sync=none"
+      --disk "$VM_LOCALDS"
+      "${VM_DISPLAY[@]}"
+      "$VM_NAME"
+    )
+  }
+
+  init "$@"
+
+  if [ "$HEADLESS_MODE" = 1 ]; then
+    echo "daemonizing ..."
+    cd /
+    nohup "${VM_EXEC[@]}" </dev/null >"$VM_WORK_DIR/tart-console.log" 2>&1 &
+    VM_PID=$!
+    echo "$VM_NAME is running in the background with PID: $VM_PID"
+    echo "To view the console logs: tail -f $VM_WORK_DIR/tart-console.log"
+  else
+    exec "${VM_EXEC[@]}"
+  fi
+)
