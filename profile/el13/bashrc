@@ -8,7 +8,7 @@ if ! [[ "$PROMPT_COMMAND" =~ -prompt-command$ ]]; then
   # ensure that -prompt-command gets executed too
   export PROMPT_COMMAND="${PROMPT_COMMAND:-:};-prompt-command"
 fi
--add-path /usr/local/bin /usr/local/sbin $HOME/bin
+-add-path $HOME/bin $HOME/.local/bin /usr/local/bin /usr/local/sbin
 export -f v l c
 #export SCR_LOCALHOST_FUNCS="-totp -ra -pwgen -linux-lwsecrets -darwin-macbook-pf-init"
 export SCR_SSH_CURRENT_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMml8TCd3z4xOWrq0euNHvfLebEeMHiKsHA7Ul1SZ5E2 Eric Lenio 20231106"
