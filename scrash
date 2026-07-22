@@ -65,6 +65,7 @@ init() {
     source "$user_config"
   fi
   BASH_FUNCTIONS_TEST="$SCR_GIT_PROJECT_DIR"/src/test/bash/bash-functions-test
+  SCR_SEED=${SCR_SEED:-$(openssl rand -hex 32)}
   export $(compgen -v SCR)
 }
 
@@ -182,8 +183,12 @@ main() {
     (*)
       # client mode, not really used a lot
       shell_init_args+=(-s 1)
-      url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
-      eval -- "$(curl -S -f -s --compressed $url)"
+      ts=$(date +%s)
+      nc=$(openssl rand -hex 8)
+      base_path="/scr-get-bash-functions"
+      sig=$(echo -n "GET:${base_path}:${ts}:${nc}" | openssl dgst -sha256 -hmac "$SCR_SEED" | awk '{print $2}')
+      url="http://127.0.0.1:$SCR_PORT$base_path"
+      eval -- "$(curl -S -f -s --compressed -H "Authorization: SCRASH-HMAC t=$ts,n=$nc,s=$sig" "$url")"
       ;;
   esac
   -shell-init "${shell_init_args[@]}"
@@ -191,3 +196,4 @@ main() {
 
 init "$@"
 main
+

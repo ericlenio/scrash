@@ -75,8 +75,8 @@ pwkey_b64=$(-ssh-pw -i 0 -b "$pwkey")
 [ "$(-ssh-pw -i 1 password)" = "$user1"$'\n'"$user2" ]
 [ "$(-ssh-pw -i 1 -b password)" = $(printf %s "$user1" | openssl enc -a -A)$'\n'$(printf %s "$user2" | openssl enc -a -A) ]
 
-# this next one should fail because no OTP is given
-if -ws /scr-get-password?args64=$(-serialize-args "$pwkey") 2>/dev/null; then
+# this next one should fail because no signature headers are given
+if curl -f -s "http://127.0.0.1:$SCR_PORT/scr-get-password?args64=$(-serialize-args "$pwkey")" 2>/dev/null; then
   rc=$?
 else
   rc=$?

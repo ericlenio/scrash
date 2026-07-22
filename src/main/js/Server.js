@@ -1,4 +1,4 @@
-import {spawn} from 'child_process';
+import {spawn, spawnSync} from 'child_process';
 import http from 'http';
 import os from 'os';
 import zlib from 'zlib';
@@ -9,7 +9,6 @@ import path from 'path';
 import readline from 'readline';
 //import pty from 'node-pty';
 import ReadableString from './ReadableString.js';
-import OtpCache from './OtpCache.js';
 import pkgjson from '../../../package.json' with {type: 'json'};
 
 
@@ -48,12 +47,11 @@ const E_OS_PROG_ENUM={
 
 class Server extends http.Server {
   //#shellScript='';
-  #otpCache;
+  #usedNonces = new Set();
   #shellFunctions={};
 
   init({port}) {
     console.error(`starting Server.js v${SCR_VERSION}, configuration: ${SCR_ENV}, profile: ${SCR_PROFILE}`);
-    this.#otpCache=new OtpCache();
     this.once('listening',()=>console.error("listening on port:",this.address().port));
     this.on('request',(req,res)=>this.onRequest(req,res));
     this.on('connect',(req,socket,head)=>this.onConnect(req,socket,head));
@@ -69,7 +67,7 @@ class Server extends http.Server {
     req.on('error',e=>this.sendErrorResponse(res,e));
     res.on('error',e=>this.sendErrorResponse(res,e));
     this.authorizeRequest(req).then(()=>{
-      const url=new URL(req.url,`http://${req.headers.host}`);
+      const url=new URL(req.url,`http://${req.headers.host || '127.0.0.1'}`);
       const accepts=req.headers.accept
         ? req.headers.accept.split(/,\s*/)
         : ["text/plain"];
@@ -88,8 +86,6 @@ class Server extends http.Server {
           return this.getBashFunctions(url,res);
         case "/scr-set-clipboard":
           return this.setClipboardFromRequest(req,res);
-        case "/scr-set-otp":
-          return this.setOtp(req,res);
         case "/scr-get-clipboard":
           return this.sendClipboard(req,res);
         //case "/scr-get-vimrc":
@@ -108,7 +104,7 @@ class Server extends http.Server {
           res.statusCode=404;
       }
       res.end();
-    }).catch(e=>this.sendErrorResponse(res,e));
+    }).catch(e=>this.sendErrorResponse(res,e,401));
   }
 
   randomString(length=4) {
@@ -122,17 +118,44 @@ class Server extends http.Server {
   }
 
   authorizeRequest(req) {
-    req.hasValidOtp=false;
-    if ('x-scrash-otp' in req.headers && req.headers['x-scrash-otp']) {
-      const otp=Buffer.from(req.headers['x-scrash-otp'],'base64').toString();
-      if (this.#otpCache.has(otp)) {
-        const otpData=this.#otpCache.get(otp);
-        req.hasValidOtp=true;
-        if (otpData) {
-          return this.setClipboard(this.createReadStream(otpData));
-        }
-      }
+    req.hasValidAuth = false;
+    const authHeader = req.headers['authorization'];
+    const seed = process.env.SCR_SEED;
+
+    if (!authHeader || !seed) {
+      return Promise.reject(new Error("Unauthorized: missing Authorization header or SCR_SEED"));
     }
+
+    const match = authHeader.match(/^SCRASH-HMAC t=(\d+),n=([a-f0-9]+),s=([a-f0-9]+)$/i);
+    if (!match) {
+      return Promise.reject(new Error("Unauthorized: invalid Authorization header format"));
+    }
+
+    const [, timestampStr, nonce, signature] = match;
+    const timestamp = parseInt(timestampStr, 10);
+
+    const now = Math.floor(Date.now() / 1000);
+    if (Math.abs(now - timestamp) > 300) {
+      return Promise.reject(new Error("Unauthorized: expired timestamp"));
+    }
+
+    if (this.#usedNonces.has(nonce)) {
+      return Promise.reject(new Error("Unauthorized: replayed nonce"));
+    }
+
+    const basePath = (req.url && req.url.startsWith('/')) ? new URL(req.url, 'https://127.0.0.1').pathname : req.url;
+    const method = req.method || 'GET';
+    const stringToSign = `${method}:${basePath}:${timestamp}:${nonce}`;
+    const expectedSig = crypto.createHmac('sha256', seed).update(stringToSign).digest('hex');
+
+    if (expectedSig !== signature) {
+      return Promise.reject(new Error("Unauthorized: invalid signature"));
+    }
+
+    this.#usedNonces.add(nonce);
+    setTimeout(() => this.#usedNonces.delete(nonce), 300000);
+
+    req.hasValidAuth = true;
     return Promise.resolve();
   }
 
@@ -161,7 +184,7 @@ class Server extends http.Server {
       send:cb=>socket.write(response.toString(),cb),
     };
     this.authorizeRequest(req).then(()=>{
-      if (!req.hasValidOtp) {
+      if (!req.hasValidAuth) {
         response.statusCode=401;
         return response.send();
       }
@@ -323,6 +346,7 @@ class Server extends http.Server {
         write(`export `);
         write(`SCR_PORT=${url.port} `);
         write(`SCR_PORT_0=${SCR_PORT_0} `);
+        write(`SCR_SEED="${process.env.SCR_SEED}" `);
         write(`SCR_ENV=${SCR_ENV} `);
         write(`SCR_VERSION=${SCR_VERSION} `);
         write(`SCR_SSH_USER=${SCR_SSH_USER} `);
@@ -382,7 +406,7 @@ class Server extends http.Server {
   }
 
   setClipboardFromRequest(req,res) {
-    const url=new URL(req.url,`http://${req.headers.host}`);
+    const url=new URL(req.url,`https://${req.headers.host || '127.0.0.1'}`);
     const stripTrailingReturn=url.searchParams.get('stripTrailingReturn');
     let streamPromise=Promise.resolve(req);
     if (stripTrailingReturn==="1") {
@@ -394,55 +418,7 @@ class Server extends http.Server {
       });
     }
     return streamPromise.then(stream=>this.setClipboard(stream))
-      .then(()=>this.#otpCache.eraseValues())
       .then(()=>res.end());
-  }
-
-  generateOtp(length) {
-    let otp=this.randomString(length);
-    while (this.#otpCache.has(otp) ||
-      // do not want any OTP beginning with a tilde, because it can trigger the
-      // ssh escape logic
-      /^~/.test(otp)) {
-      otp=this.randomString(length);
-    }
-    return otp;
-  }
-
-  setOtp(req,res) {
-    const otpLength=6;
-    const url=new URL(req.url,`http://${req.headers.host}`);
-    const count=parseInt(url.searchParams.get('count'),10);
-    if (isNaN(count)) {
-      throw new Error("missing value for count");
-    }
-    if (count<1) {
-      throw new Error(`setOtp: count<1 (${count})`);
-    }
-    return Promise.all([...Array(count).keys()].map(i=>{
-      const otp=this.generateOtp(otpLength);
-      if (i===0) {
-        // store the clipboard contents only for the first OTP, so we can
-        // restore the clipboard contents as soon as that first OTP is used for
-        // a request (presumably in the very near future)
-        return this.getClipboard().then(clipboard=>{
-          this.#otpCache.add(otp,clipboard);
-          return otp;
-        });
-      }
-      this.#otpCache.add(otp,undefined);
-      return otp;
-    })).then(results=>{
-      const otps=results.join('');
-      const otpStream=new ReadableString(otps);
-      return this.setClipboard(otpStream).then(()=>{
-        // in test mode, we send the OTP back to the requester
-        if (SCR_ENV==='test') {
-          return res.end(otps);
-        }
-        res.end();
-      });
-    });
   }
 
   getClipboard() {
@@ -484,9 +460,6 @@ class Server extends http.Server {
   }
 
   sendClipboard(req,res) {
-    if (!req.hasValidOtp) {
-      return Promise.reject(new Error("Unauthorized"));
-    }
     return new Promise((resolve,reject)=>{
       const paste_prog=this.getOsProgram(E_OS_PROG_ENUM.PASTE);
       const p=spawn(paste_prog[0],paste_prog.slice(1),
@@ -560,10 +533,6 @@ class Server extends http.Server {
   */
 
   getPassword(url,req,res) {
-    if (!req.hasValidOtp) {
-      res.statusCode=401;
-      return Promise.reject(new Error("Unauthorized"));
-    }
     if (!url.searchParams.has('args64')) {
       res.statusCode=400;
       const e=new Error(`getPassword: missing parameter: args64`);

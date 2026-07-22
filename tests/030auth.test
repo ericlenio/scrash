@@ -1,16 +1,29 @@
 # vim:filetype=bash
 -clear-cache
-unset SCR_OTP_CACHE
-num_otps=3
--fetch-otps $num_otps
-[ ${#SCR_OTP_CACHE[*]} -eq $num_otps ]
+# Test HMAC authentication and unauthorized request rejection
+
+# 1. Unauthenticated request without signature headers should fail with HTTP 401
+if curl -f -s "http://127.0.0.1:$SCR_PORT/scr-about" 2>/dev/null; then
+  echo "Expected 401 Unauthorized for unauthenticated request" >&2
+  false
+fi
+
+# 2. Signed request via -ws should succeed
+res=$(-ws /scr-about)
+[[ "$res" =~ scrash ]]
+
+# 3. Invalid signature should fail
+ts=$(date +%s)
+nc=$(openssl rand -hex 8)
+if curl -f -s -H "Authorization: SCRASH-HMAC t=$ts,n=$nc,s=invalidsig" "http://127.0.0.1:$SCR_PORT/scr-about" 2>/dev/null; then
+  echo "Expected 401 Unauthorized for invalid signature" >&2
+  false
+fi
+
 export SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION=1
 if [ "$SCR_SSH_AUTH_SOCK" ]; then
   hostname=$(-ssh-scr-server hostname)
   [ "$hostname" ]
-  [ ${#SCR_OTP_CACHE[*]} -eq $num_otps ]
-  -ssh-scr-server hostname
-  [ ${#SCR_OTP_CACHE[*]} -lt $num_otps ]
   [ "$hostname" = $(hostname) ]
 
   # test out -ssh-proxy-jump

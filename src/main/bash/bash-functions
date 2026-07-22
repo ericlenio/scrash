@@ -253,21 +253,34 @@ screen() {
 
 -ws() {
   [ "$STY" ] && -screen-env
-  local base_url=http://127.0.0.1:$SCR_PORT endpoint url rc=0 opts="o" opt OPTIND otp='' need_otp=0
+  local base_url=http://127.0.0.1:$SCR_PORT endpoint url rc=0 opts="o" opt OPTIND
   while builtin getopts $opts opt; do
     case $opt in
-      (o) need_otp=1
+      (o)
         ;;
     esac
   done
   shift $(($OPTIND-1))
   endpoint=$1
   shift
-  if [ $need_otp = 1 ]; then
-    -fetch-otps
-    set -- -H "X-Scrash-Otp: $otp" "$@"
-    -used-otp $otp
-  fi
+
+  local ts=$(date +%s)
+  local nc=$(openssl rand -hex 8)
+  local base_path="${endpoint%%\?*}"
+  local method="GET"
+
+  local arg
+  for arg in "$@"; do
+    if [[ "$arg" == "--data"* || "$arg" == "-d"* ]]; then
+      method="POST"
+      break
+    fi
+  done
+
+  local string_to_sign="${method}:${base_path}:${ts}:${nc}"
+  local sig=$(echo -n "$string_to_sign" | openssl dgst -sha256 -hmac "$SCR_SEED" | awk '{print $2}')
+
+  set -- -H "Authorization: SCRASH-HMAC t=$ts,n=$nc,s=$sig" "$@"
   printf -v url "%s%s" $base_url $endpoint
   set -- "$@" "$url"
   if NO_PROXY=127.0.0.1 curl --connect-timeout 5 -f -S -s "$@"; then
@@ -365,7 +378,6 @@ vim() {
     export SCR_VIMRUNTIME=$SCR_TMPDIR/vim
     export SCR_SCREENRC=$SCR_TMPDIR/screenrc
     export SCR_SSH_USER_KNOWN_HOSTS=$SCR_TMPDIR/ssh-$SCR_SSH_USER-$SCR_SSH_HOST-known-hosts
-    export SCR_USED_OTPS=$SCR_TMPDIR/scr-used-otps
     : ${SCR_SSH_LEVEL:=0}
     export SCR_SSH_LEVEL
     export VIMINIT='source $SCR_VIMRC'
@@ -495,12 +507,20 @@ vim() {
   else
     start=1
   fi
-  printf 'eval -- "$(NO_PROXY=%s curl --connect-timeout 5 -Sfs --compressed http://%s:%s/scr-get-bash-functions?platform=$(uname)\&hostname=$(hostname)\&start=%s\&ssh_level=%s || echo false)"' \
-    $curl_host \
-    $curl_host \
-    $remote_port \
-    $start \
-    $ssh_level
+  local ts=$(date +%s)
+  local nc=$(openssl rand -hex 8)
+  local base_path="/scr-get-bash-functions"
+  local sig=$(echo -n "GET:${base_path}:${ts}:${nc}" | openssl dgst -sha256 -hmac "$SCR_SEED" | awk '{print $2}')
+
+  printf 'eval -- "$(NO_PROXY=%s curl -Sfs --compressed -H \"Authorization: SCRASH-HMAC t=%s,n=%s,s=%s\" http://%s:%s/scr-get-bash-functions?platform=$(uname)\&hostname=$(hostname)\&start=%s\&ssh_level=%s || echo false)"' \
+    "$curl_host" \
+    "$ts" \
+    "$nc" \
+    "$sig" \
+    "$curl_host" \
+    "$remote_port" \
+    "$start" \
+    "$ssh_level"
 }
 
 ssh-add() {
@@ -560,7 +580,7 @@ ssh() {
   local SCR_PORT_FORWARD bootstr OPTIND \
     ssh_legal_opts="1246ab:c:e:fgi:kl:m:no:p:qstvxACD:E:F:GI:J:KL:MNO:PQ:R:S:TVw:W:XYy" \
     opt ssh_user_host cmd=(-sxx-init) start=1 rc=0 cmdline_ssh_host \
-    h ssh_config=$HOME/.ssh/config prefetch_otps=0 \
+    h ssh_config=$HOME/.ssh/config \
     M_flag=0 N_flag=0 S_flag=0
   if [ ${SCR_SSH_EXEC:-0} = 1 ]; then
     cmd+=(exec ssh)
@@ -606,12 +626,6 @@ ssh() {
       -R$SCR_PORT_FORWARD:127.0.0.1:$SCR_PORT
       "$ssh_user_host"
     )
-    if [[ $M_flag = 1 || ( $M_flag = 0 && $S_flag = 0 ) ]]; then
-      if [ -f "$ssh_config" ] && grep -q -E '^ *ProxyCommand .*\{SCR_SSH_PROXY_JUMP\}.* '$cmdline_ssh_host'$' "$ssh_config"; then
-        prefetch_otps=1
-        -prefetch-otps
-      fi
-    fi
     if [ $N_flag = 0 ]; then
       if [ "$RA_SSH_USE_EVAL" = 1 -o "$RA_AGENT_ID" ]; then
         # we are running remoteadmin shell - if any of the args begin with $'
@@ -639,9 +653,6 @@ ssh() {
   else
     rc=$?
   fi
-  if [ $prefetch_otps = 1 -a -p "$SCR_OTP_CACHE_FIFO" ]; then
-    rm -f $SCR_OTP_CACHE_FIFO
-  fi
   return $rc
 }
 
@@ -655,162 +666,6 @@ ssh() {
     stripTrailingReturn=1
   fi
   -ws /scr-set-clipboard?stripTrailingReturn=$stripTrailingReturn --data-binary @"$f"
-}
-
-#
-# pre-fetch OTPs for the current shell level ($SHLVL), and also for the next
-# lower shell level. Use a named pipe ($SCR_OTP_CACHE_FIFO) to pass OTPs from
-# the current shell level to the lower one. This function should only be called
-# by the ssh function.
-#
-# Primary use case: an ssh session which is configured to use ProxyJump, which
-# ssh spawns a process to do the jump
--prefetch-otps() {
-  # arbitrarily default num_otps=6
-  local num_otps=6 dest_shlvl=$(($SHLVL+1))
-  if [ "${FUNCNAME[1]}" != ssh ]; then
-    echo "$FUNCNAME: expected caller to be ssh" >&2
-    return 1
-  fi
-  -fetch-otps $num_otps
-  export SCR_OTP_CACHE_FIFO=$(mktemp -u).$dest_shlvl
-  rm -f $SCR_OTP_CACHE_FIFO
-  if [ -e $SCR_OTP_CACHE_FIFO ]; then
-    echo "$FUNCNAME: could not remove $SCR_OTP_CACHE_FIFO" >&2
-    return 1
-  fi
-  if ! mkfifo $SCR_OTP_CACHE_FIFO; then
-    echo "$FUNCNAME: mkfifo on $SCR_OTP_CACHE_FIFO failed" >&2
-    return 1
-  fi
-  # use half of the fetched OTPs for current shell level, and half for the next
-  # lower level
-  otps="$(
-    for otp in ${SCR_OTP_CACHE[*]:0:$num_otps/2}; do
-      echo $otp
-    done
-  )"
-  echo "$otps" >$SCR_OTP_CACHE_FIFO &
-  SCR_OTP_CACHE=(${SCR_OTP_CACHE[*]:$num_otps/2})
-}
-
--used-otp() {
-  local otp="$1"
-  if [ "$SUDO_USER" ]; then
-    echo "$FUNCNAME warning: skipping due to sudo session in effect" >&2
-    return
-  fi
-  if [ ! -f $SCR_USED_OTPS ]; then
-    touch $SCR_USED_OTPS
-  fi
-  if [ "$otp" ] && ! grep -q "$otp" $SCR_USED_OTPS; then
-    echo "$otp" >> $SCR_USED_OTPS
-  fi
-}
-
--fetch-otps() {
-  # note: otp_max_lifetime should be a few seconds less than OTP_MAX_LIFETIME
-  # in OtpCache.js
-  local count=${1:-1} otp_max_lifetime=17 i now=$(date +%s) otp_line subshell expiration
-  if ! [[ "$count" =~ ^[0-9]+$ ]]; then
-    echo "$FUNCNAME: illegal count: $count" >&2
-    return 1
-  fi
-  # create the OTP cache if it does not exist
-  if ! compgen -v SCR_OTP_CACHE >/dev/null; then
-    -log "creating SCR_OTP_CACHE[$SHLVL:$BASH_SUBSHELL] $(hostname)"
-    SCR_OTP_CACHE=()
-  fi
-  # load SCR_OTP_CACHE into positional params for easier access
-  set -- ${SCR_OTP_CACHE[*]}
-  if [ -p "$SCR_OTP_CACHE_FIFO" ] && [[ "$SCR_OTP_CACHE_FIFO" =~ .+\.([0-9]+)$ ]]; then
-    local fifo_shlvl=${BASH_REMATCH[1]}
-    if [ $SHLVL = $fifo_shlvl ]; then
-      {
-        while true; do
-          read
-          if [ -z "$REPLY" ]; then
-            break
-          fi
-          set -- "$@" $REPLY
-        done
-      } <$SCR_OTP_CACHE_FIFO
-      -log "loaded $# OTPs from $SCR_OTP_CACHE_FIFO[$SHLVL:$BASH_SUBSHELL]"
-      unset SCR_OTP_CACHE_FIFO
-      rm -f $SCR_OTP_CACHE_FIFO
-    fi
-  fi
-  # remove any invalid OTPs from the cache if:
-  # 1. they may have already expired
-  # 2. they may have been created in a parent process of a bash command
-  # substitution (command substitution will inherit SCR_OTP_CACHE, but any
-  # changes to it inside the command substitution are not seen by parent
-  # shell); note that BASH_SUBSHELL increases by 1 inside command substitution,
-  # but SHLVL does not
-  # 3. they may have been already used, if they are present in $SCR_USED_OTPS
-  for ((i=$#;i>0;i--)); do
-    #if ! [[ ${!i} =~ ^([0-9]+):([0-9]+):([[:print:]]+)$ ]]; then
-      #echo "$FUNCNAME: invalid cache value: ${!i}" >&2
-      #return 1
-    #fi
-    #subshell=${BASH_REMATCH[1]}
-    ##expiration=${!i%%:*}
-    #expiration=${BASH_REMATCH[2]}
-    IFS=: read -a otp_line <<<"${!i}"
-    subshell=${otp_line[0]}
-    expiration=${otp_line[1]}
-    if [ $BASH_SUBSHELL -gt $subshell ]; then
-      -log "remove otp due to subshell mismatch ($BASH_SUBSHELL>$subshell) at index $i:${!i}"
-    elif [ $(($now-$expiration)) -ge $otp_max_lifetime ]; then
-      -log "expiring ($expiration) otp at index $i:${!i}"
-    elif [ "$otp" ] && grep -q "$otp" $SCR_USED_OTPS 2>/dev/null; then
-      -log "remove already used otp at index $i:${!i}"
-    else
-      continue
-    fi
-    set -- ${@:1:$i-1} ${@:$i+1}
-  done
-  -log "SCR_OTP_CACHE[$SHLVL:$BASH_SUBSHELL] now:$#:$*"
-  # if the cache does not have enough OTP's, then go get as many as needed
-  if [ $count -gt $# ]; then
-    set -- $@ $(-ws-set-otp $(($count-$#)))
-    -log "SCR_OTP_CACHE[$SHLVL:$BASH_SUBSHELL] now:$#:$*"
-  fi
-  if [ ${otp+x} ]; then
-    # load the first OTP into "otp" variable, which should specifically NOT
-    # local to this function, and should be declared by the caller
-    otp=${1##*:}
-    shift
-    -log "SCR_OTP_CACHE[$SHLVL:$BASH_SUBSHELL] now:$#:$*"
-  else
-    echo "$FUNCNAME: warning: caller otp variable was not detected" >&2
-  fi
-  # restore our cache from positional params
-  SCR_OTP_CACHE=($*)
-}
-
--ws-set-otp() {
-  local otp erase_eol='\033[0K' otp_length=6 count=${1:-1} i otp_line now=$(date +%s) otp_encoded
-  if [ "${FUNCNAME[1]}" != -fetch-otps ]; then
-    echo "$FUNCNAME: caller should always be -fetch-otps" >&2
-    return 1
-  fi
-  if otp_line=$(-ws /scr-set-otp?count=$count); then
-    if [ ${#otp_line} -eq 0 ]; then
-      # using printf to display the prompt rather than "read -p ..." so that
-      # this can work when running inside vim
-      printf "${erase_eol}OTP[$count:$SHLVL:${FUNCNAME[*]:2}]? " >/dev/tty
-      read -rn $(($count*$otp_length)) otp_line </dev/tty
-    fi
-  else
-    echo "$FUNCNAME: failed to acquire OTP (on host $(hostname))" >&2
-    return 1
-  fi
-  for ((i=0;i<$count;i++)); do
-    otp=${otp_line:$i*$otp_length:$otp_length}
-    otp_encoded=$(echo -E -n "$otp" | openssl enc -a -A)
-    printf "%s:%s:%s\n" $(($BASH_SUBSHELL-1)) $now $otp_encoded
-  done
 }
 
 # fetches clipboard contents
@@ -890,12 +745,11 @@ ssh() {
 # we use perl to handle proxy connections back to the scrash server; this bash
 # function acts as the perl source
 -perl-proxying-subroutines() {
-echo '
-use IO::Socket::INET;
+echo 'use IO::Socket::INET;
 use IO::Select;
 
 sub create_proxy_socket {
-  my ($SCR_PORT,$otp,$connect_dest)=@_;
+  my ($SCR_PORT,$ts,$nc,$sig,$connect_dest)=@_;
 
   my $socket=IO::Socket::INET->new(
     Proto=>"tcp",
@@ -906,21 +760,19 @@ sub create_proxy_socket {
 
   # send request headers
   $socket->send(sprintf("CONNECT %s HTTP/1.0\r\n",$connect_dest));
-  $socket->send(sprintf("X-Scrash-Otp: %s\r\n",$otp));
+  $socket->send(sprintf("Authorization: SCRASH-HMAC t=%s,n=%s,s=%s\r\n",$ts,$nc,$sig));
   $socket->send("\r\n");
 
   # read response headers
   chomp(my $status_line=readline($socket));
-  printf STDERR "%s\n",$status_line;
+  if ($status_line !~ /^HTTP\/\d\.\d 200/) {
+    die "create_proxy_socket failed: $status_line\n";
+  }
   while (chomp(my $hdr=readline($socket))) {
-    if ($hdr eq "\r") {
+    if ($hdr eq "\r" || $hdr eq "") {
       last;
     }
-    #printf STDERR "header:<%s>\n",$hdr;
   }
-  # something weird going on if we call -used-otp before receiving the response
-  # headers; test cases will fail, and not sure why
-  system("/usr/bin/env","bash","-c","--","-used-otp $otp");
   return $socket;
 }
 
@@ -961,9 +813,6 @@ sub bi_directional_pipe {
 #
 -ssh-auth-sock() {
   local SSH_AUTH_SOCK umask arg i rc pid perl_code start=$SECONDS elapsed
-  # warning: on Ubuntu 8 when using ProxyJump, it was necessary to initialize
-  # otp to a null string in order for -fetch-otps to detect the variable exists
-  local otp=''
   if [ ${SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION:-0} = 1 ]; then
     echo "$FUNCNAME: force skip optimization" >&2
   else
@@ -976,7 +825,7 @@ sub bi_directional_pipe {
   fi
   if [ "$1" = env ]; then
     # check options for ControlPath/ControlMaster. If only ControlPath is
-    # detected we can apply an optimization and skip using an OTP
+    # detected we can apply an optimization and skip using authentication
     local orig_opts=("$@") ssh_opts=("${@:3}") opts="o:SM" opt OPTIND OPTERR=0 has_control_path=0 has_control_master=0
     set -- "${ssh_opts[@]}"
     while builtin getopts $opts opt; do
@@ -993,17 +842,10 @@ sub bi_directional_pipe {
     done
     set -- "${orig_opts[@]}"
     if [ $has_control_master = 0 -a $has_control_path = 1 ]; then
-      echo "$FUNCNAME: optimization for ControlPath, skip OTP" >&2
+      echo "$FUNCNAME: optimization for ControlPath, skip auth" >&2
       "$@"
       return $?
     fi
-  fi
-  if ! -fetch-otps; then
-    return 1
-  fi
-  if [ -z "$otp" ]; then
-    echo "$FUNCNAME: failed to acquire otp at SHLVL: $SHLVL" >&2
-    return 1
   fi
   umask=$(umask)
   umask 077
@@ -1012,8 +854,12 @@ sub bi_directional_pipe {
     umask $umask
     return 1
   fi
+  local ts=$(date +%s)
+  local nc=$(openssl rand -hex 8)
+  local connect_dest="SCR_SSH_AUTH_SOCK_REQUEST"
+  local sig=$(echo -n "CONNECT:${connect_dest}:${ts}:${nc}" | openssl dgst -sha256 -hmac "$SCR_SEED" | awk '{print $2}')
   perl_code=$(-perl-proxying-subroutines)'
-my ($SCR_PORT,$otp,$connect_dest,$SSH_AUTH_SOCK)=@ARGV;
+my ($SCR_PORT,$ts,$nc,$sig,$connect_dest,$SSH_AUTH_SOCK)=@ARGV;
 # create a 1-time use ssh-agent unix domain socket
 sub create_unix_domain_socket {
   my ($SSH_AUTH_SOCK)=@_;
@@ -1026,12 +872,12 @@ sub create_unix_domain_socket {
   return $socket;
 }
 my $socket0=create_unix_domain_socket($SSH_AUTH_SOCK);
-my $socket1=create_proxy_socket($SCR_PORT,$otp,$connect_dest);
+my $socket1=create_proxy_socket($SCR_PORT,$ts,$nc,$sig,$connect_dest);
 bi_directional_pipe($socket0,$socket0,$socket1);
 '
   # important: our perl ssh-agent will inherit file descriptors, so we must
   # redirect standard I/O to /dev/null
-  perl <(echo "$perl_code") $SCR_PORT "$otp" SCR_SSH_AUTH_SOCK_REQUEST $SSH_AUTH_SOCK >/dev/null 2>&1 </dev/null &
+  perl <(echo "$perl_code") $SCR_PORT "$ts" "$nc" "$sig" "$connect_dest" $SSH_AUTH_SOCK >/dev/null 2>&1 </dev/null &
   pid=$!
   until [ -S $SSH_AUTH_SOCK ]; do
     sleep 0.1
@@ -1053,13 +899,16 @@ bi_directional_pipe($socket0,$socket0,$socket1);
 
 # this function is used for ssh connections back to the scrash server
 -ssh-proxy-connect() {
-  local otp="$1" connect_dest=$2 perl_code
+  local connect_dest=$1 perl_code
+  local ts=$(date +%s)
+  local nc=$(openssl rand -hex 8)
+  local sig=$(echo -n "CONNECT:${connect_dest}:${ts}:${nc}" | openssl dgst -sha256 -hmac "$SCR_SEED" | awk '{print $2}')
   perl_code=$(-perl-proxying-subroutines)'
-my ($SCR_PORT,$otp,$connect_dest)=@ARGV;
-my $socket=create_proxy_socket($SCR_PORT,$otp,$connect_dest);
+my ($SCR_PORT,$ts,$nc,$sig,$connect_dest)=@ARGV;
+my $socket=create_proxy_socket($SCR_PORT,$ts,$nc,$sig,$connect_dest);
 bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 '
-  exec perl <(echo "$perl_code") $SCR_PORT "$otp" $connect_dest
+  exec perl <(echo "$perl_code") $SCR_PORT "$ts" "$nc" "$sig" "$connect_dest"
 }
 
 -sxx-scr-server-host-key() {
@@ -1075,9 +924,9 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 
 # run one of ssh, sftp, scp, etc. connecting back to the scrash server
 -sxx-scr-server() {
-  local sxx=$1 otp='' cmd kh_file
+  local sxx=$1 cmd kh_file
   shift
-  if kh_file=$(mktemp) && -fetch-otps 2; then
+  if kh_file=$(mktemp); then
     printf "%s" "$SCR_SSH_HOST_KEY" > $kh_file
     cmd=(
       $sxx
@@ -1088,14 +937,9 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
       #-oHostname=$SCR_SSH_HOST
       -oPermitLocalCommand=yes
       -oLocalCommand="rm -f $kh_file"
-      -oProxyCommand="bash -c -- \"-ssh-proxy-connect $otp $SCR_SSH_HOST:$SCR_SSH_PORT\""
-      #-oProxyCommand="nc -X connect -x 127.0.0.1:$SCR_PORT localhost-otp-$otp 22"
+      -oProxyCommand="bash -c -- \"-ssh-proxy-connect $SCR_SSH_HOST:$SCR_SSH_PORT\""
       "$@"
     )
-    #for arg in "$@"; do
-    #  # handle filenames with spaces
-    #  cmd+=("${arg// /\\ }")
-    #done
     "${cmd[@]}"
   else
     return 1

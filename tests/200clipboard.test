@@ -4,8 +4,8 @@ len=15
 r=$(-random-string $len)
 [ $len = ${#r} ]
 echo $r | -set-clipboard
-if -ws /scr-get-clipboard --compressed 2>/dev/null; then
-  echo "access to clipboard without a OTP: expected HTTP 401" >&2
+if curl -f -s "http://127.0.0.1:$SCR_PORT/scr-get-clipboard" --compressed 2>/dev/null; then
+  echo "access to clipboard without signature headers: expected HTTP 401" >&2
   false
 fi
 r2=$(-get-clipboard)
