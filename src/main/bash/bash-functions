@@ -89,7 +89,7 @@
 # call within gnu screen to update important environment variables; in
 # particular, this must be called prior to any call to -ws or -ssh
 -screen-env() {
-  local opts="uS:p" opt OPTIND update=0 v SCR_UPDATEABLE="SCR_PORT SSH_AUTH_SOCK" file_prefix=scr-sty-env- echo_port=0
+  local opts="uS:p" opt OPTIND update=0 v SCR_UPDATEABLE="SCR_PORT SSH_AUTH_SOCK SCR_SEED" file_prefix=scr-sty-env- echo_port=0
   # keep STY local so we don't pollute parent shell when reconnecting to a gnu
   # screen session
   local STY=$STY

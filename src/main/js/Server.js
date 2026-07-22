@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import net from 'net';
 import path from 'path';
 import readline from 'readline';
+import { pipeline } from 'stream';
 //import pty from 'node-pty';
 import ReadableString from './ReadableString.js';
 import pkgjson from '../../../package.json' with {type: 'json'};
@@ -118,7 +119,6 @@ class Server extends http.Server {
   }
 
   authorizeRequest(req) {
-    req.hasValidAuth = false;
     const authHeader = req.headers['authorization'];
     const seed = process.env.SCR_SEED;
 
@@ -155,21 +155,12 @@ class Server extends http.Server {
     this.#usedNonces.add(nonce);
     setTimeout(() => this.#usedNonces.delete(nonce), 300000);
 
-    req.hasValidAuth = true;
     return Promise.resolve();
   }
 
   onConnect(req,socket,head) {
     socket.pause();
     console.log("onConnect:",req.url);
-    /*
-    const m=req.url.match(/^localhost-otp-(\d+):22/);
-    if (m) {
-      // nc cannot set HTTP headers, so we fake it
-      req.headers['x-scrash-otp']=m[1];
-      req.url="localhost:22";
-    }
-    */
     const response={
       statusCode:200,
       statusMessage:{
@@ -184,10 +175,6 @@ class Server extends http.Server {
       send:cb=>socket.write(response.toString(),cb),
     };
     this.authorizeRequest(req).then(()=>{
-      if (!req.hasValidAuth) {
-        response.statusCode=401;
-        return response.send();
-      }
       socket.on('error',e=>console.error("onConnect socket:",e));
       if (head) {
         socket.unshift(head);
@@ -204,89 +191,54 @@ class Server extends http.Server {
           return this.onSshAuthSockConnect(req,response);
         default:
           response.statusCode=404;
-          response.send();
+          response.send(()=>socket.destroy());
       }
-    }).catch(e=>{
-      console.error("onConnect:",e.toString());
+    },err=>{
+      console.error("onConnect auth failure:",err.toString());
+      response.statusCode=401;
+      response.send(()=>socket.destroy());
+    }).catch(err=>{
+      console.error("onConnect server error:",err.toString());
       response.statusCode=500;
-      response.send();
+      response.send(()=>socket.destroy());
     });
   }
   
-  /*
-  onFileUpload(req,socket,response) {
-    socket.write(response.toString(),()=>{
-      let p;
-      let stdout='';
-      let readLines='';
-      let uploadFile;
-      const accessCode=process.env.SCR_ENV=='test'
-        ? 'test'
-        : this.randomString(4);
-      socket.on('data',buf=>{
-        readLines+=buf;
-        // see if user specified the upload file directly, and access code
-        // (otherwise the file picker script will prompt for the access code
-        // and upload file)
-        const m=/^upload_file=(.*?)\naccess_code=(.*?)\n/.exec(readLines);
-        if (!m) {
-          return;
-        }
-        socket.on('data',buf=>p.write(buf));
-        readLines='';
-        uploadFile=m[1];
-        const userProvidedAccessCode=m[2];
-        const env={SCR_ACCESS_CODE:accessCode};
-        p=pty.spawn("./src/bash/upload-file-picker",[uploadFile,userProvidedAccessCode],{env:env});
-        console.log("spawn:",new Date().toLocaleString(),p.pid);
-        p.on("error",e=>{
-          console.error("spawn:"+e);
-          socket.destroy();
-        });
-        p.on('data',buf=>{
-          stdout+=buf;
-          socket.write(buf);
-        });
-        p.on('exit',(code,signal)=>{
-          console.log("exit p:",p.pid,code,signal);
-          const eot="\x04";
-          const re=new RegExp(".*?"+eot+"(E_FILE_INFO.*?)\r\n","s");
-          const fileInfo=stdout.replace(re,"$1").split('|');
-          if (fileInfo==stdout) {
-            return socket.end();
-          }
-          console.log("upload fileInfo:"+JSON.stringify(fileInfo));
-          const uploadFile=fileInfo[1];
-          const gz=zlib.createGzip({level:zlib.Z_BEST_COMPRESSION});
-          const fsstream=fs.createReadStream(uploadFile);
-          fsstream.pipe(gz).pipe(socket);
-        });
-      });
-      socket.on('end',()=>{
-        console.log("socket end");
-        //if (p) {
-          //p.destroy();
-        //}
-      });
-    });
-  }
-  */
-
   onSshConnect(req,response,sshHost,sshPort) {
     const socket=new net.Socket();
+    let isCleanedUp=false;
+    const cleanup=()=>{
+      if (isCleanedUp) return;
+      isCleanedUp=true;
+      socket.destroy();
+      req.socket.destroy();
+    };
+
     socket.on('error',e=>{
       console.error("onSshConnect socket: "+e);
       response.statusCode=500;
-      response.send();
+      response.send(cleanup);
     });
-    socket.connect(sshPort,sshHost,()=>response.send());
-    req.socket.resume();
-    // wait for client to send banner before responding, else on slow
-    // connection it might miss the banner being sent from this side
-    req.socket.once('data',data=>{
-      req.socket.unshift(data);
-      socket.pipe(req.socket).pipe(socket);
+    req.socket.on('error',e=>{
+      console.error("onSshConnect req.socket: "+e);
+      cleanup();
     });
+
+    socket.connect(sshPort,sshHost,()=>{
+      response.send(()=>{
+        req.socket.resume();
+        // wait for client to send banner before responding, else on slow
+        // connection it might miss the banner being sent from this side
+        req.socket.once('data',data=>{
+          req.socket.unshift(data);
+          pipeline(socket, req.socket, err => err && cleanup());
+          pipeline(req.socket, socket, err => err && cleanup());
+        });
+      });
+    });
+
+    socket.on('close',cleanup);
+    req.socket.on('close',cleanup);
   }
 
   getOsProgram(progtype) {
@@ -466,11 +418,12 @@ class Server extends http.Server {
         {stdio:['ignore','pipe',process.stderr]});
       p.on("error",reject);
       const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
-      gz.on("error",reject);
       res.setHeader('Content-Type','text/plain');
       res.setHeader('Content-Encoding','gzip');
-      p.stdout.pipe(gz).pipe(res);
-      res.on('close',resolve);
+      pipeline(p.stdout, gz, res, err => {
+        if (err) reject(err);
+        else resolve();
+      });
     });
   }
 
@@ -536,7 +489,7 @@ class Server extends http.Server {
     if (!url.searchParams.has('args64')) {
       res.statusCode=400;
       const e=new Error(`getPassword: missing parameter: args64`);
-      return reject(e);
+      return Promise.reject(e);
     }
     return new Promise((resolve,reject)=>{
       const args64=url.searchParams.get('args64');
@@ -600,12 +553,33 @@ class Server extends http.Server {
   onSshAuthSockConnect(req,response) {
     console.log("onSshAuthSockConnect");
     const socket=new net.Socket();
+    let isCleanedUp=false;
+    const cleanup=()=>{
+      if (isCleanedUp) return;
+      isCleanedUp=true;
+      socket.destroy();
+      req.socket.destroy();
+    };
+
     socket.on('error',e=>{
       console.log("onSshAuthSockConnect socket: "+e);
       response.statusCode=500;
-      response.send();
+      response.send(cleanup);
     });
-    socket.connect(SCR_SSH_AUTH_SOCK,()=>response.send(()=>socket.pipe(req.socket).pipe(socket)));
+    req.socket.on('error',e=>{
+      console.log("onSshAuthSockConnect req.socket: "+e);
+      cleanup();
+    });
+
+    socket.connect(SCR_SSH_AUTH_SOCK,()=>{
+      response.send(()=>{
+        pipeline(socket, req.socket, err => err && cleanup());
+        pipeline(req.socket, socket, err => err && cleanup());
+      });
+    });
+
+    socket.on('close',cleanup);
+    req.socket.on('close',cleanup);
   }
 }
 
