@@ -351,7 +351,7 @@ class Server extends http.Server {
   sendFunctions(write,platform,hostname) {
     const localFuncs=process.env.SCR_LOCALHOST_FUNCS.split(/\s+/);
     const platformRegex=/^-(darwin|linux|openbsd|freebsd)-/;
-    const rcfileRegex=/^-(?:bashrc|screenrc|vimrc)-(.+)$/;
+    const rcfileRegex=/^-(?:bashrc|screenrc|vimrc|psqlrc)-(.+)$/;
     for (let funcName of Object.keys(this.#shellFunctions)) {
       if (localFuncs.includes(funcName)) {
         continue;
