@@ -251,6 +251,16 @@ screen() {
   env screen "${cmd[@]}" "${screen_cmd[@]}"
 }
 
+-scr-auth-header() {
+  local method="${1:-GET}"
+  local path="$2"
+  local ts=$(date +%s)
+  local nc=$(openssl rand -hex 8)
+  local string_to_sign="${method}:${path}:${ts}:${nc}"
+  local sig=$(echo -n "$string_to_sign" | openssl dgst -sha256 -hmac "$SCR_SEED" | awk '{print $2}')
+  echo "SCRASH-HMAC t=${ts},n=${nc},s=${sig}"
+}
+
 -ws() {
   [ "$STY" ] && -screen-env
   local base_url=http://127.0.0.1:$SCR_PORT endpoint url rc=0 opts="o" opt OPTIND
@@ -264,8 +274,6 @@ screen() {
   endpoint=$1
   shift
 
-  local ts=$(date +%s)
-  local nc=$(openssl rand -hex 8)
   local base_path="${endpoint%%\?*}"
   local method="GET"
 
@@ -277,10 +285,9 @@ screen() {
     fi
   done
 
-  local string_to_sign="${method}:${base_path}:${ts}:${nc}"
-  local sig=$(echo -n "$string_to_sign" | openssl dgst -sha256 -hmac "$SCR_SEED" | awk '{print $2}')
+  local auth_header=$(-scr-auth-header "$method" "$base_path")
 
-  set -- -H "Authorization: SCRASH-HMAC t=$ts,n=$nc,s=$sig" "$@"
+  set -- -H "Authorization: $auth_header" "$@"
   printf -v url "%s%s" $base_url $endpoint
   set -- "$@" "$url"
   if NO_PROXY=127.0.0.1 curl --connect-timeout 5 -f -S -s "$@"; then
@@ -507,16 +514,12 @@ vim() {
   else
     start=1
   fi
-  local ts=$(date +%s)
-  local nc=$(openssl rand -hex 8)
   local base_path="/scr-get-bash-functions"
-  local sig=$(echo -n "GET:${base_path}:${ts}:${nc}" | openssl dgst -sha256 -hmac "$SCR_SEED" | awk '{print $2}')
+  local auth_header=$(-scr-auth-header "GET" "$base_path")
 
-  printf 'eval -- "$(NO_PROXY=%s curl -Sfs --compressed -H \"Authorization: SCRASH-HMAC t=%s,n=%s,s=%s\" http://%s:%s/scr-get-bash-functions?platform=$(uname)\&hostname=$(hostname)\&start=%s\&ssh_level=%s || echo false)"' \
+  printf 'eval -- "$(NO_PROXY=%s curl -Sfs --compressed -H \"Authorization: %s\" http://%s:%s/scr-get-bash-functions?platform=$(uname)\&hostname=$(hostname)\&start=%s\&ssh_level=%s || echo false)"' \
     "$curl_host" \
-    "$ts" \
-    "$nc" \
-    "$sig" \
+    "$auth_header" \
     "$curl_host" \
     "$remote_port" \
     "$start" \
@@ -749,7 +752,7 @@ echo 'use IO::Socket::INET;
 use IO::Select;
 
 sub create_proxy_socket {
-  my ($SCR_PORT,$ts,$nc,$sig,$connect_dest)=@_;
+  my ($SCR_PORT,$auth_hdr,$connect_dest)=@_;
 
   my $socket=IO::Socket::INET->new(
     Proto=>"tcp",
@@ -760,7 +763,7 @@ sub create_proxy_socket {
 
   # send request headers
   $socket->send(sprintf("CONNECT %s HTTP/1.0\r\n",$connect_dest));
-  $socket->send(sprintf("Authorization: SCRASH-HMAC t=%s,n=%s,s=%s\r\n",$ts,$nc,$sig));
+  $socket->send(sprintf("Authorization: %s\r\n",$auth_hdr));
   $socket->send("\r\n");
 
   # read response headers
@@ -854,12 +857,10 @@ sub bi_directional_pipe {
     umask $umask
     return 1
   fi
-  local ts=$(date +%s)
-  local nc=$(openssl rand -hex 8)
   local connect_dest="SCR_SSH_AUTH_SOCK_REQUEST"
-  local sig=$(echo -n "CONNECT:${connect_dest}:${ts}:${nc}" | openssl dgst -sha256 -hmac "$SCR_SEED" | awk '{print $2}')
+  local auth_hdr=$(-scr-auth-header "CONNECT" "$connect_dest")
   perl_code=$(-perl-proxying-subroutines)'
-my ($SCR_PORT,$ts,$nc,$sig,$connect_dest,$SSH_AUTH_SOCK)=@ARGV;
+my ($SCR_PORT,$auth_hdr,$connect_dest,$SSH_AUTH_SOCK)=@ARGV;
 # create a 1-time use ssh-agent unix domain socket
 sub create_unix_domain_socket {
   my ($SSH_AUTH_SOCK)=@_;
@@ -872,12 +873,12 @@ sub create_unix_domain_socket {
   return $socket;
 }
 my $socket0=create_unix_domain_socket($SSH_AUTH_SOCK);
-my $socket1=create_proxy_socket($SCR_PORT,$ts,$nc,$sig,$connect_dest);
+my $socket1=create_proxy_socket($SCR_PORT,$auth_hdr,$connect_dest);
 bi_directional_pipe($socket0,$socket0,$socket1);
 '
   # important: our perl ssh-agent will inherit file descriptors, so we must
   # redirect standard I/O to /dev/null
-  perl <(echo "$perl_code") $SCR_PORT "$ts" "$nc" "$sig" "$connect_dest" $SSH_AUTH_SOCK >/dev/null 2>&1 </dev/null &
+  perl <(echo "$perl_code") $SCR_PORT "$auth_hdr" "$connect_dest" $SSH_AUTH_SOCK >/dev/null 2>&1 </dev/null &
   pid=$!
   until [ -S $SSH_AUTH_SOCK ]; do
     sleep 0.1
@@ -900,15 +901,13 @@ bi_directional_pipe($socket0,$socket0,$socket1);
 # this function is used for ssh connections back to the scrash server
 -ssh-proxy-connect() {
   local connect_dest=$1 perl_code
-  local ts=$(date +%s)
-  local nc=$(openssl rand -hex 8)
-  local sig=$(echo -n "CONNECT:${connect_dest}:${ts}:${nc}" | openssl dgst -sha256 -hmac "$SCR_SEED" | awk '{print $2}')
+  local auth_hdr=$(-scr-auth-header "CONNECT" "$connect_dest")
   perl_code=$(-perl-proxying-subroutines)'
-my ($SCR_PORT,$ts,$nc,$sig,$connect_dest)=@ARGV;
-my $socket=create_proxy_socket($SCR_PORT,$ts,$nc,$sig,$connect_dest);
+my ($SCR_PORT,$auth_hdr,$connect_dest)=@ARGV;
+my $socket=create_proxy_socket($SCR_PORT,$auth_hdr,$connect_dest);
 bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 '
-  exec perl <(echo "$perl_code") $SCR_PORT "$ts" "$nc" "$sig" "$connect_dest"
+  exec perl <(echo "$perl_code") $SCR_PORT "$auth_hdr" "$connect_dest"
 }
 
 -sxx-scr-server-host-key() {

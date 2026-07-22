@@ -20,6 +20,33 @@ if curl -f -s -H "Authorization: SCRASH-HMAC t=$ts,n=$nc,s=invalidsig" "http://1
   false
 fi
 
+# 4. -scr-auth-header format validation
+auth_hdr=$(-scr-auth-header GET /scr-about)
+[[ "$auth_hdr" =~ ^SCRASH-HMAC\ t=[0-9]+,n=[a-f0-9]{16},s=[a-f0-9]{64}$ ]]
+
+auth_hdr_default=$(-scr-auth-header "" /scr-about)
+[[ "$auth_hdr_default" =~ ^SCRASH-HMAC\ t=[0-9]+,n=[a-f0-9]{16},s=[a-f0-9]{64}$ ]]
+
+# 5. Direct curl using -scr-auth-header should succeed
+auth_hdr_direct=$(-scr-auth-header GET /scr-about)
+res_direct=$(curl -f -s -H "Authorization: $auth_hdr_direct" "http://127.0.0.1:$SCR_PORT/scr-about")
+[[ "$res_direct" =~ scrash ]]
+
+# 6. Nonce reuse / replay attack should be rejected with 401
+auth_hdr_replay=$(-scr-auth-header GET /scr-about)
+curl -f -s -H "Authorization: $auth_hdr_replay" "http://127.0.0.1:$SCR_PORT/scr-about" >/dev/null
+if curl -f -s -H "Authorization: $auth_hdr_replay" "http://127.0.0.1:$SCR_PORT/scr-about" 2>/dev/null; then
+  echo "Expected 401 Unauthorized for replayed nonce" >&2
+  false
+fi
+
+# 7. Method mismatch (signature for GET sent as POST) should fail with 401
+auth_hdr_get=$(-scr-auth-header GET /scr-about)
+if curl -f -s -X POST -H "Authorization: $auth_hdr_get" "http://127.0.0.1:$SCR_PORT/scr-about" 2>/dev/null; then
+  echo "Expected 401 Unauthorized for HTTP method mismatch" >&2
+  false
+fi
+
 export SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION=1
 if [ "$SCR_SSH_AUTH_SOCK" ]; then
   hostname=$(-ssh-scr-server hostname)
@@ -27,6 +54,7 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
   [ "$hostname" = $(hostname) ]
 
   # test out -ssh-proxy-jump
+  [ -f "$SCR_SSH_PROXY_JUMP" ] || ssh -V # makes sure that $SCR_SSH_PROXY_JUMP exists
   [ -f "$SCR_SSH_PROXY_JUMP" ]
   known_hosts=$SCR_TMPDIR/ssh-known-hosts
   ssh-keyscan -p $SCR_SSH_PORT $SCR_SSH_HOST,myhost >$known_hosts
