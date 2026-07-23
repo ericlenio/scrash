@@ -148,7 +148,9 @@ class Server extends http.Server {
     const stringToSign = `${method}:${basePath}:${timestamp}:${nonce}`;
     const expectedSig = crypto.createHmac('sha256', seed).update(stringToSign).digest('hex');
 
-    if (expectedSig !== signature) {
+    const expectedBuf = Buffer.from(expectedSig, 'hex');
+    const providedBuf = Buffer.from(signature, 'hex');
+    if (expectedBuf.length !== providedBuf.length || !crypto.timingSafeEqual(expectedBuf, providedBuf)) {
       return Promise.reject(new Error("Unauthorized: invalid signature"));
     }
 
