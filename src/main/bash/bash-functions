@@ -42,7 +42,9 @@
     return
   fi
   if [[ "$SCR_TMPDIR" =~ ^/tmp/ ]]; then
-    rm -rf "$SCR_TMPDIR"/*
+    # keep the bin subdir
+    find "$SCR_TMPDIR/bin" -mindepth 1 -exec rm -rf {} +
+    find "$SCR_TMPDIR" -mindepth 1 -path "*/bin" -prune -o -exec rm -rf {} +
     -tty-echo "cleaned out $SCR_TMPDIR"
   fi
 }
@@ -252,25 +254,15 @@ screen() {
 }
 
 -scr-auth-header() {
-  local method="${1:-GET}"
-  local path="$2"
-  local ts=$(date +%s)
-  local nc=$(openssl rand -hex 8)
-  local string_to_sign="${method}:${path}:${ts}:${nc}"
-  local sig=$(echo -n "$string_to_sign" | openssl dgst -sha256 -hmac "$SCR_SEED" | awk '{print $2}')
+  local method="${1:-GET}" path="$2" ts=$(date +%s) nc=$(openssl rand -hex 8) string_to_sign sig
+  string_to_sign="${method}:${path}:${ts}:${nc}"
+  sig=$(echo -n "$string_to_sign" | openssl dgst -sha256 -hmac "$SCR_SEED" | awk '{print $2}')
   echo "SCRASH-HMAC t=${ts},n=${nc},s=${sig}"
 }
 
 -ws() {
   [ "$STY" ] && -screen-env
-  local base_url=http://127.0.0.1:$SCR_PORT endpoint url rc=0 opts="o" opt OPTIND
-  while builtin getopts $opts opt; do
-    case $opt in
-      (o)
-        ;;
-    esac
-  done
-  shift $(($OPTIND-1))
+  local base_url=http://127.0.0.1:$SCR_PORT endpoint url rc=0
   endpoint=$1
   shift
 
@@ -329,13 +321,11 @@ vim() {
     echo "$FUNCNAME: EDITOR is not set" >&2
     return 1
   fi
-  local p d=$(dirname "$EDITOR")
+  local p d=$(dirname "$EDITOR") funcs_to_export="-ws -set-clipboard -get-clipboard -screen-env -scr-auth-header"
   [ ! -d "$d" ] && mkdir -p "$d"
   if [ ! -e "$EDITOR" ]; then
-    p='#!/usr/bin/env bash\n[ "$1" = "--version" ] && exec vim "$@"\n%s\n-shell-init\nexec vim "$@"\n'
-    #local url="http://127.0.0.1:$SCR_PORT/scr-get-bash-functions"
-    #eval "$(curl -S -f -s --compressed $url)"
-    printf "$p" "$(-shell-init -D)" > "$EDITOR"
+    p='#!/usr/bin/env bash\n%s\nexport -f -- %s\nexec vim "$@"'
+    printf "$p" "$(declare -f -- $funcs_to_export)" "$funcs_to_export" >"$EDITOR"
     chmod 755 "$EDITOR" || {
       echo "ERROR: could not chmod $EDITOR: $?" >&2
       return 1
@@ -380,7 +370,7 @@ vim() {
     # space for run time files and such
     export SCR_ENV=${SCR_ENV:-dev}
     export SCR_TMPDIR=/tmp/scr-${SUDO_USER:-$USER}-$SCR_ENV-$SCR_PORT_0
-    export EDITOR=$SCR_TMPDIR/editor
+    export EDITOR=$SCR_TMPDIR/bin/editor
     export SCR_VIMRC=$SCR_TMPDIR/vimrc
     export SCR_VIMRUNTIME=$SCR_TMPDIR/vim
     export SCR_SCREENRC=$SCR_TMPDIR/screenrc
@@ -395,12 +385,25 @@ vim() {
     # ssh-style URLs, see:
     # https://git-scm.com/book/en/v2/Git-Internals-Environment-Variables#_miscellaneous
     if command -v git >/dev/null; then
-      export GIT_SSH=$SCR_TMPDIR/git-ssh
+      export GIT_SSH=$SCR_TMPDIR/bin/git-ssh
     fi
-    export SCR_SSH_PROXY_JUMP=$SCR_TMPDIR/ssh-proxy-jump
+    export SCR_SSH_PROXY_JUMP=$SCR_TMPDIR/bin/ssh-proxy-jump
     #[ -z "$SUDO_USER" ] && rm -f $EDITOR $SCR_VIMRC
-    if [ ! -d $SCR_TMPDIR ]; then
-      mkdir -p $SCR_TMPDIR
+    if [ -e "$SCR_TMPDIR" ]; then
+      # Must be a directory, not a symlink
+      if [ -L "$SCR_TMPDIR" ] || [ ! -d "$SCR_TMPDIR" ]; then
+        echo "WARNING: $SCR_TMPDIR is not a valid directory, removing..." >&2
+        if ! rm -rf "$SCR_TMPDIR"; then
+          echo "ERROR: could not delete $SCR_TMPDIR" >&2
+          return 1
+        fi
+      fi
+    fi
+    if [ ! -d $SCR_TMPDIR/bin ]; then
+      if ! mkdir -p $SCR_TMPDIR/bin; then
+        echo "ERROR: could not create $SCR_TMPDIR/bin" >&2
+        return 1
+      fi
     fi
     version_file="$SCR_TMPDIR/.version"
     if [ "$start" ]; then
@@ -425,7 +428,6 @@ vim() {
     if [ "$GIT_SSH" -a ! -f "$GIT_SSH" ]; then
       {
         echo '#!/usr/bin/env bash'
-        -shell-init -D
         echo 'for opt in "$@"; do'
         echo '  if [ "$opt" = -G ]; then'
         echo '    exec ssh "$@"'
@@ -673,7 +675,7 @@ ssh() {
 
 # fetches clipboard contents
 -get-clipboard() {
-  -ws -o /scr-get-clipboard --compressed "$@"
+  -ws /scr-get-clipboard --compressed "$@"
 }
 
 -md5() {
@@ -990,7 +992,7 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
   if [ $SCR_SSH_LEVEL = 0 ]; then
     -pw-localhost "$@"
   else
-    if -ws -o /scr-get-password?args64=$(-serialize-args "$@"); then
+    if -ws /scr-get-password?args64=$(-serialize-args "$@"); then
       :
     else
       echo "$FUNCNAME: failed" >&2

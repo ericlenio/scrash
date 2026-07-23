@@ -126,7 +126,7 @@
         if [ $found = 0 ]; then
           return 1
         fi
-      elif -ws -o /scr-get-password --data-urlencode "searchKey=$search_key" --data-urlencode "b64=$b64"  --data-urlencode "index=$index" --data-urlencode "pwFile=$pw_file" "$@"; then
+      elif -ws /scr-get-password --data-urlencode "searchKey=$search_key" --data-urlencode "b64=$b64"  --data-urlencode "index=$index" --data-urlencode "pwFile=$pw_file" "$@"; then
         :
       else
         echo "$FUNCNAME: problem with OTP" >&2
