@@ -26,6 +26,13 @@ const SCR_SSH_PORT=process.env.SCR_SSH_PORT;
 const SCR_SSH_AUTH_SOCK=process.env.SCR_SSH_AUTH_SOCK;
 let SCR_SSH_HOST_KEY;
 
+// failed-auth rate limiter: once more than AUTH_FAIL_MAX auth failures occur
+// within AUTH_FAIL_WINDOW_MS, further FAILING requests are rejected cheaply
+// (no stack-trace/logging). Successful (validly-signed) requests are never
+// affected, so a flood of bad requests cannot starve a legitimate client.
+const AUTH_FAIL_MAX = 20;
+const AUTH_FAIL_WINDOW_MS = 10000;
+
 const E_OS_PROG_ENUM={
   COPY:{
     //linux:["clipit"],
@@ -50,6 +57,8 @@ class Server extends http.Server {
   //#shellScript='';
   #usedNonces = new Set();
   #shellFunctions={};
+  #authFailures = [];      // timestamps (ms) of recent auth failures
+  #authThrottled = false;  // whether failure responses are currently throttled
 
   init({port}) {
     console.error(`starting Server.js v${SCR_VERSION}, configuration: ${SCR_ENV}, profile: ${SCR_PROFILE}`);
@@ -105,7 +114,7 @@ class Server extends http.Server {
           res.statusCode=404;
       }
       res.end();
-    }).catch(e=>this.sendErrorResponse(res,e,401));
+    }).catch(e=>this.sendErrorResponse(res,e,e.statusCode||401));
   }
 
   randomString(length=4) {
@@ -119,16 +128,32 @@ class Server extends http.Server {
   }
 
   authorizeRequest(req) {
+    try {
+      this.#verifyAuth(req);
+      return Promise.resolve();
+    } catch (e) {
+      if (this.#recordAuthFailure(Date.now())) {
+        // in a burst of auth failures: reject cheaply and let sendErrorResponse
+        // skip the stack-trace/logging. Valid requests never reach here, so this
+        // cannot starve a legitimate client.
+        e.statusCode = 429;
+        e.quiet = true;
+      }
+      return Promise.reject(e);
+    }
+  }
+
+  #verifyAuth(req) {
     const authHeader = req.headers['authorization'];
     const seed = process.env.SCR_SEED;
 
     if (!authHeader || !seed) {
-      return Promise.reject(new Error("Unauthorized: missing Authorization header or SCR_SEED"));
+      throw new Error("Unauthorized: missing Authorization header or SCR_SEED");
     }
 
     const match = authHeader.match(/^SCRASH-HMAC t=(\d+),n=([a-f0-9]+),s=([a-f0-9]+)$/i);
     if (!match) {
-      return Promise.reject(new Error("Unauthorized: invalid Authorization header format"));
+      throw new Error("Unauthorized: invalid Authorization header format");
     }
 
     const [, timestampStr, nonce, signature] = match;
@@ -136,11 +161,11 @@ class Server extends http.Server {
 
     const now = Math.floor(Date.now() / 1000);
     if (Math.abs(now - timestamp) > 300) {
-      return Promise.reject(new Error("Unauthorized: expired timestamp"));
+      throw new Error("Unauthorized: expired timestamp");
     }
 
     if (this.#usedNonces.has(nonce)) {
-      return Promise.reject(new Error("Unauthorized: replayed nonce"));
+      throw new Error("Unauthorized: replayed nonce");
     }
 
     const basePath = (req.url && req.url.startsWith('/')) ? new URL(req.url, 'https://127.0.0.1').pathname : req.url;
@@ -151,13 +176,32 @@ class Server extends http.Server {
     const expectedBuf = Buffer.from(expectedSig, 'hex');
     const providedBuf = Buffer.from(signature, 'hex');
     if (expectedBuf.length !== providedBuf.length || !crypto.timingSafeEqual(expectedBuf, providedBuf)) {
-      return Promise.reject(new Error("Unauthorized: invalid signature"));
+      throw new Error("Unauthorized: invalid signature");
     }
 
     this.#usedNonces.add(nonce);
     setTimeout(() => this.#usedNonces.delete(nonce), 300000);
+  }
 
-    return Promise.resolve();
+  // record an auth failure at time `now` (ms); returns true if failures within
+  // the sliding window now exceed AUTH_FAIL_MAX (i.e. responses are throttled)
+  #recordAuthFailure(now) {
+    const cutoff = now - AUTH_FAIL_WINDOW_MS;
+    const failures = this.#authFailures;
+    while (failures.length && failures[0] < cutoff) {
+      failures.shift();
+    }
+    if (failures.length > AUTH_FAIL_MAX) {
+      // already over the threshold: stop growing the array (bounded memory)
+      if (!this.#authThrottled) {
+        this.#authThrottled = true;
+        console.error(`authorizeRequest: >${AUTH_FAIL_MAX} auth failures within ${AUTH_FAIL_WINDOW_MS}ms; throttling failure responses`);
+      }
+      return true;
+    }
+    this.#authThrottled = false;
+    failures.push(now);
+    return false;
   }
 
   onConnect(req,socket,head) {
@@ -169,6 +213,7 @@ class Server extends http.Server {
         "200":"OK",
         "401":"Unauthorized",
         "404":"Not Found",
+        "429":"Too Many Requests",
         "500":"Internal Error",
       },
       statusLine:()=>`HTTP/1.0 ${response.statusCode} ${SCR_APP_NAME} ${response.statusMessage[response.statusCode]}`,
@@ -196,8 +241,8 @@ class Server extends http.Server {
           response.send(()=>socket.destroy());
       }
     },err=>{
-      console.error("onConnect auth failure:",err.toString());
-      response.statusCode=401;
+      if (!err.quiet) console.error("onConnect auth failure:",err.toString());
+      response.statusCode=err.statusCode||401;
       response.send(()=>socket.destroy());
     }).catch(err=>{
       console.error("onConnect server error:",err.toString());
@@ -534,12 +579,16 @@ class Server extends http.Server {
     if (typeof(e)=='string') {
       e=new Error(e);
     }
-    // ignoring e.stack here, because it will not typically show the calling
-    // method (which is what I really want); might want to switch to
-    // async/await: https://mathiasbynens.be/notes/async-stack-traces
-    const stackTrace={};
-    Error.captureStackTrace(stackTrace);
-    console.error(e.toString(),stackTrace.stack);
+    // e.quiet is set by the failed-auth rate limiter to suppress the (relatively
+    // expensive) stack capture + logging under a flood of bad requests
+    if (!e.quiet) {
+      // ignoring e.stack here, because it will not typically show the calling
+      // method (which is what I really want); might want to switch to
+      // async/await: https://mathiasbynens.be/notes/async-stack-traces
+      const stackTrace={};
+      Error.captureStackTrace(stackTrace);
+      console.error(e.toString(),stackTrace.stack);
+    }
     if (!res.headersSent) {
       res.statusCode=statusCode;
       res.statusMessage="something failed";

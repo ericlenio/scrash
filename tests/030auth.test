@@ -83,6 +83,18 @@ if curl -f -s -H "Authorization: $auth_hdr_path" "http://127.0.0.1:$SCR_PORT/scr
   false
 fi
 
+# 12. Failed-auth rate limiter: a burst of >20 auth failures within the window
+# starts returning 429 instead of 401, while a validly-signed request is still
+# served (proving the limiter cannot starve a legitimate client). Kept last so
+# tripping the limiter cannot perturb the strict status-code checks above.
+codes=""
+for i in {1..25}; do
+  codes+="$(curl -s -o /dev/null -w '%{http_code} ' "http://127.0.0.1:$SCR_PORT/scr-about")"
+done
+[[ "$codes" =~ 429 ]]
+# a validly-signed request still succeeds despite the throttle
+-ws-about | grep -q scrash
+
 export SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION=1
 if [ "$SCR_SSH_AUTH_SOCK" ]; then
   hostname=$(-ssh-scr-server hostname)
