@@ -858,6 +858,143 @@ and ~/.aws/credentials (or set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY):
   main "$@"
 )
 
+# load the LincWare devops secrets into vim:
+# https://us-east-1.console.aws.amazon.com/secretsmanager/secret?name=lincware-devops&region=us-east-1
+-ec2-secrets() (
+  set -e -o pipefail
+
+  local AWS_DEFAULT_REGION=us-east-1 AWS_PAGER= \
+    secret_id=lincware-devops aws_profile=default as_json=0
+
+  # deliberately not "local": the EXIT trap runs after the function frames are
+  # popped, so cleanup would see an empty value. Safe because we are a subshell.
+  secret_file=
+
+  usage() {
+    echo "usage: ${FUNCNAME[2]} [-h][-j][-p profile][-s secret_id]
+load every key/value of an AWS Secrets Manager secret into a temp file in vim
+-h: this help
+-j: dump the raw secret as one pretty-printed JSON object, skipping the
+    per-value formatting below
+-p: specify a particular AWS credentials profile (default: $aws_profile)
+-s: the secret to fetch (default: $secret_id)
+
+Each value is listed under a \"### key\" header and formatted by shape: values
+that are themselves JSON are pretty-printed, PEM blocks (private keys, certs)
+get their armour lines and 64-column base64 body restored, everything else is
+printed as-is.
+
+The temp file is mode 600 and is deleted when vim exits; vim runs with swap,
+backup, undo and viminfo files disabled so no copy is left behind. Edits are
+NOT pushed back to Secrets Manager -- this is a read-only view.
+
+Uses the same ~/.aws/config and ~/.aws/credentials setup as -ec2."
+  }
+
+  cleanup() {
+    [ -n "$secret_file" ] && rm -f "$secret_file"
+  }
+
+  fetch_secret() {
+    aws secretsmanager get-secret-value \
+      --profile "$aws_profile" \
+      --secret-id "$secret_id" \
+      --query SecretString \
+      --output text
+  }
+
+  # PEM in this secret is stored with the newlines flattened to spaces, i.e.
+  # "-----BEGIN X----- AAA BBB ... -----END X-----". Put each armour line back
+  # on its own line and rewrap the base64 body at 64 columns. Handles several
+  # blocks in one value (cert chains) and is a no-op on already-valid PEM.
+  reflow_pem() {
+    perl -0777 -ne '
+      s/\\n/\n/g;
+      for my $part (split /(-----(?:BEGIN|END)[A-Za-z0-9 ]*-----)/) {
+        next unless length $part;
+        if ($part =~ /^-----/) {
+          print "$part\n";
+        } elsif ($part =~ m{^[A-Za-z0-9+/=\s]*$}) {
+          (my $body = $part) =~ s/\s+//g;
+          print "$_\n" for ($body =~ /.{1,64}/g);
+        } else {
+          # not a plain base64 body (headers, comments): leave it alone
+          print $part;
+        }
+      }
+    '
+  }
+
+  # a flat JSON object comes back; unpack it so each value is readable rather
+  # than crammed onto one \n-escaped line
+  format_value() {
+    local value=$1
+    if jq -e 'type=="object" or type=="array"' >/dev/null 2>&1 <<<"$value"; then
+      # embedded JSON (GCP service accounts): pretty-print, but keep it valid
+      # JSON so it can still be pasted straight into a file or env var
+      jq . <<<"$value"
+    elif [[ "$value" = *-----BEGIN* ]]; then
+      reflow_pem <<<"$value"
+    else
+      printf '%s\n' "$value"
+    fi
+  }
+
+  format_secret() {
+    local json=$(cat) key keys value
+    if [ $as_json = 1 ]; then
+      jq . <<<"$json"
+      return
+    fi
+    IFS=$'\n' read -d '' -a keys <<<"$(jq -r 'keys_unsorted[]' <<<"$json")" || true
+    for key in "${keys[@]}"; do
+      printf '### %s\n' "$key"
+      value=$(jq -r --arg k "$key" '.[$k]' <<<"$json")
+      format_value "$value"
+      echo
+    done
+  }
+
+  main() {
+    local opt opts=hjp:s: OPTIND
+    while builtin getopts $opts opt; do
+      case $opt in
+        (h) usage
+          return
+          ;;
+        (j) as_json=1
+          ;;
+        (p) aws_profile=$OPTARG
+          ;;
+        (s) secret_id=$OPTARG
+          ;;
+        (*) usage >&2
+          return 1
+          ;;
+      esac
+    done
+
+    if ! type -p jq >/dev/null; then
+      echo "$FUNCNAME: jq is required" >&2
+      return 1
+    fi
+
+    trap cleanup EXIT INT TERM
+    secret_file=$(mktemp "${TMPDIR:-/tmp}/${secret_id//\//-}.XXXXXX")
+    chmod 600 "$secret_file"
+
+    printf '# %s (region %s, profile %s)\n\n' \
+      "$secret_id" "$AWS_DEFAULT_REGION" "$aws_profile" >"$secret_file"
+    echo "fetching $secret_id ..." >&2
+    fetch_secret | format_secret >>"$secret_file"
+
+    vim -n -i NONE -c 'set noswapfile nobackup nowritebackup noundofile' \
+      "$secret_file"
+  }
+
+  main "$@"
+)
+
 -tunnelblick() {
   local profile="lw-vpn-eml" username=eml op=connect otp passphrase_key="eml-p12-passphrase" passphrase
   if [ "$1" = -h ]; then
