@@ -29,8 +29,15 @@
         new_pw_entry="$OPTARG"
         ;;
       (A)
+        # remote-request entry point: getPassword (Server.js) calls us with the
+        # -pw args base64-serialized. When SCR_REMOTE_PW_CONFIRM=1, require the
+        # local user to approve before any lookup happens.
         local args arg
         -deserialize-args $OPTARG
+        if [ "$SCR_REMOTE_PW_CONFIRM" = 1 ] && ! -pw-confirm "${args[@]}"; then
+          echo "$FUNCNAME: remote password request denied" >&2
+          return 1
+        fi
         $FUNCNAME "${args[@]}"
         return $?
         ;;
@@ -150,4 +157,62 @@
       )
       ;;
   esac
+}
+
+# Prompt the local user (in a fresh gnu screen window) to approve a remote
+# password request. Returns 0 to approve, non-zero to deny. Fail-closed: a
+# missing screen session, any setup error, or no answer within the timeout all
+# deny. Args are the (untrusted, remote-supplied) -pw arguments; they are
+# stripped to printable characters so they cannot spoof the prompt. Only ever
+# runs locally (it is in SCR_LOCALHOST_FUNCS).
+-pw-confirm() {
+  local timeout=${SCR_REMOTE_PW_CONFIRM_TIMEOUT:-30} dir fifo label decision=deny
+  if [ -z "$STY" ]; then
+    echo "$FUNCNAME: no screen session (STY unset); denying" >&2
+    return 1
+  fi
+  label=$(printf '%s ' "$@" | tr -cd '[:print:]')
+  dir=$(mktemp -d) || return 1
+  fifo="$dir/answer"
+  if ! mkfifo -m 600 "$fifo"; then
+    rm -rf "$dir"
+    return 1
+  fi
+  # open the approval window in the local screen session and run
+  # -pw-confirm-dialog in it (an exported localhost function, available in the
+  # new window like every other scrash function -- same bash -c '"$@"' idiom
+  # Server.js uses)
+  env screen -X screen -t scrash-approval \
+    bash -c '"$@"' -- -pw-confirm-dialog "$fifo" "$timeout" "$label"
+  read -r -t $((timeout+5)) decision < "$fifo" || decision=deny
+  rm -rf "$dir"
+  [ "$decision" = approve ]
+}
+
+# Runs inside the fresh gnu screen window opened by -pw-confirm: shows the
+# request, reads y/N with its own timeout, and writes the decision back over
+# the fifo. Args: fifo timeout label
+-pw-confirm-dialog() {
+  local fifo="$1" timeout="$2" label="$3" ans
+  clear 2>/dev/null || true
+  cat <<'EOF'
+============================================================
+  scrash - REMOTE password request
+============================================================
+
+  A remote (ssh) session is requesting a password from your
+  LOCAL encrypted store. Approve ONLY if you just initiated
+  this yourself.
+EOF
+  # bold + bright yellow so the requested key stands out; safe to wrap in escapes
+  # because -pw-confirm already stripped the label to printable characters
+  printf '\n  request: \033[1;93m%s\033[0m\n\n' "$label"
+  printf 'Press y within %ss to APPROVE; anything else (or timeout) DENIES: ' "$timeout"
+  if read -r -t "$timeout" -n1 ans && [[ "$ans" =~ ^[Yy]$ ]]; then
+    printf '\napprove\n'
+    printf 'approve\n' > "$fifo"
+  else
+    printf '\ndeny\n'
+    printf 'deny\n' > "$fifo"
+  fi
 }
