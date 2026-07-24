@@ -30,11 +30,11 @@
         ;;
       (A)
         # remote-request entry point: getPassword (Server.js) calls us with the
-        # -pw args base64-serialized. When SCR_REMOTE_PW_CONFIRM=1, require the
-        # local user to approve before any lookup happens.
+        # -pw args base64-serialized. The local user must approve before any
+        # lookup happens.
         local args arg
         -deserialize-args $OPTARG
-        if [ "$SCR_REMOTE_PW_CONFIRM" = 1 ] && ! -pw-confirm "${args[@]}"; then
+        if ! -pw-confirm "${args[@]}"; then
           echo "$FUNCNAME: remote password request denied" >&2
           return 1
         fi
