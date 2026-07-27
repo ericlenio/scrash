@@ -17,3 +17,26 @@ screen -S $SCR_TEST_STY -d -m
 screen -S $SCR_TEST_STY -X quit
 ! -screen-ls | grep -q $SCR_TEST_STY
 [ -f $SCR_SCREENRC ]
+
+# "screen -r" attaches to a terminal, so we cannot run it for real in here; put
+# a stub screen ahead on PATH instead and check the command line that the screen
+# function builds. the id is given explicitly (so -pick-sty is not involved) and
+# does not begin with "scr" (so we skip the -screen-env update: all we want to
+# look at here is how the arguments get assembled)
+screen_stub_dir=$SCR_TMPDIR/stub-bin
+screen_sty=test-sty-1
+mkdir -p $screen_stub_dir
+printf '#!/usr/bin/env bash\n[ "$1" = -version ] && { echo "Screen version 4.09.01"; exit 0; }\nprintf " [%%s]" "$@"\n' > $screen_stub_dir/screen
+chmod 755 $screen_stub_dir/screen
+-screen-argv() {
+  PATH=$screen_stub_dir:$PATH screen "$@"
+}
+# without this the assertions below would pass on the stub alone
+[ "$(type -t screen)" = function ]
+# the session id must not be passed along twice
+[ "$(-screen-argv -r $screen_sty)" = " [-r] [$screen_sty]" ]
+[ "$(-screen-argv -r $screen_sty -d)" = " [-r] [$screen_sty] [-d]" ]
+# ... and neither may the options that came before the -r
+[ "$(-screen-argv -d -r $screen_sty)" = " [-d] [-r] [$screen_sty]" ]
+[ "$(-screen-argv -S foo -r $screen_sty)" = " [-S] [foo] [-r] [$screen_sty]" ]
+rm -rf $screen_stub_dir

@@ -20,6 +20,11 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
   [ -f $version_file ]
 
   ssh-add -l
+
+  # "ssh -G" only resolves config, it does not connect; it must reach a plain
+  # ssh (it used to drop the ssh from the command and run "env -G ..." instead).
+  # skip the auth sock proxy for this one, we are only checking the command line
+  SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION=0 ssh -G $SCR_SSH_HOST | grep -q "^hostname "
   rm -f /tmp/passwd
   -download /etc/passwd
   [ -f /tmp/passwd ]

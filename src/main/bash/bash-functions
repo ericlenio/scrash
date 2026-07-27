@@ -154,7 +154,7 @@
 # wrapper around gnu screen
 screen() {
   local i i2 next_arg rcfile session_id_prefix="scr" session_id opt cmd=() screen_cmd=() esc=^Aa update=0 \
-    command=0 skip=0 line \
+    command=0 skip=0 line rest \
     screen_ver=$([[ $(env screen -version) =~ ([[:digit:]]+) ]] && echo ${BASH_REMATCH[1]})
   for ((i=1;i<=$#;i++)); do
     i2=$((i+1))
@@ -180,8 +180,14 @@ screen() {
         return $?
         ;;
       (-r)
+        # rest: index of the first argument to keep after the "-r [session_id]"
+        # we are about to rewrite
+        rest=$((i+1))
         if [[ "$next_arg" =~ ^[[:alnum:]] ]]; then
           session_id=$next_arg
+          # the session id came from the command line, so skip over it here or
+          # we end up passing it to screen twice
+          rest=$((i+2))
         else
           if ! session_id=$(-pick-sty); then
             return 1
@@ -192,8 +198,10 @@ screen() {
             return $?
           fi
         fi
-        set -- "${@:1:i-1}" -r $session_id "${@:i+1}"
-        cmd+=("$@")
+        set -- "${@:1:i-1}" -r $session_id "${@:$rest}"
+        # assign rather than append: the "set --" above already rebuilt the
+        # whole command line, including the options cmd picked up before the -r
+        cmd=("$@")
         env screen "${cmd[@]}"
         return $?
         ;;
@@ -607,7 +615,10 @@ ssh() {
     [ $opt = N ] && N_flag=1
     [ $opt = S ] && S_flag=1
     if [ $opt = G ]; then
-      "${cmd[@]:0:2}" "$@"
+      # hand the whole command line to a plain ssh: cmd starts out as
+      # "-sxx-init env|exec ssh", and all 3 of those are needed (:0:2 dropped
+      # the ssh and ran "env -G ..." instead)
+      "${cmd[@]:0:3}" "$@"
       return $?
     fi
     [[ $opt = o && ( "$OPTARG" =~ ^ControlPath ) ]] && S_flag=1
