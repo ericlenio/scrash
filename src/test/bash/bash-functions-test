@@ -1,6 +1,22 @@
 # vim:filetype=bash
 # functions defined here are only used when running the test cases
 
+# test double for -pw-confirm (bash-functions-localhost), which asks the local
+# user to approve a remote password request by opening a screen window and
+# waiting for a keypress. this file is sourced last, so this wins.
+#
+# answering that window from a test means a screen session has to exist and the
+# suite has to be started from inside it; deciding from a file instead keeps the
+# suite runnable unattended from anywhere. 070pw.test creates the file to
+# approve and removes it to exercise a denial.
+#
+# the file sits next to $SCR_TMPDIR rather than in it: a remote request ssh's
+# back here, and that shell force-clears $SCR_TMPDIR (-clear-cache), which would
+# delete the flag midway through the very request it is meant to approve
+-pw-confirm() {
+  [ -f "$SCR_TMPDIR-pw-confirm-approve" ]
+}
+
 # runs a bash command in gnu screen, waiting for the command to finish
 -screen-pipe() (
   local stdin stdout stderr rcfifo fifo eof_stdout=0 eof_stderr=0 opts="uS:" opt OPTIND cmd=() pids=()

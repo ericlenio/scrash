@@ -19,6 +19,14 @@ add_pw() {
   -ssh-scr-server bash -c -- '"$@"' -- -pw -p $SCR_PASSWORD_FILE "$@" </dev/null
 }
 
+# every -ssh-pw below is a remote password request, and each one has to be
+# approved locally (-pw-confirm). the test double for it (see
+# src/test/bash/bash-functions-test) approves while this file exists. it is next
+# to $SCR_TMPDIR and not inside it for the same reason SCR_PASSWORD_FILE is
+# elsewhere: ssh-ing wipes that directory
+pw_approve_flag=$SCR_TMPDIR-pw-confirm-approve
+touch $pw_approve_flag
+
 ! [ -s "$SCR_PASSWORD_FILE" ]
 -pw -I
 [ -s "$SCR_PASSWORD_FILE" ]
@@ -82,5 +90,13 @@ else
   rc=$?
 fi
 [ $rc = 22 ]
-rm -f $SCR_PASSWORD_FILE $SCR_SSH_USER_KNOWN_HOSTS
+
+# a request that is not approved must fail rather than hand over the password.
+# stderr is noisy on this one by design: curl reports the 401 and -ws prints a
+# stack trace
+rm -f $pw_approve_flag
+! pw=$(-ssh-pw -i -1 "$pwkey1" 2>/dev/null)
+[ -z "$pw" ]
+
+rm -f $SCR_PASSWORD_FILE $SCR_SSH_USER_KNOWN_HOSTS $pw_approve_flag
 SCR_PASSWORD_FILE=$SCR_PASSWORD_FILE_ORIG
