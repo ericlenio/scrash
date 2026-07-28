@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
+#
+# ssh runs this to get approval before using a private key. the answer comes back
+# over a fifo, and anything that goes wrong setting that fifo up has to deny
+# rather than fall through to reading whatever happens to be at that path: on a
+# shared /tmp another user can win the race between rm and mkfifo and then answer
+# "y" on our behalf. so: a private directory (mktemp -d is 700), a fifo we know
+# we created ourselves, and an error check on every step
 
-fifo=$(mktemp)
-trap "rm -f $fifo" EXIT INT
-rm -f $fifo
-mkfifo $fifo
-env screen -X screen bash -c 'fifo=$1;shift;echo "$@";read -p "approve ssh private key access (y/n, default=n)? "; echo "$REPLY" > $fifo' -- $fifo "$@"
-read < $fifo
-if [ "$REPLY" = y ]; then
-  exit 0
-fi
-exit 1
+set -u
+
+dir=$(mktemp -d) || exit 1
+trap 'rm -rf "$dir"' EXIT INT TERM
+fifo="$dir/answer"
+mkfifo -m 600 "$fifo" || exit 1
+
+env screen -X screen bash -c 'fifo=$1;shift;echo "$@";read -p "approve ssh private key access (y/n, default=n)? "; echo "$REPLY" > $fifo' -- "$fifo" "$@" || exit 1
+
+IFS= read -r reply < "$fifo" || exit 1
+[ "$reply" = y ]

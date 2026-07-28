@@ -88,3 +88,15 @@ rm $t1
 [ -e $t1 ]
 grep -q hello $t1
 rm $t1 $t2 $t3 $f2
+
+# SCR_SEED is the key every request is signed with, so -screen-env keeps it in its
+# own mode 600 file rather than in the world readable scr-sty-env-* file that a
+# sudo'd process has to be able to read
+seed_file=$SCR_TMPDIR/scr-sty-seed-$session_id
+[ -f $seed_file ]
+grep -q "^SCR_SEED=" $seed_file
+[ $(ls -l $seed_file | cut -c1-10) = -rw------- ]
+! grep -rq SCR_SEED $SCR_TMPDIR/scr-sty-env-* || false
+# and nothing in $SCR_TMPDIR may be writable by group or others: we execute
+# ($EDITOR, bin/*) and source (vimrc, screenrc, scr-sty-env-*) out of it
+[ -z "$(find $SCR_TMPDIR -perm -0002 -o -perm -0020)" ]

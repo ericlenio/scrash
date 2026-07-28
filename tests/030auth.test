@@ -83,7 +83,81 @@ if curl -f -s -H "Authorization: $auth_hdr_path" "http://127.0.0.1:$SCR_PORT/scr
   false
 fi
 
-# 12. Failed-auth rate limiter: a burst of >20 auth failures within the window
+# 12. The bash-functions response is signed, so the client can tell that the
+# script it is about to eval came from us. The first line carries
+# #SCRASH-RESP-SIG=<hmac of the rest of the body>, keyed with a per-request key
+# derived from this request's timestamp and nonce (Server.js #responseKey), which
+# is what -shell-boot-string hands to the remote shell instead of SCR_SEED
+ts=$(date +%s)
+nc=$(openssl rand -hex 8)
+sig=$(-hmac-sha256 "GET:/scr-get-bash-functions:$ts:$nc")
+resp_key=$(-hmac-sha256 "response:$ts:$nc")
+resp=$(curl -f -s --compressed -H "Authorization: SCRASH-HMAC t=$ts,n=$nc,s=$sig" \
+  "http://127.0.0.1:$SCR_PORT/scr-get-bash-functions?platform=$(uname)&hostname=$(hostname)&start=1&ssh_level=0")
+sig_line=$(printf %s "$resp" | head -n 1)
+body=$(printf %s "$resp" | tail -n +2)
+[[ "$sig_line" =~ ^#SCRASH-RESP-SIG=[a-f0-9]{64}$ ]]
+[ -n "$body" ]
+[ "${sig_line##*=}" = "$(-hmac-sha256 "$body" "$resp_key")" ]
+# and a body that does not match the signature has to be detectable: this is what
+# stops the remote shell from eval'ing a response we did not send
+[ "${sig_line##*=}" != "$(-hmac-sha256 "${body}tampered" "$resp_key")" ]
+# a key derived from a different nonce must not verify either
+[ "${sig_line##*=}" != "$(-hmac-sha256 "$body" "$(-hmac-sha256 "response:$ts:$(openssl rand -hex 8)")")" ]
+
+# 13. Session keys. A request may be signed with SCR_SEED (no k=) or with a key
+# derived from it through a chain of session ids named by k=; the server
+# re-derives the key from the id path alone (Server.js #sessionKey), so nothing
+# is registered anywhere and a remote shell never needs the master seed.
+scr-signed-get() {
+  # args: path session_id_path key -- echoes the http status code
+  local path="$1" sid="$2" key="$3" ts=$(date +%s) nc=$(openssl rand -hex 8) sig
+  sig=$(-hmac-sha256 "GET:${path}:${ts}:${nc}" "$key")
+  curl -s -o /dev/null -w '%{http_code}' \
+    -H "Authorization: SCRASH-HMAC ${sid:+k=$sid,}t=${ts},n=${nc},s=${sig}" \
+    "http://127.0.0.1:$SCR_PORT$path"
+}
+sid1=$(openssl rand -hex 8)
+key1=$(-hmac-sha256 "session:$sid1")
+# a session key works when it names the id it was derived from
+[ $(scr-signed-get /scr-about "$sid1" "$key1") = 200 ]
+# and does not work under anybody else's id, nor by claiming to be the master key
+[ $(scr-signed-get /scr-about "$(openssl rand -hex 8)" "$key1") = 401 ]
+[ $(scr-signed-get /scr-about "" "$key1") = 401 ]
+# the master key must not be usable under a session id either
+[ $(scr-signed-get /scr-about "$sid1" "$SCR_SEED") = 401 ]
+# a second hop chains from the first hop's key, and the server folds the path
+sid2=$(openssl rand -hex 8)
+key2=$(-hmac-sha256 "session:$sid2" "$key1")
+[ $(scr-signed-get /scr-about "$sid1.$sid2" "$key2") = 200 ]
+# a deeper key cannot be used to sign as its own parent
+[ $(scr-signed-get /scr-about "$sid1" "$key2") = 401 ]
+# malformed or absurdly deep id paths are rejected before any derivation
+[ $(scr-signed-get /scr-about "nothex0123456789" "$key1") = 401 ]
+[ $(scr-signed-get /scr-about "abc" "$key1") = 401 ]
+deep=$sid1; for i in {1..8}; do deep=$deep.$(openssl rand -hex 8); done
+[ $(scr-signed-get /scr-about "$deep" "$key1") = 401 ]
+
+# 14. A boot fetched with a session key must be handed that same session key back
+# -- never the master seed -- plus the id it belongs to, so the far end can sign
+# and mint its own children without ever holding SCR_SEED
+sid3=$(openssl rand -hex 8)
+key3=$(-hmac-sha256 "session:$sid3")
+ts=$(date +%s)
+nc=$(openssl rand -hex 8)
+sig=$(-hmac-sha256 "GET:/scr-get-bash-functions:$ts:$nc" "$key3")
+resp=$(curl -f -s --compressed -H "Authorization: SCRASH-HMAC k=$sid3,t=$ts,n=$nc,s=$sig" \
+  "http://127.0.0.1:$SCR_PORT/scr-get-bash-functions?platform=$(uname)&hostname=$(hostname)&start=1&ssh_level=1")
+body=$(printf %s "$resp" | tail -n +2)
+grep -q "SCR_SEED=\"$key3\"" <<<"$body"
+grep -q "SCR_SID=$sid3 " <<<"$body"
+! grep -q "$SCR_SEED" <<<"$body" || false
+# and that response is signed with a key derived from the session key, not the seed
+sig_line=$(printf %s "$resp" | head -n 1)
+[ "${sig_line##*=}" = "$(-hmac-sha256 "$body" "$(-hmac-sha256 "response:$ts:$nc" "$key3")")" ]
+[ "${sig_line##*=}" != "$(-hmac-sha256 "$body" "$(-hmac-sha256 "response:$ts:$nc")")" ]
+
+# 15. Failed-auth rate limiter: a burst of >20 auth failures within the window
 # starts returning 429 instead of 401, while a validly-signed request is still
 # served (proving the limiter cannot starve a legitimate client). Kept last so
 # tripping the limiter cannot perturb the strict status-code checks above.

@@ -32,8 +32,27 @@
         # remote-request entry point: getPassword (Server.js) calls us with the
         # -pw args base64-serialized. The local user must approve before any
         # lookup happens.
-        local args arg
+        local args arg i=0
         -deserialize-args $OPTARG
+        # these args come from a remote host, and they are about to be handed
+        # back to this function as options. a lookup is all a remote caller gets:
+        # reject the flags that write to the store (-a), rewrite it (-c), open an
+        # editor in it (-e) or initialize it (-I), plus anything unrecognized.
+        # -i and -p take a value, so skip the arg that follows them
+        while [ $i -lt ${#args[@]} ]; do
+          case ${args[$i]} in
+            (-b)
+              ;;
+            (-i|-p)
+              i=$((i+1))
+              ;;
+            (-*)
+              echo "$FUNCNAME: option not allowed in a remote request: ${args[$i]}" >&2
+              return 1
+              ;;
+          esac
+          i=$((i+1))
+        done
         if ! -pw-confirm "${args[@]}"; then
           echo "$FUNCNAME: remote password request denied" >&2
           return 1
@@ -46,7 +65,14 @@
         ;;
       (i)
         # for each line found, within that line what part of the line do we want?
-        # default is the last index
+        # default is the last index.
+        # this value is evaluated as an arithmetic expression below, where a
+        # subscript like a[$(cmd)] would run cmd, and remote callers can reach it
+        # through -A: it has to be an integer and nothing else
+        if ! [[ "$OPTARG" =~ ^-?[0-9]+$ ]]; then
+          echo "$FUNCNAME: -i requires an integer, got: $OPTARG" >&2
+          return 1
+        fi
         index=$OPTARG
         ;;
       (I)
@@ -119,7 +145,7 @@
           found=1
           IFS="$split_char" builtin read -r -a pw_line <<<"$pw_line"
           if [ "$index" ]; then
-            let n=$index || true
+            n=$((index))
           else
             let n=${#pw_line[*]}-1
           fi
@@ -129,7 +155,9 @@
           else
             printf "%s\n" $(printf %s "$pw" | openssl enc -a -A)
           fi
-        done < <(gpg -qd "$pw_file" | grep -v ^# | grep "$search_key" || true)
+        # -F: the search key can come from a remote host (see -A), and it is a
+        # key to look for, not a pattern to interpret
+        done < <(gpg -qd "$pw_file" | grep -v ^# | grep -F -- "$search_key" || true)
         if [ $found = 0 ]; then
           return 1
         fi
@@ -187,6 +215,40 @@
   read -r -t $((timeout+5)) decision < "$fifo" || decision=deny
   rm -rf "$dir"
   [ "$decision" = approve ]
+}
+
+# Runs inside the gnu screen window opened by Server.js #alert. Shows the alert
+# and then waits: screen closes a window as soon as its command exits, so the
+# read is what keeps the window (and its entry in the window list) around until
+# it has actually been seen. Only ever runs locally (it is in
+# SCR_LOCALHOST_FUNCS). Args: message detail
+-alert-window() {
+  local msg="$1" detail="$2" bar
+  printf -v bar '=%.0s' {1..64}
+  # bell: with -M on the window, screen also flags it in the window list
+  printf '\a'
+  clear 2>/dev/null || true
+  printf '\033[1;97;41m%s\033[0m\n' "$bar"
+  printf '\033[1;97;41m  scrash SECURITY ALERT   %s  \033[0m\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+  printf '\033[1;97;41m%s\033[0m\n\n' "$bar"
+  printf '  \033[1;91m%s\033[0m\n\n' "$msg"
+  if [ "$detail" ]; then
+    printf '  %s\n\n' "$detail"
+  fi
+  cat <<'EOF'
+  A request arrived carrying a valid signature and a nonce that had already
+  been used. Only a holder of that key can produce the signature, so the key
+  is in more than one pair of hands -- most likely lifted from a command line
+  on a host you ssh'd to (see -shell-boot-string).
+
+  Where to look: the scrash server window logs the session id, the request
+  path and the nonce.
+
+  How to shut it down: restart scrash. Every session key is derived from the
+  master seed, so a new seed invalidates all of them at once.
+EOF
+  printf '\n'
+  read -r -p "  press enter to close this window: "
 }
 
 # Runs inside the fresh gnu screen window opened by -pw-confirm: shows the

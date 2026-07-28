@@ -33,6 +33,10 @@ let SCR_SSH_HOST_KEY;
 const AUTH_FAIL_MAX = 20;
 const AUTH_FAIL_WINDOW_MS = 10000;
 
+// #alert puts a message on the status line of attached screen displays; do not
+// do that more than once per this interval
+const ALERT_MIN_INTERVAL_MS = 10000;
+
 const E_OS_PROG_ENUM={
   COPY:{
     //linux:["clipit"],
@@ -59,6 +63,7 @@ class Server extends http.Server {
   #shellFunctions={};
   #authFailures = [];      // timestamps (ms) of recent auth failures
   #authThrottled = false;  // whether failure responses are currently throttled
+  #lastAlert = 0;          // when #alert last reached the screen status line
 
   init({port}) {
     console.error(`starting Server.js v${SCR_VERSION}, configuration: ${SCR_ENV}, profile: ${SCR_PROFILE}`);
@@ -93,7 +98,7 @@ class Server extends http.Server {
           res.setHeader('Content-Type',accepts[0]);
           return res.end(`${SCR_APP_NAME} ${SCR_VERSION}, configuration ${SCR_ENV}, profile ${SCR_PROFILE}\n`);
         case "/scr-get-bash-functions":
-          return this.getBashFunctions(url,res);
+          return this.getBashFunctions(url,res,req);
         case "/scr-set-clipboard":
           return this.setClipboardFromRequest(req,res);
         case "/scr-get-clipboard":
@@ -151,12 +156,17 @@ class Server extends http.Server {
       throw new Error("Unauthorized: missing Authorization header or SCR_SEED");
     }
 
-    const match = authHeader.match(/^SCRASH-HMAC t=(\d+),n=([a-f0-9]+),s=([a-f0-9]+)$/i);
+    // k= is the session key id: absent means the request was signed with
+    // SCR_SEED itself (a shell on this machine), otherwise it names the chain of
+    // session ids the signing key was derived through (see #sessionKey). the
+    // segment shape and chain depth are pinned here so a malformed or absurdly
+    // deep id is rejected before we derive anything
+    const match = authHeader.match(/^SCRASH-HMAC (?:k=([a-f0-9]{16}(?:\.[a-f0-9]{16}){0,7}),)?t=(\d+),n=([a-f0-9]+),s=([a-f0-9]+)$/i);
     if (!match) {
       throw new Error("Unauthorized: invalid Authorization header format");
     }
 
-    const [, timestampStr, nonce, signature] = match;
+    const [, sid, timestampStr, nonce, signature] = match;
     const timestamp = parseInt(timestampStr, 10);
 
     const now = Math.floor(Date.now() / 1000);
@@ -164,14 +174,11 @@ class Server extends http.Server {
       throw new Error("Unauthorized: expired timestamp");
     }
 
-    if (this.#usedNonces.has(nonce)) {
-      throw new Error("Unauthorized: replayed nonce");
-    }
-
     const basePath = (req.url && req.url.startsWith('/')) ? new URL(req.url, 'https://127.0.0.1').pathname : req.url;
     const method = req.method || 'GET';
     const stringToSign = `${method}:${basePath}:${timestamp}:${nonce}`;
-    const expectedSig = crypto.createHmac('sha256', seed).update(stringToSign).digest('hex');
+    const key = this.#sessionKey(sid);
+    const expectedSig = crypto.createHmac('sha256', key).update(stringToSign).digest('hex');
 
     const expectedBuf = Buffer.from(expectedSig, 'hex');
     const providedBuf = Buffer.from(signature, 'hex');
@@ -179,8 +186,102 @@ class Server extends http.Server {
       throw new Error("Unauthorized: invalid signature");
     }
 
+    // the replay check comes after the signature check on purpose: a replayed
+    // nonce with a *valid* signature means somebody other than the signer is
+    // using its credential, which is worth shouting about, whereas a replayed
+    // nonce with a bad signature is just noise. costs one HMAC on garbage
+    // requests, and the failure throttle already covers floods
+    if (this.#usedNonces.has(nonce)) {
+      this.#alert(`credential replayed on ${basePath} (session=${sid || 'local'})`,
+        `nonce ${nonce} was signed validly and used twice: whoever signed it is not the only holder of that key`);
+      throw new Error("Unauthorized: replayed nonce");
+    }
+
     this.#usedNonces.add(nonce);
     setTimeout(() => this.#usedNonces.delete(nonce), 300000);
+    // key/sid are kept for #responseKey and getBashFunctions: both hand back
+    // something derived from the key this request was verified with, so the
+    // client can reproduce it without another secret
+    req.scrAuth={timestamp,nonce,sid,key};
+  }
+
+  /**
+   * key that a request signed with session id path <sid> must have used. derived
+   * from SCR_SEED by folding one HMAC per session id, so a remote shell can mint
+   * a child key for the next ssh hop locally (from the key it already holds) and
+   * this side can re-derive it from the id alone -- no shared table, no round
+   * trip, and a deeper key cannot be used to forge a shallower one.
+   *
+   * @param {string} [sid] - dot-separated session id path; empty/undefined for
+   * the master key
+   *
+   * @return {string} hex key
+   */
+  #sessionKey(sid) {
+    let key=process.env.SCR_SEED;
+    if (!sid) {
+      return key;
+    }
+    for (const segment of sid.split('.')) {
+      key=crypto.createHmac('sha256',key).update(`session:${segment}`).digest('hex');
+    }
+    return key;
+  }
+
+  /**
+   * report something the user needs to see now. the server log scrolls past in
+   * its own window and a status line message is gone with the next keystroke, so
+   * open a window for it: -alert-window waits for a keypress before it exits, and
+   * screen closes a window when its command exits, so the window (and its entry
+   * in the window list) stays until it is acknowledged. -M turns on monitoring so
+   * the window is flagged as having activity even if it does not take focus, and
+   * the wall message is the immediate pointer to it.
+   *
+   * rate limited so a flood cannot open a window per request, and skipped under
+   * the test configuration, where the suite replays a nonce on purpose and must
+   * not write into a live session.
+   *
+   * @param {string} msg - short form: status line and window heading
+   *
+   * @param {string} [detail] - the rest, shown in the window and logged
+   */
+  #alert(msg,detail) {
+    console.error(`${SCR_APP_NAME}: ALERT: ${msg}${detail ? ` -- ${detail}` : ''}`);
+    const now=Date.now();
+    if (SCR_ENV==='test' || now-this.#lastAlert < ALERT_MIN_INTERVAL_MS) {
+      return;
+    }
+    this.#lastAlert=now;
+    // request data reaches these strings and they are about to be written to a
+    // terminal, so keep them to printable ASCII and bounded in length (same
+    // reason -pw-confirm strips its label)
+    const forTerminal=s=>String(s || '').replace(/[^\x20-\x7e]/g,'?').slice(0,200);
+    // -alert-window is an exported localhost function, available in the new
+    // window like every other scrash function (the same bash -c '"$@"' idiom
+    // -pw-confirm uses to run its dialog)
+    spawn("/usr/bin/env",["screen","-X","screen","-M","-t","scrash-ALERT",
+      "bash","-c",'"$@"',"--","-alert-window",forTerminal(msg),forTerminal(detail)],{stdio:'ignore'})
+      .on('error',e=>console.error("alert: could not open a screen window:",e.toString()));
+    spawn("/usr/bin/env",["screen","-X","wall",
+      `${SCR_APP_NAME}: ${msg} -- see the scrash-ALERT window`],{stdio:'ignore'})
+      .on('error',()=>{});
+  }
+
+  /**
+   * per-request key used to sign a response body. derived from the key the
+   * request was verified with plus its timestamp/nonce, so the client can
+   * pre-compute it locally and carry it in a remote command line without
+   * carrying the signing key itself: the derived key cannot sign requests and is
+   * scoped to one nonce.
+   *
+   * @param {http.IncomingMessage} req - a request that passed #verifyAuth
+   *
+   * @return {string} hex key
+   */
+  #responseKey(req) {
+    const {timestamp,nonce,key}=req.scrAuth;
+    return crypto.createHmac('sha256',key)
+      .update(`response:${timestamp}:${nonce}`).digest('hex');
   }
 
   // record an auth failure at time `now` (ms); returns true if failures within
@@ -318,7 +419,7 @@ class Server extends http.Server {
     });
   }
 
-  getBashFunctions(url,res) {
+  getBashFunctions(url,res,req) {
     return new Promise((resolve,reject)=>{
       for (let param of ['platform','hostname','ssh_level','start']) {
         if (!url.searchParams.has(param)) {
@@ -326,16 +427,10 @@ class Server extends http.Server {
           return reject(e);
         }
       }
-      const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
-      gz.on('error',reject);
-      res.setHeader('Content-Encoding','gzip');
-      res.setHeader('Content-Type','application/x-shellscript');
-      gz.pipe(res);
-      let bytesWritten=0;
-      const write=s=>{
-        gz.write(s);
-        bytesWritten+=s.length;
-      };
+      // buffer the script rather than streaming it: we have to sign the whole
+      // body before the first byte goes out (see below)
+      const parts=[];
+      const write=s=>parts.push(s);
       const platform=url.searchParams.get('platform').toLowerCase();
       const hostname=url.searchParams.get('hostname').toLowerCase();
       const sshLevel=url.searchParams.get('ssh_level');
@@ -345,7 +440,13 @@ class Server extends http.Server {
         write(`export `);
         write(`SCR_PORT=${url.port} `);
         write(`SCR_PORT_0=${SCR_PORT_0} `);
-        write(`SCR_SEED="${process.env.SCR_SEED}" `);
+        // hand back the key this request was signed with, not SCR_SEED. for a
+        // boot that came through -shell-boot-string that is a session key the
+        // caller derived itself, so a shell on the far end can sign and can mint
+        // child keys for further hops, but never holds the master seed: stealing
+        // it costs one session rather than every session on every host
+        write(`SCR_SEED="${req.scrAuth.key}" `);
+        write(`SCR_SID=${req.scrAuth.sid || ''} `);
         write(`SCR_ENV=${SCR_ENV} `);
         write(`SCR_VERSION=${SCR_VERSION} `);
         write(`SCR_SSH_USER=${SCR_SSH_USER} `);
@@ -356,7 +457,23 @@ class Server extends http.Server {
         write(`\n`);
         write(`-shell-init -s ${start}\n`);
       }
-      console.log("getBashFunctions: sent",bytesWritten,"bytes");
+      const body=parts.join('');
+      // the client evals this script, so it has to be able to tell that the
+      // script came from us and not from whatever else answered on that port.
+      // the signature goes out as the first line (a comment) rather than a
+      // header so the client can verify it with nothing but curl and openssl.
+      // trailing newlines are stripped here because the client reads the body
+      // through command substitution, which strips them too
+      const sig=crypto.createHmac('sha256',this.#responseKey(req))
+        .update(body.replace(/\n+$/,'')).digest('hex');
+      const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
+      gz.on('error',reject);
+      res.setHeader('Content-Encoding','gzip');
+      res.setHeader('Content-Type','application/x-shellscript');
+      gz.pipe(res);
+      gz.write(`#SCRASH-RESP-SIG=${sig}\n`);
+      gz.write(body);
+      console.log("getBashFunctions: sent",body.length,"bytes to session",req.scrAuth.sid || 'local');
       gz.end(resolve);
     });
   }

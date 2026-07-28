@@ -83,6 +83,26 @@ pwkey_b64=$(-ssh-pw -i 0 -b "$pwkey")
 [ "$(-ssh-pw -i 1 password)" = "$user1"$'\n'"$user2" ]
 [ "$(-ssh-pw -i 1 -b password)" = $(printf %s "$user1" | openssl enc -a -A)$'\n'$(printf %s "$user2" | openssl enc -a -A) ]
 
+# a remote request may only ask for a lookup: the args arrive from the remote host
+# and are handed back to -pw-localhost as options, so the ones that write to the
+# store or open an editor in it have to be refused before -pw-confirm is even
+# reached. -a needs a value, the rest do not
+for remote_opt in -a -c -e -I; do
+  ! -ssh-pw $remote_opt "evil:user:pw" 2>/dev/null || false
+done
+# the password file must be untouched by the rejected -a above
+! gpg -qd $SCR_PASSWORD_FILE | grep -q evil || false
+
+# -i lands in an arithmetic evaluation, where a subscript like a[$(cmd)] would run
+# cmd. a remote caller must not get that far
+pwn=$SCR_TMPDIR/pw-injection
+rm -f $pwn
+! -ssh-pw -i "1+a[\$(touch $pwn)]" "$pwkey1" 2>/dev/null || false
+[ ! -e $pwn ]
+# same guard on the local path
+! -pw -i "1+a[\$(touch $pwn)]" "$pwkey1" 2>/dev/null || false
+[ ! -e $pwn ]
+
 # this next one should fail because no signature headers are given
 if curl -f -s "http://127.0.0.1:$SCR_PORT/scr-get-password?args64=$(-serialize-args "$pwkey")" 2>/dev/null; then
   rc=$?

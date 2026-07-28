@@ -49,6 +49,63 @@
   fi
 }
 
+# is $1 owned by the user who started scrash? ($SUDO_UID when we are running
+# under sudo, where we share the invoking user's $SCR_TMPDIR read-only.) ls -ldn
+# rather than stat(1), whose flags differ across the platforms we run on: field 1
+# is the mode string, field 3 the numeric owner
+-check-owner() {
+  local f="$1" uid want_uid=${SUDO_UID:-$EUID}
+  if [ ! -e "$f" ]; then
+    echo "$FUNCNAME: no such file: $f" >&2
+    return 1
+  fi
+  set -- $(ls -ldn "$f")
+  uid=$3
+  if [ "$uid" != "$want_uid" ]; then
+    echo "$FUNCNAME: $f is owned by uid $uid, expected $want_uid" >&2
+    return 1
+  fi
+}
+
+# $SCR_TMPDIR is a predictable path in a shared /tmp, and we write executables
+# into it ($EDITOR, bin/git-ssh, bin/ssh-proxy-jump) and source files out of it
+# (vimrc, screenrc, scr-sty-env-*). so before trusting anything in there, make
+# sure it is a real directory that belongs to us and that nobody else can write
+# to -- otherwise someone may have created it (and planted those files) first.
+# under sudo the directory belongs to the user who invoked sudo, which is why we
+# compare against $SUDO_UID when it is set
+-check-tmpdir() {
+  local d dirs=("$1" "$1/bin") mode
+  for d in "${dirs[@]}"; do
+    [ -e "$d" ] || continue
+    if [ -L "$d" ] || [ ! -d "$d" ]; then
+      echo "$FUNCNAME: $d is not a directory" >&2
+      return 1
+    fi
+    if ! -check-owner "$d"; then
+      echo "$FUNCNAME: refusing to use $d" >&2
+      return 1
+    fi
+    # tighten rather than refuse where we can: umask 002 is common enough that
+    # insisting on a mode nobody else can write to would break working setups.
+    # under sudo we are not the owner and cannot chmod, so there we only insist
+    # that the world cannot write to it
+    if [ -z "$SUDO_USER" ]; then
+      if ! chmod go-w "$d"; then
+        echo "$FUNCNAME: could not tighten permissions on $d" >&2
+        return 1
+      fi
+      continue
+    fi
+    set -- $(ls -ldn "$d")
+    mode=$1
+    if [ "${mode:8:1}" = w ]; then
+      echo "$FUNCNAME: refusing to use $d: mode $mode is writable by others" >&2
+      return 1
+    fi
+  done
+}
+
 -random-string() {
   local length=${1:-16} r="" c
   while [ ${#r} -lt $length ]; do
@@ -91,7 +148,13 @@
 # call within gnu screen to update important environment variables; in
 # particular, this must be called prior to any call to -ws or -ssh
 -screen-env() {
-  local opts="uS:p" opt OPTIND update=0 v SCR_UPDATEABLE="SCR_PORT SSH_AUTH_SOCK SCR_SEED" file_prefix=scr-sty-env- echo_port=0
+  # SCR_SEED and SCR_SID are deliberately not in SCR_UPDATEABLE: they go in their
+  # own file (see $SCR_STY_SEED below). SCR_SEED because it needs tighter
+  # permissions than the rest, and SCR_SID because it has to move with the key it
+  # names -- a process that cannot read the key must not pick up a newer id for
+  # it, or it signs with one key while claiming another
+  local opts="uS:p" opt OPTIND update=0 v SCR_UPDATEABLE="SCR_PORT SSH_AUTH_SOCK" \
+    file_prefix=scr-sty-env- seed_prefix=scr-sty-seed- echo_port=0
   # keep STY local so we don't pollute parent shell when reconnecting to a gnu
   # screen session
   local STY=$STY
@@ -111,13 +174,20 @@
   fi
   local session_id=${STY##*.}
   local SCR_STY_ENV=$SCR_TMPDIR/$file_prefix$session_id
+  # SCR_SEED is the key every request is signed with, so it gets a file of its own
+  # at mode 600 instead of riding along in $SCR_STY_ENV, which stays world
+  # readable: a sudo'd process (possibly running as another user) has to be able
+  # to read the refreshed SCR_PORT out of it after a reconnect. SCR_SID travels
+  # here too -- it is not a secret, but it names this key, and the two have to be
+  # picked up together or not at all
+  local SCR_STY_SEED=$SCR_TMPDIR/$seed_prefix$session_id
+  local old_env old_env_id umask_save
   if [ -z "$SUDO_USER" ]; then
-    local old_env old_env_id
     for old_env in $SCR_TMPDIR/$file_prefix*; do
       if [[ $old_env =~ $file_prefix([:alnum:].*) ]]; then
         old_env_id=${BASH_REMATCH[1]}
         if ! screen -ls | grep -q $old_env_id; then
-          rm -f $old_env
+          rm -f $old_env $SCR_TMPDIR/$seed_prefix$old_env_id
           echo "removed old fifo: $old_env" >&2
         fi
       fi
@@ -132,6 +202,21 @@
         fi
       done
     } > $SCR_STY_ENV; then
+      if [ "$SCR_SEED" ]; then
+        # umask for the create, chmod for the case where the file already exists
+        # (a redirection truncates it but keeps the old mode)
+        umask_save=$(umask)
+        umask 077
+        if ! {
+          printf "SCR_SEED='%s'\n" "$SCR_SEED"
+          printf "SCR_SID='%s'\n" "$SCR_SID"
+        } > $SCR_STY_SEED || ! chmod 600 $SCR_STY_SEED; then
+          umask $umask_save
+          echo "$FUNCNAME: failed to write to $SCR_STY_SEED" >&2
+          return 1
+        fi
+        umask $umask_save
+      fi
       printf "%s: successful update on %s:\n%s\n" $FUNCNAME $session_id "$(<$SCR_STY_ENV)" >&2
       return
     else
@@ -142,9 +227,29 @@
   if [ ! -e $SCR_STY_ENV ]; then
     touch $SCR_STY_ENV
   fi
+  # we are about to source these: $SCR_TMPDIR is a predictable path in a shared
+  # /tmp, so a file there that is not ours was put there by somebody else
+  if ! -check-owner $SCR_STY_ENV; then
+    echo "$FUNCNAME: refusing to source $SCR_STY_ENV" >&2
+    return 1
+  fi
   if ! source $SCR_STY_ENV; then
     echo "$FUNCNAME: failed to load data from $SCR_STY_ENV" >&2
     return 1
+  fi
+  # an unreadable seed file means we are a sudo'd process running as a user that
+  # is not allowed to see the key, which is fine: such a process keeps the
+  # SCR_SEED/SCR_SID pair it booted with, and that key stays valid for as long as
+  # the server is up (the id it was derived through does not change)
+  if [ -r "$SCR_STY_SEED" ]; then
+    if ! -check-owner $SCR_STY_SEED; then
+      echo "$FUNCNAME: refusing to source $SCR_STY_SEED" >&2
+      return 1
+    fi
+    if ! source $SCR_STY_SEED; then
+      echo "$FUNCNAME: failed to load data from $SCR_STY_SEED" >&2
+      return 1
+    fi
   fi
   if [ $echo_port = 1 ]; then
     echo $SCR_PORT
@@ -261,11 +366,41 @@ screen() {
   env screen "${cmd[@]}" "${screen_cmd[@]}"
 }
 
+# HMAC-SHA256 of $1, keyed with $SCR_SEED (or with $2 when given). both the key
+# and the message are passed in the environment and never on a command line: on
+# every host we ssh to, argv is readable by any local user (ps,
+# /proc/PID/cmdline), so "openssl dgst -hmac $SCR_SEED" would hand the seed to
+# anyone polling for it. perl's Digest::SHA is core, but fall back to openssl
+# where it is somehow missing rather than fail outright
+-hmac-sha256() {
+  local mac
+  if mac=$(SCR_HMAC_MSG="$1" SCR_HMAC_KEY="${2:-$SCR_SEED}" perl -MDigest::SHA=hmac_sha256_hex \
+    -e 'print hmac_sha256_hex($ENV{SCR_HMAC_MSG},$ENV{SCR_HMAC_KEY})' 2>/dev/null) && [ ${#mac} = 64 ]; then
+    printf "%s\n" $mac
+    return
+  fi
+  printf %s "$1" | openssl dgst -sha256 -hmac "${2:-$SCR_SEED}" | awk '{print $2}'
+}
+
+# mint a session key for the next ssh hop: one random id, and a key derived from
+# whatever key this shell holds. Server.js #sessionKey re-derives it from the id
+# path alone, so nothing has to be registered anywhere. the id is not a secret
+# (it selects a key, it does not prove anything), but it must be unpredictable:
+# it ends up in log lines and, later, in whatever we key revocation on
+#
+# usage: -mint-session-key   ->   prints "<id path> <key>"
+-mint-session-key() {
+  local sid=$(openssl rand -hex 8)
+  printf "%s %s\n" "${SCR_SID:+$SCR_SID.}$sid" "$(-hmac-sha256 "session:$sid")"
+}
+
+# args: method path [session_id_path [key]]. with no key we sign with this
+# shell's own $SCR_SEED and identify ourselves with its $SCR_SID (empty on the
+# machine running the server, where SCR_SEED *is* the master seed)
 -scr-auth-header() {
-  local method="${1:-GET}" path="$2" ts=$(date +%s) nc=$(openssl rand -hex 8) string_to_sign sig
-  string_to_sign="${method}:${path}:${ts}:${nc}"
-  sig=$(echo -n "$string_to_sign" | openssl dgst -sha256 -hmac "$SCR_SEED" | awk '{print $2}')
-  echo "SCRASH-HMAC t=${ts},n=${nc},s=${sig}"
+  local method="${1:-GET}" path="$2" sid="${3-$SCR_SID}" key="${4-$SCR_SEED}" ts=$(date +%s) nc=$(openssl rand -hex 8) sig
+  sig=$(-hmac-sha256 "${method}:${path}:${ts}:${nc}" "$key")
+  echo "SCRASH-HMAC ${sid:+k=$sid,}t=${ts},n=${nc},s=${sig}"
 }
 
 -ws() {
@@ -287,10 +422,15 @@ screen() {
 
   local auth_header=$(-scr-auth-header "$method" "$base_path")
 
-  set -- -H "Authorization: $auth_header" "$@"
   printf -v url "%s%s" $base_url $endpoint
   set -- "$@" "$url"
-  if NO_PROXY=127.0.0.1 curl --connect-timeout 5 -f -S -s "$@"; then
+  # hand the credential to curl through a config file on a pipe (-K) rather than
+  # -H: a header on the command line is readable by any local user, and this
+  # function runs on every host we ssh to. it has to be written on the curl line
+  # itself -- bash closes the /dev/fd entry for a process substitution as soon as
+  # the command it appeared in finishes, so it cannot be stashed in "$@" first
+  if NO_PROXY=127.0.0.1 curl --connect-timeout 5 -f -S -s \
+    -K <(printf 'header = "Authorization: %s"\n' "$auth_header") "$@"; then
     :
   else
     rc=$?
@@ -329,7 +469,7 @@ vim() {
     echo "$FUNCNAME: EDITOR is not set" >&2
     return 1
   fi
-  local p d=$(dirname "$EDITOR") funcs_to_export="-ws -set-clipboard -get-clipboard -screen-env -scr-auth-header"
+  local p d=$(dirname "$EDITOR") funcs_to_export="-ws -set-clipboard -get-clipboard -screen-env -scr-auth-header -hmac-sha256 -check-owner"
   [ ! -d "$d" ] && mkdir -p "$d"
   if [ ! -e "$EDITOR" ]; then
     p='#!/usr/bin/env bash\n%s\nexport -f -- %s\nexec vim "$@"'
@@ -407,8 +547,20 @@ vim() {
         fi
       fi
     fi
+    # -m 755 rather than relying on the umask: a permissive umask would otherwise
+    # leave this directory writable by everyone, and everything below is either
+    # executed or sourced
+    if [ ! -d "$SCR_TMPDIR" ]; then
+      if ! mkdir -m 755 -p "$SCR_TMPDIR"; then
+        echo "ERROR: could not create $SCR_TMPDIR" >&2
+        return 1
+      fi
+    fi
+    if ! -check-tmpdir "$SCR_TMPDIR"; then
+      return 1
+    fi
     if [ ! -d $SCR_TMPDIR/bin ]; then
-      if ! mkdir -p $SCR_TMPDIR/bin; then
+      if ! mkdir -m 755 -p $SCR_TMPDIR/bin; then
         echo "ERROR: could not create $SCR_TMPDIR/bin" >&2
         return 1
       fi
@@ -525,15 +677,42 @@ vim() {
     start=1
   fi
   local base_path="/scr-get-bash-functions"
-  local auth_header=$(-scr-auth-header "GET" "$base_path")
+  # this credential goes into the remote command line (see below), so do not sign
+  # with our own key: mint a session key for the shell we are about to start. the
+  # server hands that same key back in the response, so the far end can sign with
+  # it and derive its own children, and a credential taken out of the command
+  # line buys one session instead of the master seed
+  local session sid session_key auth_header resp_key
+  session=($(-mint-session-key))
+  sid=${session[0]}
+  session_key=${session[1]}
+  auth_header=$(-scr-auth-header "GET" "$base_path" "$sid" "$session_key")
+  # the remote shell evals whatever answers on that port, so hand it a key to
+  # check the response with first. the key is derived from this request's
+  # timestamp and nonce (Server.js #responseKey derives the same one), so the
+  # remote command line carries a single-nonce verification key and never a
+  # signing key.
+  #
+  # note the Authorization header below is still on the remote command line:
+  # this string *is* the remote command, and there is nowhere else to put it
+  # before the remote shell exists. it is consumed by the curl it starts, the
+  # nonce is single-use, and -shell-init execs at the end of boot (which replaces
+  # this argv), so the exposure is the moment between ssh starting the shell and
+  # curl finishing -- and what is exposed is one session's key
+  if ! [[ "$auth_header" =~ t=([0-9]+),n=([a-f0-9]+) ]]; then
+    echo "$FUNCNAME: could not parse auth header" >&2
+    return 1
+  fi
+  resp_key=$(-hmac-sha256 "response:${BASH_REMATCH[1]}:${BASH_REMATCH[2]}" "$session_key")
 
-  printf 'eval -- "$(NO_PROXY=%s curl -Sfs --compressed -H \"Authorization: %s\" http://%s:%s/scr-get-bash-functions?platform=$(uname)\&hostname=$(hostname)\&start=%s\&ssh_level=%s || echo false)"' \
+  printf 'eval -- "$(r=$(NO_PROXY=%s curl -Sfs --compressed -H \"Authorization: %s\" http://%s:%s/scr-get-bash-functions?platform=$(uname)\&hostname=$(hostname)\&start=%s\&ssh_level=%s); s=$(printf %%s \"$r\" | head -n 1); b=$(printf %%s \"$r\" | tail -n +2); m=$(printf %%s \"$b\" | openssl dgst -sha256 -hmac %s); [ \"${s##*=}\" = \"${m##*= }\" ] && printf %%s \"$b\" || echo false)"' \
     "$curl_host" \
     "$auth_header" \
     "$curl_host" \
     "$remote_port" \
     "$start" \
-    "$ssh_level"
+    "$ssh_level" \
+    "$resp_key"
 }
 
 ssh-add() {
@@ -873,7 +1052,12 @@ sub bi_directional_pipe {
   local connect_dest="SCR_SSH_AUTH_SOCK_REQUEST"
   local auth_hdr=$(-scr-auth-header "CONNECT" "$connect_dest")
   perl_code=$(-perl-proxying-subroutines)'
-my ($SCR_PORT,$auth_hdr,$connect_dest,$SSH_AUTH_SOCK)=@ARGV;
+my ($SCR_PORT,$connect_dest,$SSH_AUTH_SOCK)=@ARGV;
+# the credential comes in through the environment, not @ARGV: this process can
+# outlive the first agent request by minutes (create_proxy_socket is not called
+# until ssh actually asks for a key), and until then the signature is unused and
+# still valid, so it must not be sitting in a world-readable command line
+my $auth_hdr=$ENV{SCR_AUTH_HDR};
 # create a 1-time use ssh-agent unix domain socket
 sub create_unix_domain_socket {
   my ($SSH_AUTH_SOCK)=@_;
@@ -891,7 +1075,7 @@ bi_directional_pipe($socket0,$socket0,$socket1);
 '
   # important: our perl ssh-agent will inherit file descriptors, so we must
   # redirect standard I/O to /dev/null
-  perl <(echo "$perl_code") $SCR_PORT "$auth_hdr" "$connect_dest" $SSH_AUTH_SOCK >/dev/null 2>&1 </dev/null &
+  SCR_AUTH_HDR="$auth_hdr" perl <(echo "$perl_code") $SCR_PORT "$connect_dest" $SSH_AUTH_SOCK >/dev/null 2>&1 </dev/null &
   pid=$!
   until [ -S $SSH_AUTH_SOCK ]; do
     sleep 0.1
@@ -916,11 +1100,14 @@ bi_directional_pipe($socket0,$socket0,$socket1);
   local connect_dest=$1 perl_code
   local auth_hdr=$(-scr-auth-header "CONNECT" "$connect_dest")
   perl_code=$(-perl-proxying-subroutines)'
-my ($SCR_PORT,$auth_hdr,$connect_dest)=@ARGV;
+my ($SCR_PORT,$connect_dest)=@ARGV;
+# see -ssh-auth-sock: the credential travels in the environment, not in argv
+my $auth_hdr=$ENV{SCR_AUTH_HDR};
 my $socket=create_proxy_socket($SCR_PORT,$auth_hdr,$connect_dest);
 bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 '
-  exec perl <(echo "$perl_code") $SCR_PORT "$auth_hdr" "$connect_dest"
+  export SCR_AUTH_HDR="$auth_hdr"
+  exec perl <(echo "$perl_code") $SCR_PORT "$connect_dest"
 }
 
 -sxx-scr-server-host-key() {
