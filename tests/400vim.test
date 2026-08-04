@@ -1,17 +1,53 @@
 # vim:filetype=bash
 -clear-cache
-[ ${#SCR_VIMRC} -gt 0 ]
-[ ${#SCR_VIMRUNTIME} -gt 0 ]
-[ ! -e $SCR_VIMRC ]
-[ ! -e $SCR_VIMRUNTIME ]
+# $SCR_VIM_CONFIG carries the profile vimrc plus the vim plugins verbatim in the
+# environment, and every vim scrash launches is handed it on a file descriptor by
+# the $EDITOR wrapper. it is never written to disk, so $VIMINIT is not exported
+# either: it is only correct while that descriptor is open, and the wrapper sets
+# it for the one invocation
+[ ${#SCR_VIM_CONFIG} -gt 0 ]
+[ ${#VIMINIT} = 0 ]
+[ "$SCR_VIM_CONFIG" = "$(-vim-config)" ]
+# matched in the shell rather than piped to grep: grep would stop reading at the
+# first match and leave the gzip inside -vim-plugin-functions with a broken pipe
+[[ "$SCR_VIM_CONFIG" = *ScrSetClipboard* ]]
+# the configuration is carried verbatim, never quoted, escaped or encoded
+[[ "$SCR_VIM_CONFIG" != *"call execute("* ]]
 [ ${#EDITOR} -gt 0 ]
 vim --version >/dev/null
-[ -f $SCR_VIMRC ]
-[ -d $SCR_VIMRUNTIME ]
 [ -e $EDITOR ]
+# the wrapper hands the configuration over a descriptor rather than naming a file
+[[ "$(<$EDITOR)" = *"/dev/fd/3"* ]]
+# and nothing anywhere under $SCR_TMPDIR contains the configuration
+[ "$(find $SCR_TMPDIR -name '*.vim')" = "" ]
+[ ! -e $SCR_TMPDIR/vimrc ]
+! grep -rl ScrNextColorScheme $SCR_TMPDIR >/dev/null 2>&1
 rm $EDITOR
 vim --version >/dev/null
 [ -e $EDITOR ]
+
+# the config has to be *sourced*, not just executed: only a real script context
+# gives script-local (s:) variables, which ScrNextColorScheme uses. running the
+# lines with execute() instead leaves it throwing E461 the first time F8 is
+# pressed, which nothing at startup reveals
+tsrc=$SCR_TMPDIR/tsrc
+tres=$SCR_TMPDIR/tres
+vim -c 'call ScrNextColorScheme(1)' -c "call writefile([get(g:,'colors_name','NONE')],'$tres')" -c 'qall!' /etc/passwd
+[ "$(<$tres)" != NONE ]
+
+# sourcing a descriptor has to leave the edited file exactly as a vimrc would:
+# content intact, not modified, no undo entry (or "u" in a freshly opened file
+# would replace it with the text of the vimrc), and the vimrc's buffer-local
+# options applied to that buffer
+printf 'alpha\nbeta\n' > $tsrc
+vim -c "call writefile([line('$').':'.getline(1).':'.&modified.':'.undotree().seq_last.':'.&tabstop.':'.&expandtab],'$tres')" -c 'qall!' $tsrc
+[ "$(<$tres)" = "2:alpha:0:0:2:1" ]
+
+# the profile's -edit() opens vim with "-S <(...)", so a second process
+# substitution has to coexist with the one carrying the configuration
+vim -S <(printf ':let g:from_S=1\n') -c "call writefile([get(g:,'from_S',-1).':'.&tabstop.':'.exists('*ScrSetClipboard')],'$tres')" -c 'qall!' $tsrc
+[ "$(<$tres)" = "1:2:1" ]
+
 echo ok | -set-clipboard
 [ ok = $(-get-clipboard ) ]
 t1=$SCR_TMPDIR/t1
@@ -58,9 +94,9 @@ grep '^fox jumps over$' $t3 >/dev/null
 grep '^the lazy dogbb cc$' $t3 >/dev/null
 [ "$(tail -1 $t3)" = line2 ]
 
-# make sure clipboard.vim exists
-[ -d "$SCR_VIMRUNTIME" ]
-rm -rf "$SCR_VIMRUNTIME"
+# the clipboard functions are inlined into $VIMINIT, so they are there without
+# anything on runtimepath having been written
+[ "$(find $SCR_TMPDIR -name '*.vim')" = "" ]
 printf "/^root\015vey:call ScrSetClipboard(@\")\015:q\015" > $t1
 vim -s $t1 /etc/passwd
 #'rm $t1

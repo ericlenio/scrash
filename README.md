@@ -39,10 +39,44 @@ would be fine with FreeBSD.
 
 # Vim
 Put any desired vimrc settings in `./profile/MYPROFILE/vimrc` and they will be
-used for all vim sessions. If you want to use scrash's OS clipboard integration
-then add this to your vimrc file:
+used for all vim sessions. scrash's OS clipboard integration is always available;
+no `runtimepath` setting is needed for it.
 
-    set runtimepath+=$SCR_VIMRUNTIME
+Your vimrc and scrash's vim plugins are not written to disk for vim to read. The
+`SCR_VIM_CONFIG` environment variable carries them verbatim — nothing is quoted,
+escaped or encoded — and every vim that scrash launches is handed that text on a
+file descriptor, with `VIMINIT` set to `source /dev/fd/3` for that invocation.
+So vim is fully configured on a host whose filesystem is readonly.
+
+`:source /dev/fd/3` is an ordinary `:source` of an ordinary path, which is why
+this works so well. It gets a real script context, so script-local (`s:`)
+variables behave normally, and it runs in the buffer vim has already opened for
+the file being edited, which is where a vimrc's buffer-local `:set` commands
+belong. The file being edited is never touched: no buffer is created or emptied,
+`BufRead` fires exactly once, and nothing lands in the undo history. And because
+`:source` of a path is as old as vim itself, this reaches all the way back to the
+**vim 7.1** on Ubuntu 8.
+
+Nothing else does. A command line cannot hold an `:if` or an `:augroup` block,
+and a `:function` body cannot be written with bars at all, so running the
+configuration out of the environment as commands rather than sourcing it needs
+`:source` of a buffer (vim 8.2.4594, 2022) or `execute()` (vim 7.4.2008, 2016) —
+neither of which exists on a vim that old.
+
+The configuration is never written to disk, so `VIMINIT` is not exported either —
+it is only true while that descriptor is open, and the wrapper sets it for the
+one invocation. A vim that scrash did *not* launch therefore starts unconfigured:
+that means `vimdiff`, `view`, or a script calling vim by an absolute path. Every
+route scrash controls is covered, including `$EDITOR` (so `git commit`,
+`sudoedit` and `crontab -e`) and the `vim` shell function.
+
+Two other consequences worth knowing: your vimrc may not use `:source` to pull in
+another file that scrash does not know about (there is no file to be relative
+to), and scrash's plugins load during vimrc processing rather than at
+`runtimepath` plugin time, so their autocommands are registered ahead of vim's
+own bundled plugins instead of after them. Anything of your own that you want on
+`runtimepath` should be added to your vimrc with a path you control; scrash does
+not provide a directory for it.
 
 Copying to the OS clipboard is achieved by calling function `ScrSetClipboard`;
 pasting from the clipboard is achieved with function `ScrPasteClipboard`. I
