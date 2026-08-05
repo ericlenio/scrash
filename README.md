@@ -42,11 +42,13 @@ Put any desired vimrc settings in `./profile/MYPROFILE/vimrc` and they will be
 used for all vim sessions. scrash's OS clipboard integration is always available;
 no `runtimepath` setting is needed for it.
 
-Your vimrc and scrash's vim plugins are not written to disk for vim to read. The
-`SCR_VIM_CONFIG` environment variable carries them verbatim — nothing is quoted,
-escaped or encoded — and every vim that scrash launches is handed that text on a
-file descriptor, with `VIMINIT` set to `source /dev/fd/3` for that invocation.
-So vim is fully configured on a host whose filesystem is readonly.
+Your vimrc and scrash's vim plugins are not written to disk for vim to read. They
+travel the same way every other scrash function does — as exported shell
+functions, which `-vim-config` prints back out verbatim — and every vim that
+scrash launches is handed that on a file descriptor, with `VIMINIT` set to
+`source /dev/fd/3` for that invocation. Nothing is quoted, escaped or encoded
+along the way, and no second copy of the configuration is kept. So vim is fully
+configured on a host whose filesystem is readonly.
 
 `:source /dev/fd/3` is an ordinary `:source` of an ordinary path, which is why
 this works so well. It gets a real script context, so script-local (`s:`)

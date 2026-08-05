@@ -1,23 +1,27 @@
 # vim:filetype=bash
 -clear-cache
-# $SCR_VIM_CONFIG carries the profile vimrc plus the vim plugins verbatim in the
-# environment, and every vim scrash launches is handed it on a file descriptor by
-# the $EDITOR wrapper. it is never written to disk, so $VIMINIT is not exported
-# either: it is only correct while that descriptor is open, and the wrapper sets
-# it for the one invocation
-[ ${#SCR_VIM_CONFIG} -gt 0 ]
+# the vim configuration lives in the environment exactly once, as the exported
+# -vimrc and -vim-plugin-* functions that -vim-config runs. the $EDITOR wrapper
+# pipes it to vim on a file descriptor; nothing is written to disk, and nothing
+# holds a second copy of it
+scr_vim_config="$(-vim-config)"
+[ ${#scr_vim_config} -gt 0 ]
+# $VIMINIT must not be left set: a vim started some other way would try to source
+# whatever fd 3 happens to be
 [ ${#VIMINIT} = 0 ]
-[ "$SCR_VIM_CONFIG" = "$(-vim-config)" ]
 # matched in the shell rather than piped to grep: grep would stop reading at the
 # first match and leave the gzip inside -vim-plugin-functions with a broken pipe
-[[ "$SCR_VIM_CONFIG" = *ScrSetClipboard* ]]
-# the configuration is carried verbatim, never quoted, escaped or encoded
-[[ "$SCR_VIM_CONFIG" != *"call execute("* ]]
+[[ "$scr_vim_config" = *ScrSetClipboard* ]]
+# the configuration is produced verbatim, never quoted, escaped or encoded
+[[ "$scr_vim_config" != *"call execute("* ]]
 [ ${#EDITOR} -gt 0 ]
 vim --version >/dev/null
 [ -e $EDITOR ]
-# the wrapper hands the configuration over a descriptor rather than naming a file
+# the wrapper calls -vim-config and pipes it over a descriptor: it must not name a
+# file, and must not embed the configuration in itself
 [[ "$(<$EDITOR)" = *"/dev/fd/3"* ]]
+[[ "$(<$EDITOR)" = *"-vim-config"* ]]
+[[ "$(<$EDITOR)" != *ScrNextColorScheme* ]]
 # and nothing anywhere under $SCR_TMPDIR contains the configuration
 [ "$(find $SCR_TMPDIR -name '*.vim')" = "" ]
 [ ! -e $SCR_TMPDIR/vimrc ]

@@ -33,14 +33,7 @@
 }
 
 -vars() {
-  # $SCR_VIM_CONFIG is the whole vim configuration, so summarize it rather than
-  # dumping several KB of vim script into the middle of the listing
-  {
-    set | egrep '^(EDITOR|SCR|STY|VIM|SSH|GIT_SSH|PSQLRC)' | egrep -v '^SCR_VIM_CONFIG='
-    if [ ${#SCR_VIM_CONFIG} -gt 0 ]; then
-      echo "SCR_VIM_CONFIG=<${#SCR_VIM_CONFIG} bytes of vim config, see -vim-config>"
-    fi
-  } | sort
+  set | egrep '^(EDITOR|SCR|STY|VIM|SSH|GIT_SSH|PSQLRC)' | sort
 }
 
 -clear-cache() {
@@ -473,10 +466,10 @@ screen() {
 
 # the whole vim configuration, verbatim: the profile vimrc first and then the vim
 # plugins, which is the order vim would have used itself (vimrc, then the plugins
-# under runtimepath). this is the value of $SCR_VIM_CONFIG, which the $EDITOR
-# wrapper built in vim() hands to vim on a file descriptor. nothing here touches
-# the filesystem, so vim keeps its full configuration even where $SCR_TMPDIR
-# cannot be written -- ssh'ing to a host with a readonly filesystem, say
+# under runtimepath). the $EDITOR wrapper built in vim() pipes this to vim on a
+# file descriptor, so nothing here touches the filesystem and vim keeps its full
+# configuration even where $SCR_TMPDIR cannot be written -- ssh'ing to a host with
+# a readonly filesystem, say
 -vim-config() {
   local f
   if declare -f -- -vimrc >/dev/null; then
@@ -492,6 +485,11 @@ vim() {
     echo "$FUNCNAME: EDITOR is not set" >&2
     return 1
   fi
+  # what vim is told to run in place of reading a vimrc. it clears itself once it
+  # has sourced: this value points at a file descriptor, so it is only meaningful
+  # in the process that holds it, and leaving it in vim's environment would hand
+  # every child of vim a $VIMINIT aimed at whatever their fd 3 turns out to be
+  local viminit="source /dev/fd/3 | let \$VIMINIT = ''"
   local p d=$(dirname "$EDITOR") funcs_to_export="-ws -set-clipboard -get-clipboard -screen-env -scr-auth-header -hmac-sha256 -check-owner"
   [ ! -d "$d" ] && mkdir -p "$d" 2>/dev/null
   if [ ! -e "$EDITOR" ]; then
@@ -501,21 +499,32 @@ vim() {
     # the file, which is where a vimrc's buffer-local :set commands belong. that
     # makes it a faithful vimrc that never touches the disk, and because :source
     # of a path is as old as vim itself it is the only such mechanism that reaches
-    # back to the vim 7.1 on Ubuntu 8. $VIMINIT is overridden here rather than in
-    # the environment because it is only true while fd 3 is actually open
-    p='#!/usr/bin/env bash\n%s\nexport -f -- %s\nif [ ${#SCR_VIM_CONFIG} -gt 0 -a -d /dev/fd ]; then\n  exec 3< <(echo "$SCR_VIM_CONFIG")\n  export VIMINIT="source /dev/fd/3"\nfi\nexec vim "$@"'
+    # back to the vim 7.1 on Ubuntu 8. $VIMINIT is set here rather than in the
+    # environment because it is only true while fd 3 is actually open.
+    #
+    # -vim-config is called rather than read out of a variable because the
+    # configuration is already in the environment once, as the exported -vimrc and
+    # -vim-plugin-* functions. the declare test is what decides whether we have it
+    # at all: anything that sanitizes the environment (sudoedit) strips those
+    # functions, and there is then nothing to hand over.
+    #
+    # the "exec 3<" is part of the condition rather than a statement inside it: a
+    # failed redirection on an argument-less exec is not fatal, it just returns
+    # non-zero, so running it separately would leave $VIMINIT pointing at a
+    # descriptor we never opened
+    p='#!/usr/bin/env bash\n%s\nexport -f -- %s\nif declare -f -- -vim-config >/dev/null && [ -d /dev/fd ] && exec 3< <(-vim-config); then\n  export VIMINIT=%q\nfi\nexec vim "$@"'
     # 2>/dev/null ahead of the write: redirections are set up left to right, so
     # putting it after would let the shell's own "cannot create" land on the
     # terminal in front of the clearer message below
-    if ! printf "$p" "$(declare -f -- $funcs_to_export)" "$funcs_to_export" 2>/dev/null >"$EDITOR" ||
+    if ! printf "$p" "$(declare -f -- $funcs_to_export)" "$funcs_to_export" "$viminit" 2>/dev/null >"$EDITOR" ||
       ! chmod 755 "$EDITOR" 2>/dev/null; then
       # the wrapper is what carries the clipboard functions into vim's environment
       # past anything that sanitizes it. where we cannot write it we still hand
       # vim the configuration ourselves, and lose only the clipboard integration
       echo "$FUNCNAME: could not create $EDITOR, running vim without the scrash clipboard functions" >&2
       rm -f "$EDITOR" 2>/dev/null
-      if [ ${#SCR_VIM_CONFIG} -gt 0 -a -d /dev/fd ]; then
-        VIMINIT='source /dev/fd/3' command vim "$@" 3< <(echo "$SCR_VIM_CONFIG")
+      if [ -d /dev/fd ]; then
+        VIMINIT="$viminit" command vim "$@" 3< <(-vim-config)
       else
         command vim "$@"
       fi
@@ -557,26 +566,21 @@ vim() {
     export SCR_SSH_USER_KNOWN_HOSTS=$SCR_TMPDIR/ssh-$SCR_SSH_USER-$SCR_SSH_HOST-known-hosts
     : ${SCR_SSH_LEVEL:=0}
     export SCR_SSH_LEVEL
-    # $SCR_VIM_CONFIG is the whole vim configuration, verbatim -- no quoting, no
-    # encoding, and never written anywhere. every vim scrash launches is handed it
-    # on a file descriptor instead: see the $EDITOR wrapper built in vim(), which
-    # is where the interesting part of this lives.
+    # nothing to set up for vim here: the configuration is already in the
+    # environment as the exported -vimrc and -vim-plugin-* functions, and the
+    # $EDITOR wrapper built in vim() calls -vim-config to hand it to vim on a file
+    # descriptor. $VIMINIT is only correct while that descriptor is open, so the
+    # wrapper sets it for the one invocation and we clear any we inherited --
+    # otherwise a vim started some other way would try to source whatever fd 3
+    # happens to be.
     #
-    # $VIMINIT is deliberately not exported. it is only correct while that
-    # descriptor is open, so the wrapper sets it for the one invocation. a vim
-    # something else started (a script calling vim by path, say) has no descriptor
-    # to read and so behaves like an unconfigured vim -- there is nothing useful
-    # to put here for it, because a command line cannot hold an :if or an :augroup
-    # block, and running the configuration out of the environment as commands
-    # needs ":source" of a buffer (vim 8.2.4594) or execute() (vim 7.4.2008),
-    # neither of which exists on the vim 7.1 that ships with Ubuntu 8
-    SCR_VIM_CONFIG="$(-vim-config)"
+    # a vim something else started (a script calling vim by path, say) has no
+    # descriptor to read and so behaves like an unconfigured vim. there is nothing
+    # useful to put in $VIMINIT for it: a command line cannot hold an :if or an
+    # :augroup block, and running the configuration out of the environment as
+    # commands needs ":source" of a buffer (vim 8.2.4594) or execute() (vim
+    # 7.4.2008), neither of which exists on the vim 7.1 that ships with Ubuntu 8
     unset VIMINIT
-    if [ ${#SCR_VIM_CONFIG} -gt 0 ]; then
-      export SCR_VIM_CONFIG
-    else
-      unset SCR_VIM_CONFIG
-    fi
     # for sudo users, if they use vim and SHELL is /bin/false (or similar) then
     # rvim is used (at least on macos)
     export SHELL=$BASH
