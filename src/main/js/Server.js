@@ -24,7 +24,6 @@ const SCR_SSH_USER=process.env.SCR_SSH_USER;
 const SCR_SSH_HOST=process.env.SCR_SSH_HOST;
 const SCR_SSH_PORT=process.env.SCR_SSH_PORT;
 const SCR_SSH_AUTH_SOCK=process.env.SCR_SSH_AUTH_SOCK;
-let SCR_SSH_HOST_KEY;
 
 // failed-auth rate limiter: once more than AUTH_FAIL_MAX auth failures occur
 // within AUTH_FAIL_WINDOW_MS, further FAILING requests are rejected cheaply
@@ -70,12 +69,12 @@ class Server extends http.Server {
     this.once('listening',()=>console.error("listening on port:",this.address().port));
     this.on('request',(req,res)=>this.onRequest(req,res));
     this.on('connect',(req,socket,head)=>this.onConnect(req,socket,head));
-    return Promise.all([this.loadBashFunctions(),this.loadSshUserKnownHosts().then(k=>{
-      SCR_SSH_HOST_KEY=k.trim();
-      return new Promise((resolve,reject)=>spawn("/usr/bin/env",["screen","-X","setenv","SCR_SSH_HOST_KEY",SCR_SSH_HOST_KEY],{stdio:'ignore'})
-        .on('error',reject)
-        .on('close',resolve));
-    })]).then(()=>new Promise(resolve=>this.listen(port,'127.0.0.1',resolve)));
+    // the sshd host key is not read at startup any more: a shell reaching back
+    // here goes through -ssh-proxy-connect, which authenticates the far end of the
+    // tunnel from the signature on the CONNECT response (see onConnect), so nothing
+    // needs a copy of that key. it also means ssh-keyscan failing no longer stops
+    // the server from starting
+    return this.loadBashFunctions().then(()=>new Promise(resolve=>this.listen(port,'127.0.0.1',resolve)));
   }
 
   onRequest(req,res) {
@@ -113,8 +112,6 @@ class Server extends http.Server {
           //return this.uploadFile(req,res);
         case "/scr-get-password":
           return this.getPassword(url,req,res);
-        case "/scr-ssh-user-known-hosts":
-          return this.getSshUserKnownHosts(req,res);
         default:
           res.statusCode=404;
       }
@@ -319,7 +316,10 @@ class Server extends http.Server {
       },
       statusLine:()=>`HTTP/1.0 ${response.statusCode} ${SCR_APP_NAME} ${response.statusMessage[response.statusCode]}`,
       headers:[],
-      toString:()=>response.statusLine()+"\r\n"+response.headers.join("\r\n")+"\r\n",
+      // each header gets its own CRLF and the blank line that ends them is added
+      // here: with headers this used to run them together with the terminator and
+      // leave the client reading for a line that never came
+      toString:()=>response.statusLine()+"\r\n"+response.headers.map(h=>`${h}\r\n`).join("")+"\r\n",
       send:cb=>socket.write(response.toString(),cb),
     };
     this.authorizeRequest(req).then(()=>{
@@ -327,6 +327,16 @@ class Server extends http.Server {
       if (head) {
         socket.unshift(head);
       }
+      // prove to the client that it is talking to us. what answers on the port a
+      // remote shell CONNECTs to is a forwarded port on that host's loopback, and
+      // any local user there could be listening on it instead of us -- nothing
+      // else in this exchange rules that out, since an impostor can reply 200 as
+      // easily as we can. signed with the response key for this request (see
+      // #responseKey), so it is bound to its timestamp and nonce and a value from
+      // an earlier connection is no use. the Authorization header the impostor
+      // just saw is a different signature and does not yield this one
+      response.headers.push(`X-Scrash-Response: ${crypto.createHmac('sha256',this.#responseKey(req))
+        .update(req.url).digest('hex')}`);
       switch(req.url) {
         case `${SCR_SSH_HOST}:${SCR_SSH_PORT}`:
           const m=req.url.match(/^([-\.\w]+):(\d+)$/);
@@ -452,7 +462,6 @@ class Server extends http.Server {
         write(`SCR_SSH_USER=${SCR_SSH_USER} `);
         write(`SCR_SSH_HOST=${SCR_SSH_HOST} `);
         write(`SCR_SSH_PORT=${SCR_SSH_PORT} `);
-        write(`SCR_SSH_HOST_KEY="${SCR_SSH_HOST_KEY}" `);
         write(`SCR_SSH_LEVEL=${sshLevel ? sshLevel : 0} `);
         write(`\n`);
         write(`-shell-init -s ${start}\n`);
@@ -675,23 +684,6 @@ class Server extends http.Server {
     });
   }
 
-  loadSshUserKnownHosts() {
-    return new Promise((resolve,reject)=>{
-      let userKnownHosts='';
-      const p=spawn("/usr/bin/env",['ssh-keyscan','-p',SCR_SSH_PORT,'-t','ed25519',SCR_SSH_HOST],
-        {stdio:['ignore','pipe',process.stderr]});
-      p.on('exit',(code,sig)=>(code>0 ? reject(new Error("ssh-keyscan non-zero return code")) : null));
-      p.on('error',reject);
-      readline.createInterface({input:p.stdout}).on('line',line=>{
-        if (/^#/.test(line)) {
-          return;
-        }
-        userKnownHosts+=line+"\n";
-      }).on('close',()=>userKnownHosts.length==0 ? reject(new Error("no output from ssh-keyscan")) : resolve(userKnownHosts));
-    });
-
-  }
-
   sendErrorResponse(res,e,statusCode=500) {
     if (typeof(e)=='string') {
       e=new Error(e);
@@ -711,11 +703,6 @@ class Server extends http.Server {
       res.statusMessage="something failed";
     }
     res.end();
-  }
-
-  getSshUserKnownHosts(req,res) {
-    return this.loadSshUserKnownHosts()
-      .then(userKnownHosts=>res.end(userKnownHosts));
   }
 
   onSshAuthSockConnect(req,response) {

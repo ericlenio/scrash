@@ -157,7 +157,48 @@ sig_line=$(printf %s "$resp" | head -n 1)
 [ "${sig_line##*=}" = "$(-hmac-sha256 "$body" "$(-hmac-sha256 "response:$ts:$nc" "$key3")")" ]
 [ "${sig_line##*=}" != "$(-hmac-sha256 "$body" "$(-hmac-sha256 "response:$ts:$nc")")" ]
 
-# 15. Failed-auth rate limiter: a burst of >20 auth failures within the window
+# 15. A CONNECT answered with 200 proves nothing. The port a shell CONNECTs to is
+# a forwarded port on the loopback of the host it runs on, so any local user there
+# could be listening on it in place of the real forward, and an impostor sends a
+# 200 as easily as the server does. So the response has to carry a signature that
+# only a holder of the session key can produce (-scr-connect-response-sig), and
+# create_proxy_socket has to refuse the tunnel without it. The listener below
+# answers a CONNECT the way an impostor would: arg 1 is what goes between the
+# status line and the blank line that ends the headers, so "" is a bare 200
+fake_out=$SCR_TMPDIR/fake-connect-port
+proxy_err=$SCR_TMPDIR/fake-connect-err
+-fake-connect-server() {
+  rm -f $fake_out
+  perl -e '
+use IO::Socket::INET;
+my ($hdrs)=@ARGV;
+my $svr=IO::Socket::INET->new(Listen=>5,LocalAddr=>"127.0.0.1",LocalPort=>0,Reuse=>1) || die "listen: $!\n";
+$|=1;
+print $svr->sockport(),"\n";
+while (my $c=$svr->accept()) {
+  while (my $l=readline($c)) { last if $l=~/^\r?$/ }
+  $c->send("HTTP/1.0 200 OK\r\n".($hdrs eq "" ? "" : "$hdrs\r\n")."\r\n");
+  close $c;
+}
+' "$1" > $fake_out &
+  fake_pid=$!
+  for i in {1..30}; do
+    [ -s $fake_out ] && break
+    sleep 0.1
+  done
+  [ -s $fake_out ]
+}
+# no signature at all, then a well-formed one that is simply wrong
+for fake_hdr in "" "X-Scrash-Response: $(printf 'f%.0s' {1..64})"; do
+  -fake-connect-server "$fake_hdr"
+  ! SCR_PORT=$(<$fake_out) bash -c -- "-ssh-proxy-connect fake-dest" </dev/null >/dev/null 2>$proxy_err
+  grep -q "not from the scrash server" $proxy_err
+  kill $fake_pid 2>/dev/null
+done
+unset -f -- -fake-connect-server
+rm -f $fake_out $proxy_err
+
+# 16. Failed-auth rate limiter: a burst of >20 auth failures within the window
 # starts returning 429 instead of 401, while a validly-signed request is still
 # served (proving the limiter cannot starve a legitimate client). Kept last so
 # tripping the limiter cannot perturb the strict status-code checks above.

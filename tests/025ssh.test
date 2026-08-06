@@ -3,7 +3,7 @@
 export SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION=1
 if [ "$SCR_SSH_AUTH_SOCK" ]; then
   SCR_SSH_USER_KNOWN_HOSTS=$SCR_TMPDIR/known_hosts
-  echo "$SCR_SSH_HOST_KEY" >$SCR_SSH_USER_KNOWN_HOSTS
+  ssh-keyscan -p $SCR_SSH_PORT $SCR_SSH_HOST >$SCR_SSH_USER_KNOWN_HOSTS 2>/dev/null
   hostname=$(ssh -p $SCR_SSH_PORT -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST hostname)
   [ "$hostname" ]
   [ "$hostname" = $(hostname) ]
@@ -14,7 +14,7 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
   rm $version_file
   # this next ssh session should use the same $SCR_TMPDIR, and re-create the
   # version file
-  echo "$SCR_SSH_HOST_KEY" >$SCR_SSH_USER_KNOWN_HOSTS
+  ssh-keyscan -p $SCR_SSH_PORT $SCR_SSH_HOST >$SCR_SSH_USER_KNOWN_HOSTS 2>/dev/null
   hostname=$(ssh -p $SCR_SSH_PORT -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST hostname)
   [ "$hostname" = $(hostname) ]
   [ -f $version_file ]
@@ -37,7 +37,7 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
   [ $(-md5 /tmp/passwd) = $(-md5 /etc/passwd) ]
   rm /tmp/passwd
 
-  echo "$SCR_SSH_HOST_KEY" >$SCR_SSH_USER_KNOWN_HOSTS
+  ssh-keyscan -p $SCR_SSH_PORT $SCR_SSH_HOST >$SCR_SSH_USER_KNOWN_HOSTS 2>/dev/null
   ssh_cmd=(ssh -p $SCR_SSH_PORT -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST bash -c -- -vars)
   "${ssh_cmd[@]}" | grep -q SCR_TMPDIR
 

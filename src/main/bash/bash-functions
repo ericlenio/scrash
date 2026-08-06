@@ -1020,6 +1020,24 @@ ssh() {
   fi
 }
 
+# the value the server has to answer a CONNECT with, for a request we just signed
+# with -scr-auth-header. it is the CONNECT destination signed with the response key
+# for that request (Server.js derives the same key in #responseKey), so it is bound
+# to that request's timestamp and nonce: a value from an earlier connection proves
+# nothing, and the Authorization header we are about to put on the wire is a
+# different signature that does not yield this one
+#
+# usage: -scr-connect-response-sig <auth header> <connect destination>
+-scr-connect-response-sig() {
+  local auth_hdr="$1" connect_dest="$2" resp_key
+  if ! [[ "$auth_hdr" =~ t=([0-9]+),n=([a-f0-9]+) ]]; then
+    echo "$FUNCNAME: could not parse auth header" >&2
+    return 1
+  fi
+  resp_key=$(-hmac-sha256 "response:${BASH_REMATCH[1]}:${BASH_REMATCH[2]}")
+  -hmac-sha256 "$connect_dest" "$resp_key"
+}
+
 # we use perl to handle proxy connections back to the scrash server; this bash
 # function acts as the perl source
 -perl-proxying-subroutines() {
@@ -1027,7 +1045,7 @@ echo 'use IO::Socket::INET;
 use IO::Select;
 
 sub create_proxy_socket {
-  my ($SCR_PORT,$auth_hdr,$connect_dest)=@_;
+  my ($SCR_PORT,$auth_hdr,$connect_dest,$resp_sig)=@_;
 
   my $socket=IO::Socket::INET->new(
     Proto=>"tcp",
@@ -1046,10 +1064,23 @@ sub create_proxy_socket {
   if ($status_line !~ /^HTTP\/\d\.\d 200/) {
     die "create_proxy_socket failed: $status_line\n";
   }
+  my $got_sig="";
   while (chomp(my $hdr=readline($socket))) {
+    if ($hdr =~ /^X-Scrash-Response:\s*([a-f0-9]+)/i) {
+      $got_sig=$1;
+    }
     if ($hdr eq "\r" || $hdr eq "") {
       last;
     }
+  }
+  # a 200 proves nothing: the port we connected to is on the loopback of this host,
+  # and a local user listening there instead of the forwarded port can answer one
+  # just as easily. only a holder of this session key can produce the signature
+  # (Server.js onConnect signs the CONNECT destination with the response key for
+  # our request), so this is what says the far end of the pipe is the scrash
+  # server. fail closed: no header, no tunnel
+  if ($got_sig ne $resp_sig || $resp_sig eq "") {
+    die "create_proxy_socket: response is not from the scrash server\n";
   }
   return $socket;
 }
@@ -1133,7 +1164,11 @@ sub bi_directional_pipe {
     return 1
   fi
   local connect_dest="SCR_SSH_AUTH_SOCK_REQUEST"
-  local auth_hdr=$(-scr-auth-header "CONNECT" "$connect_dest")
+  local auth_hdr=$(-scr-auth-header "CONNECT" "$connect_dest") resp_sig
+  if ! resp_sig=$(-scr-connect-response-sig "$auth_hdr" "$connect_dest"); then
+    umask $umask
+    return 1
+  fi
   perl_code=$(-perl-proxying-subroutines)'
 my ($SCR_PORT,$connect_dest,$SSH_AUTH_SOCK)=@ARGV;
 # the credential comes in through the environment, not @ARGV: this process can
@@ -1141,6 +1176,8 @@ my ($SCR_PORT,$connect_dest,$SSH_AUTH_SOCK)=@ARGV;
 # until ssh actually asks for a key), and until then the signature is unused and
 # still valid, so it must not be sitting in a world-readable command line
 my $auth_hdr=$ENV{SCR_AUTH_HDR};
+# what the server has to answer the CONNECT with, for the same reason
+my $resp_sig=$ENV{SCR_RESP_SIG};
 # create a 1-time use ssh-agent unix domain socket
 sub create_unix_domain_socket {
   my ($SSH_AUTH_SOCK)=@_;
@@ -1153,12 +1190,12 @@ sub create_unix_domain_socket {
   return $socket;
 }
 my $socket0=create_unix_domain_socket($SSH_AUTH_SOCK);
-my $socket1=create_proxy_socket($SCR_PORT,$auth_hdr,$connect_dest);
+my $socket1=create_proxy_socket($SCR_PORT,$auth_hdr,$connect_dest,$resp_sig);
 bi_directional_pipe($socket0,$socket0,$socket1);
 '
   # important: our perl ssh-agent will inherit file descriptors, so we must
   # redirect standard I/O to /dev/null
-  SCR_AUTH_HDR="$auth_hdr" perl <(echo "$perl_code") $SCR_PORT "$connect_dest" $SSH_AUTH_SOCK >/dev/null 2>&1 </dev/null &
+  SCR_AUTH_HDR="$auth_hdr" SCR_RESP_SIG="$resp_sig" perl <(echo "$perl_code") $SCR_PORT "$connect_dest" $SSH_AUTH_SOCK >/dev/null 2>&1 </dev/null &
   pid=$!
   until [ -S $SSH_AUTH_SOCK ]; do
     sleep 0.1
@@ -1180,24 +1217,22 @@ bi_directional_pipe($socket0,$socket0,$socket1);
 
 # this function is used for ssh connections back to the scrash server
 -ssh-proxy-connect() {
-  local connect_dest=$1 perl_code
+  local connect_dest=$1 perl_code resp_sig
   local auth_hdr=$(-scr-auth-header "CONNECT" "$connect_dest")
+  if ! resp_sig=$(-scr-connect-response-sig "$auth_hdr" "$connect_dest"); then
+    return 1
+  fi
   perl_code=$(-perl-proxying-subroutines)'
 my ($SCR_PORT,$connect_dest)=@ARGV;
-# see -ssh-auth-sock: the credential travels in the environment, not in argv
+# see -ssh-auth-sock: the credential travels in the environment, not in argv, and
+# so does what we require of the response
 my $auth_hdr=$ENV{SCR_AUTH_HDR};
-my $socket=create_proxy_socket($SCR_PORT,$auth_hdr,$connect_dest);
+my $resp_sig=$ENV{SCR_RESP_SIG};
+my $socket=create_proxy_socket($SCR_PORT,$auth_hdr,$connect_dest,$resp_sig);
 bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 '
-  export SCR_AUTH_HDR="$auth_hdr"
+  export SCR_AUTH_HDR="$auth_hdr" SCR_RESP_SIG="$resp_sig"
   exec perl <(echo "$perl_code") $SCR_PORT "$connect_dest"
-}
-
--sxx-scr-server-host-key() {
-  #if [ ! -f "$SCR_SSH_USER_KNOWN_HOSTS" -o ! -s "$SCR_SSH_USER_KNOWN_HOSTS" ]; then
-  #  -ws /scr-ssh-user-known-hosts > "$SCR_SSH_USER_KNOWN_HOSTS"
-  #fi
-  -ws /scr-ssh-user-known-hosts
 }
 
 -ssh-scr-server() {
@@ -1206,30 +1241,30 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 
 # run one of ssh, sftp, scp, etc. connecting back to the scrash server
 -sxx-scr-server() {
-  local sxx=$1 cmd kh_file rc
+  local sxx=$1 cmd
   shift
-  if ! kh_file=$(mktemp); then
-    return 1
-  fi
-  printf "%s" "$SCR_SSH_HOST_KEY" > $kh_file
+  # no known hosts file: what this connects to is our own ProxyCommand, and
+  # -ssh-proxy-connect will not hand ssh a pipe until the far end has proved it is
+  # the scrash server (see create_proxy_socket, which checks the signature on the
+  # CONNECT response). the host key check has nothing left to add here -- the
+  # server then reaches its own sshd -- and dropping it is what lets this run on a
+  # host with nothing writable: it used to write the key to a temporary file, with
+  # a PermitLocalCommand to clean that up afterwards.
+  # LogLevel: with no known hosts file every connection is a new host, and the
+  # warning about adding it is noise we would print on every -download
   cmd=(
     $sxx
     #-oLogLevel=DEBUG3
     -oPort=$SCR_SSH_PORT
     -oConnectTimeout=10
-    -oUserKnownHostsFile=$kh_file
+    -oUserKnownHostsFile=/dev/null
+    -oStrictHostKeyChecking=no
+    -oLogLevel=ERROR
     #-oHostname=$SCR_SSH_HOST
     -oProxyCommand="bash -c -- \"-ssh-proxy-connect $SCR_SSH_HOST:$SCR_SSH_PORT\""
     "$@"
   )
-  # the removal of $kh_file used to be a -oLocalCommand, which ssh runs only once
-  # a connection has been established: every connect that failed left the file
-  # behind. doing it here means it happens either way, and $sxx no longer has to
-  # be handed PermitLocalCommand=yes to allow it
   "${cmd[@]}"
-  rc=$?
-  rm -f $kh_file
-  return $rc
 }
 
 -upload() {
