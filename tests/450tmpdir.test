@@ -1,0 +1,24 @@
+# vim:filetype=bash
+# a $SCR_TMPDIR we cannot use must not stop the login: the far end of a ssh boots
+# by running -shell-init, so a -shell-init that returns non-zero is an ssh that
+# dies. $SCR_TMPDIR is built from $SCR_PORT_0, so overriding that in a subshell
+# points -shell-init at a directory we cannot write in -- a readonly /tmp, in
+# effect
+ro=/tmp/scr-$USER-$SCR_ENV-readonly
+mkdir -p $ro
+chmod 555 $ro
+printf "\nchmod 700 %s; rmdir %s\n" $ro $ro >> "$TEST_CLEANUP_FILE"
+out=$(SCR_PORT_0=readonly bash -c -- '-shell-init 2>/dev/null; echo "rc=$?[$EDITOR][$SCR_SCREENRC][$GIT_SSH][$SCR_SSH_PROXY_JUMP]"')
+[ "$out" = "rc=0[][][][]" ]
+
+# and vim with no wrapper to run is still a configured vim: the configuration
+# arrives on a file descriptor, so it needs nothing on disk. ScrSetClipboard is
+# defined by the vim plugins, so its presence proves the configuration was sourced
+tres=$SCR_TMPDIR/tmpdir-tres
+rm -f $tres
+(
+  unset EDITOR
+  vim -c "call writefile([exists('*ScrSetClipboard')],'$tres')" -c 'qall!' /etc/passwd
+)
+[ "$(<$tres)" = 1 ]
+rm -f $tres

@@ -339,7 +339,9 @@ screen() {
     session_id=$($FUNCNAME --generate-session-id)
     cmd+=(-S $session_id)
   fi
-  if [ -z "$rcfile" -a "$session_id" ]; then
+  # no $SCR_SCREENRC means no $SCR_TMPDIR to write it in (see -shell-init): screen
+  # then starts with the user's own screenrc, or none
+  if [ -z "$rcfile" -a "$session_id" -a "$SCR_SCREENRC" ]; then
     rcfile=$SCR_SCREENRC
     if [ ! -f $rcfile ]; then
       -screenrc | while read -r line; do
@@ -456,11 +458,11 @@ screen() {
   fi
   f=$(mktemp)
   t=$RANDOM
-  if [ ! -e $EDITOR ]; then
+  if [ "$EDITOR" -a ! -e "$EDITOR" ]; then
     v --version >/dev/null
   fi
   env screen -X hardcopy $f
-  env screen -t $t sh -c "$EDITOR -c \"set nonumber\" $f; rm $f"
+  env screen -t $t sh -c "${EDITOR:-vim} -c \"set nonumber\" $f; rm $f"
   env screen -X select $t
 }
 
@@ -481,16 +483,24 @@ screen() {
 }
 
 vim() {
-  if [ -z "$EDITOR" ]; then
-    echo "$FUNCNAME: EDITOR is not set" >&2
-    return 1
-  fi
   # what vim is told to run in place of reading a vimrc. it clears itself once it
   # has sourced: this value points at a file descriptor, so it is only meaningful
   # in the process that holds it, and leaving it in vim's environment would hand
   # every child of vim a $VIMINIT aimed at whatever their fd 3 turns out to be
   local viminit="source /dev/fd/3 | let \$VIMINIT = ''"
-  local p d=$(dirname "$EDITOR") funcs_to_export="-ws -set-clipboard -get-clipboard -screen-env -scr-auth-header -hmac-sha256 -check-owner"
+  local p d funcs_to_export="-ws -set-clipboard -get-clipboard -screen-env -scr-auth-header -hmac-sha256 -check-owner"
+  if [ -z "$EDITOR" ]; then
+    # there is no $SCR_TMPDIR to keep the wrapper in (see -shell-init), so hand
+    # vim the configuration from right here: it travels on a file descriptor and
+    # needs nothing on disk, which is why this still works on a readonly host
+    if [ -d /dev/fd ]; then
+      VIMINIT="$viminit" command vim "$@" 3< <(-vim-config)
+    else
+      command vim "$@"
+    fi
+    return
+  fi
+  d=$(dirname "$EDITOR")
   [ ! -d "$d" ] && mkdir -p "$d" 2>/dev/null
   if [ ! -e "$EDITOR" ]; then
     # the wrapper hands vim its configuration on a file descriptor: ":source
@@ -535,7 +545,7 @@ vim() {
 }
 
 -shell-init() {
-  local opts="CDvs:" opt OPTIND log_tty verbose=0 f i fcns num_fcns test_mode=0 test_groups start clear_cache=0 declare_mode=0 show_test_groups version_file old_version
+  local opts="CDvs:" opt OPTIND log_tty verbose=0 f i fcns num_fcns test_mode=0 test_groups start clear_cache=0 declare_mode=0 show_test_groups version_file old_version tmpdir_ok
   while builtin getopts $opts opt; do
     case $opt in
       (v) verbose=1
@@ -592,36 +602,54 @@ vim() {
     fi
     export SCR_SSH_PROXY_JUMP=$SCR_TMPDIR/bin/ssh-proxy-jump
     #[ -z "$SUDO_USER" ] && rm -f $EDITOR
+    # a $SCR_TMPDIR we cannot have is not a reason to fail: this function ends by
+    # exec'ing the shell (or the command) the login is for, and the far end of a
+    # ssh boots by running it -- so returning non-zero here is an ssh that dies,
+    # leaving no way onto the host at all. a readonly /tmp is the case that matters.
+    # so we note it and carry on: everything below that needs a file in there is
+    # skipped, and the variables naming those files are cleared rather than left
+    # pointing at a directory we could not create or could not trust
+    tmpdir_ok=1
     if [ -e "$SCR_TMPDIR" ]; then
       # Must be a directory, not a symlink
       if [ -L "$SCR_TMPDIR" ] || [ ! -d "$SCR_TMPDIR" ]; then
         echo "WARNING: $SCR_TMPDIR is not a valid directory, removing..." >&2
         if ! rm -rf "$SCR_TMPDIR"; then
           echo "ERROR: could not delete $SCR_TMPDIR" >&2
-          return 1
+          tmpdir_ok=0
         fi
       fi
     fi
     # -m 755 rather than relying on the umask: a permissive umask would otherwise
     # leave this directory writable by everyone, and everything below is either
     # executed or sourced
-    if [ ! -d "$SCR_TMPDIR" ]; then
-      if ! mkdir -m 755 -p "$SCR_TMPDIR"; then
+    if [ $tmpdir_ok = 1 -a ! -d "$SCR_TMPDIR" ]; then
+      if ! mkdir -m 755 -p "$SCR_TMPDIR" 2>/dev/null; then
         echo "ERROR: could not create $SCR_TMPDIR" >&2
-        return 1
+        tmpdir_ok=0
       fi
     fi
-    if ! -check-tmpdir "$SCR_TMPDIR"; then
-      return 1
+    if [ $tmpdir_ok = 1 ] && ! -check-tmpdir "$SCR_TMPDIR"; then
+      tmpdir_ok=0
     fi
-    if [ ! -d $SCR_TMPDIR/bin ]; then
-      if ! mkdir -m 755 -p $SCR_TMPDIR/bin; then
+    if [ $tmpdir_ok = 1 -a ! -d $SCR_TMPDIR/bin ]; then
+      if ! mkdir -m 755 -p $SCR_TMPDIR/bin 2>/dev/null; then
         echo "ERROR: could not create $SCR_TMPDIR/bin" >&2
-        return 1
+        tmpdir_ok=0
       fi
+    fi
+    if [ $tmpdir_ok = 0 ]; then
+      # $EDITOR, $GIT_SSH and $SCR_SSH_PROXY_JUMP name executables and
+      # $SCR_SCREENRC a file that gets sourced, so they are cleared rather than
+      # aimed at a directory we did not create (or refused to trust). what is left
+      # is a working bash shell with every scrash function in it, and a vim that
+      # still gets its whole configuration -- that arrives on a file descriptor and
+      # never needed a file. most everything else here is compromised
+      unset EDITOR SCR_SCREENRC GIT_SSH SCR_SSH_PROXY_JUMP
+      echo "WARNING: scrash is running without $SCR_TMPDIR: no \$EDITOR wrapper (so no clipboard integration under sudoedit), no screenrc, no git over ssh" >&2
     fi
     version_file="$SCR_TMPDIR/.version"
-    if [ "$start" ]; then
+    if [ $tmpdir_ok = 1 -a "$start" ]; then
       if [ ! -f "$version_file" ]; then
         -tty-echo "force clear cache now, no version file exists ($version_file)"
         clear_cache=1
@@ -634,10 +662,10 @@ vim() {
         fi
       fi
     fi
-    if [ $clear_cache = 1 ]; then
+    if [ $tmpdir_ok = 1 -a $clear_cache = 1 ]; then
       -clear-cache
     fi
-    if [ ! -f "$version_file" ]; then
+    if [ $tmpdir_ok = 1 -a ! -f "$version_file" ]; then
       echo $SCR_VERSION > "$version_file"
     fi
     if [ "$GIT_SSH" -a ! -f "$GIT_SSH" ]; then
@@ -653,7 +681,7 @@ vim() {
       chmod 755 $GIT_SSH
     fi
     f="$SCR_TMPDIR/psqlrc"
-    if declare -f -- -psqlrc >/dev/null && [ ! -f "$f" ]; then
+    if [ $tmpdir_ok = 1 ] && declare -f -- -psqlrc >/dev/null && [ ! -f "$f" ]; then
       -psqlrc >"$f"
       export PSQLRC="$f"
     fi
@@ -687,7 +715,7 @@ vim() {
   [ $# -gt 0 ] && shift
   [ "$STY" ] && -screen-env
   bootstr=$(-shell-boot-string -p $SCR_PORT -- "$@")
-  if [ ! -e $EDITOR ]; then
+  if [ "$EDITOR" -a ! -e "$EDITOR" ]; then
     # create the editor, might need it under sudo and sudo user will not be
     # able to create it
     vim --version >/dev/null
@@ -783,7 +811,7 @@ scp() {
 }
 
 -sxx-init() {
-  if [ ! -f $SCR_SSH_PROXY_JUMP ]; then
+  if [ "$SCR_SSH_PROXY_JUMP" -a ! -f "$SCR_SSH_PROXY_JUMP" ]; then
     {
       echo '#!/usr/bin/env bash'
       echo '-ssh-proxy-jump "$@"'
@@ -1178,26 +1206,30 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 
 # run one of ssh, sftp, scp, etc. connecting back to the scrash server
 -sxx-scr-server() {
-  local sxx=$1 cmd kh_file
+  local sxx=$1 cmd kh_file rc
   shift
-  if kh_file=$(mktemp); then
-    printf "%s" "$SCR_SSH_HOST_KEY" > $kh_file
-    cmd=(
-      $sxx
-      #-oLogLevel=DEBUG3
-      -oPort=$SCR_SSH_PORT
-      -oConnectTimeout=10
-      -oUserKnownHostsFile=$kh_file
-      #-oHostname=$SCR_SSH_HOST
-      -oPermitLocalCommand=yes
-      -oLocalCommand="rm -f $kh_file"
-      -oProxyCommand="bash -c -- \"-ssh-proxy-connect $SCR_SSH_HOST:$SCR_SSH_PORT\""
-      "$@"
-    )
-    "${cmd[@]}"
-  else
+  if ! kh_file=$(mktemp); then
     return 1
   fi
+  printf "%s" "$SCR_SSH_HOST_KEY" > $kh_file
+  cmd=(
+    $sxx
+    #-oLogLevel=DEBUG3
+    -oPort=$SCR_SSH_PORT
+    -oConnectTimeout=10
+    -oUserKnownHostsFile=$kh_file
+    #-oHostname=$SCR_SSH_HOST
+    -oProxyCommand="bash -c -- \"-ssh-proxy-connect $SCR_SSH_HOST:$SCR_SSH_PORT\""
+    "$@"
+  )
+  # the removal of $kh_file used to be a -oLocalCommand, which ssh runs only once
+  # a connection has been established: every connect that failed left the file
+  # behind. doing it here means it happens either way, and $sxx no longer has to
+  # be handed PermitLocalCommand=yes to allow it
+  "${cmd[@]}"
+  rc=$?
+  rm -f $kh_file
+  return $rc
 }
 
 -upload() {

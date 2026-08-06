@@ -21,6 +21,12 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
 
   ssh-add -l
 
+  # -sxx-scr-server removes its known hosts file itself now, rather than leaving it
+  # to ssh's -oLocalCommand, so the status of the command it ran has to come back
+  # out through that cleanup
+  rc=0; -sxx-scr-server false || rc=$?
+  [ $rc = 1 ]
+
   # "ssh -G" only resolves config, it does not connect; it must reach a plain
   # ssh (it used to drop the ssh from the command and run "env -G ..." instead).
   # skip the auth sock proxy for this one, we are only checking the command line
