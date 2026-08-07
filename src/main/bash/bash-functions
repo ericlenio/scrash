@@ -1121,7 +1121,7 @@ sub bi_directional_pipe {
 # authenticate with ssh-agent running on the scrash server
 #
 -ssh-auth-sock() {
-  local SSH_AUTH_SOCK umask arg i rc pid perl_code start=$SECONDS elapsed
+  local SSH_AUTH_SOCK pid perl_code start=$SECONDS elapsed
   if [ ${SCR_SSH_AUTH_SOCK_SKIP_OPTIMIZATION:-0} = 1 ]; then
     echo "$FUNCNAME: force skip optimization" >&2
   else
@@ -1156,17 +1156,10 @@ sub bi_directional_pipe {
       return $?
     fi
   fi
-  umask=$(umask)
-  umask 077
-  if ! SSH_AUTH_SOCK=$(mktemp -u); then
-    echo "$FUNCNAME: failed to create temp $SSH_AUTH_SOCK" >&2
-    umask $umask
-    return 1
-  fi
+  SSH_AUTH_SOCK=$(mktemp -u)
   local connect_dest="SCR_SSH_AUTH_SOCK_REQUEST"
   local auth_hdr=$(-scr-auth-header "CONNECT" "$connect_dest") resp_sig
   if ! resp_sig=$(-scr-connect-response-sig "$auth_hdr" "$connect_dest"); then
-    umask $umask
     return 1
   fi
   perl_code=$(-perl-proxying-subroutines)'
@@ -1201,18 +1194,16 @@ bi_directional_pipe($socket0,$socket0,$socket1);
     sleep 0.1
     let elapsed=$SECONDS-$start || true
     if [ $elapsed -ge 10 ]; then
-      echo "WARNING: $FUNCNAME failed to detect SSH_AUTH_SOCK, you may need to kill perl process $pid" >&2
-      break
+      echo "ERROR: $FUNCNAME failed to detect SSH_AUTH_SOCK" >&2
+      kill -KILL $pid
+      return 1
+    fi
+    if ! kill -0 $pid 2>/dev/null && [ ! -S $SSH_AUTH_SOCK ]; then
+      echo "ERROR: could not create SSH_AUTH_SOCK at $SSH_AUTH_SOCK" >&2
+      return 1
     fi
   done
   SSH_AUTH_SOCK=$SSH_AUTH_SOCK "$@"
-  rc=$?
-  rm -f $SSH_AUTH_SOCK
-  umask $umask
-  if kill -0 $pid 2>/dev/null; then
-    kill $pid
-  fi
-  return $rc
 }
 
 # this function is used for ssh connections back to the scrash server
