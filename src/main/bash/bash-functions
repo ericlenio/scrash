@@ -42,9 +42,22 @@
     return
   fi
   if [[ "$SCR_TMPDIR" =~ ^/tmp/ ]]; then
-    # keep the bin subdir
-    find "$SCR_TMPDIR/bin" -mindepth 1 -exec rm -rf {} +
-    find "$SCR_TMPDIR" -mindepth 1 -path "*/bin" -prune -o -exec rm -rf {} +
+    # keep the bin subdir, empty out everything else. walked with the shell rather
+    # than find(1): OpenBSD documents -mindepth as a primary ("true if the current
+    # search depth is at least n") where gnu and macos make it a global option, so
+    # "find $SCR_TMPDIR -mindepth 1 -path */bin -prune -o -exec rm -rf {} +" read
+    # as (false and ...) or (rm -rf) for the starting directory and deleted
+    # $SCR_TMPDIR itself -- every login to an OpenBSD host then ran without one.
+    # dotglob for the dotfiles in there ($SCR_TMPDIR/.version), nullglob so an
+    # already empty directory does not hand rm a literal "*", and a subshell so
+    # neither those options nor $f escape into the caller's shell
+    (
+      shopt -s dotglob nullglob
+      for f in "$SCR_TMPDIR"/* "$SCR_TMPDIR"/bin/*; do
+        [ "$f" = "$SCR_TMPDIR/bin" ] && continue
+        rm -rf "$f"
+      done
+    )
     -tty-echo "cleaned out $SCR_TMPDIR"
   fi
 }
@@ -545,7 +558,7 @@ vim() {
 }
 
 -shell-init() {
-  local opts="CDvs:" opt OPTIND log_tty verbose=0 f i fcns num_fcns test_mode=0 test_groups start clear_cache=0 declare_mode=0 show_test_groups version_file old_version tmpdir_ok
+  local opts="CDvs:" opt OPTIND log_tty verbose=0 f i fcns num_fcns test_mode=0 test_groups start clear_cache=0 declare_mode=0 show_test_groups version_file old_version tmpdir_ok mkdir_err
   while builtin getopts $opts opt; do
     case $opt in
       (v) verbose=1
@@ -624,8 +637,12 @@ vim() {
     # leave this directory writable by everyone, and everything below is either
     # executed or sourced
     if [ $tmpdir_ok = 1 -a ! -d "$SCR_TMPDIR" ]; then
-      if ! mkdir -m 755 -p "$SCR_TMPDIR" 2>/dev/null; then
-        echo "ERROR: could not create $SCR_TMPDIR" >&2
+      # keep mkdir's own diagnostic rather than discarding it: whether this is a
+      # readonly /tmp, a full one, or a permission problem is the whole question
+      # when a host turns up without a $SCR_TMPDIR, and it is the one thing the
+      # warning below cannot tell you
+      if ! mkdir_err=$(mkdir -m 755 -p "$SCR_TMPDIR" 2>&1); then
+        echo "ERROR: could not create $SCR_TMPDIR${mkdir_err:+: $mkdir_err}" >&2
         tmpdir_ok=0
       fi
     fi
@@ -633,8 +650,8 @@ vim() {
       tmpdir_ok=0
     fi
     if [ $tmpdir_ok = 1 -a ! -d $SCR_TMPDIR/bin ]; then
-      if ! mkdir -m 755 -p $SCR_TMPDIR/bin 2>/dev/null; then
-        echo "ERROR: could not create $SCR_TMPDIR/bin" >&2
+      if ! mkdir_err=$(mkdir -m 755 -p $SCR_TMPDIR/bin 2>&1); then
+        echo "ERROR: could not create $SCR_TMPDIR/bin${mkdir_err:+: $mkdir_err}" >&2
         tmpdir_ok=0
       fi
     fi

@@ -22,3 +22,24 @@ rm -f $tres
 )
 [ "$(<$tres)" = 1 ]
 rm -f $tres
+
+# -clear-cache empties $SCR_TMPDIR but must leave the directory and its bin subdir
+# standing: -shell-init calls it before writing .version and psqlrc, so a
+# -clear-cache that takes the directory with it leaves the rest of the login
+# writing into nothing. this is what OpenBSD did, where find(1) documents -mindepth
+# as a primary ("true if the current search depth is at least n") rather than the
+# global option gnu and macos make it -- the starting directory failed that test,
+# fell through to the -o branch and got rm -rf'd. dotfiles have to go too
+cc=/tmp/scr-$USER-$SCR_ENV-clearcache
+rm -rf $cc
+mkdir -p $cc/bin $cc/subdir
+touch $cc/junk $cc/.dotjunk $cc/subdir/x $cc/bin/binjunk
+printf "\nrm -rf %s\n" $cc >> "$TEST_CLEANUP_FILE"
+(
+  SCR_TMPDIR=$cc
+  -clear-cache
+)
+[ -d $cc -a -d $cc/bin ]
+[ "$(ls -A $cc)" = bin ]
+[ -z "$(ls -A $cc/bin)" ]
+rm -rf $cc
