@@ -100,7 +100,7 @@
 #exec > >(tee >(grep ^: >$cmds) | grep -v ^:)
 #trap "rm -f $stdout $cmds; echo $stdout was deleted" EXIT INT
 
--ra() {
+-ra() (
   local exec ssh_params opts="he:u:j:drps" opt RA_SERVER_BASE_URL=${RA_SERVER_BASE_URL:-https://remoteadmin.private:3333} RA_SSH_USER=${RA_SSH_USER:-lincdoc} OPTIND=1 curl_path=/usr/local/opt/curl/bin
   -add-path "$curl_path"
   declare -a exec
@@ -121,24 +121,24 @@
 
   while builtin getopts $opts opt; do
     case $opt in
-      h) usage
+      (h) usage
         return
         ;;
-      e) RA_SERVER_BASE_URL=$OPTARG
+      (e) RA_SERVER_BASE_URL=$OPTARG
         echo "NOTE: using endpoint base: $RA_SERVER_BASE_URL" >/dev/tty
         ;;
-      u) RA_USER_OVERRIDE=$OPTARG
+      (u) RA_USER_OVERRIDE=$OPTARG
         echo "NOTE: using RA_USER: $RA_USER_OVERRIDE" >/dev/tty
         ;;
-      d) RA_SERVER_BASE_URL=${RA_SERVER_BASE_URL/%:3333/:3001}
+      (d) RA_SERVER_BASE_URL=${RA_SERVER_BASE_URL/%:3333/:3001}
         echo "NOTE: using dev RA server at: $RA_SERVER_BASE_URL" >/dev/tty
         ;;
-      r) RA_SSH_USER=root
+      (r) RA_SSH_USER=root
         superuser=1
         ;;
-      p) RA_MODE=psql
+      (p) RA_MODE=psql
         ;;
-      s) RA_MODE=show_users
+      (s) RA_MODE=show_users
         ;;
     esac
   done
@@ -232,10 +232,10 @@
   fmt_date() {
     epoch_seconds=$1 os=$(uname -s) fmt="%m/%d %H:%M:%S"
     case $os in
-      Darwin|OpenBSD)
+      (Darwin|OpenBSD)
         date -r $epoch_seconds +"$fmt"
         ;;
-      Linux)
+      (Linux)
         date --date=@$epoch_seconds +"$fmt"
         ;;
     esac
@@ -288,7 +288,7 @@
   fi
 
   case $RA_MODE in
-    ssh|show_users)
+    (ssh|show_users)
       # get a session cookie so we can do various web service calls
       local cookie_jar=$HOME/.remoteadmin/ra-cookies
       if [ ! -f $cookie_jar ]; then
@@ -300,7 +300,7 @@
   esac
 
   case $RA_MODE in
-    ssh)
+    (ssh)
       local extra_params="$(get_extra_ssh_params $raHostname)"
       if [ -n "$extra_params" ]; then
         echo "Passing extra params to ssh: $extra_params"
@@ -312,7 +312,7 @@
         RA_SSH_USE_EVAL=1 SSH_STY_LBL=$raHostname ssh -a -t -oProxyJump=remoteadmin@$RA_SSH_PROXY_JUMP_HOST -p $raSshPort $extra_params $RA_SSH_USER@127.0.0.1 "${c[@]}" "$@"
       fi
       ;;
-    psql)
+    (psql)
       choice=0
       n=$((${#context[@]}-1))
       if [ $n -ge 1 ]; then
@@ -354,13 +354,13 @@
       psql -v PROMPT1="$raHostname:%n@%/>" "$@"
       # do I need to stop ssh?
       ;;
-    show_users)
+    (show_users)
       #local type="application/json"
       local type="text/plain"
       curl -k -f -S -H "$ldap_auth_hdr" -H "X-Ra-Agent-Id: $agt_id" -H "Accept: $type" $RA_SERVER_BASE_URL/ra-users-get-browser-windows
       ;;
   esac
-}
+)
 
 # Use this script to mount the encrypted filesystem, which spawns a shell so
 # you can make edits. When you exit the shell, it unmounts and deallocates the
