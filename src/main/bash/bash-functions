@@ -471,9 +471,7 @@ screen() {
   fi
   f=$(mktemp)
   t=$RANDOM
-  if [ "$EDITOR" -a ! -e "$EDITOR" ]; then
-    v --version >/dev/null
-  fi
+  -make-editor || true
   env screen -X hardcopy $f
   env screen -t $t sh -c "${EDITOR:-vim} -c \"set nonumber\" $f; rm $f"
   env screen -X select $t
@@ -495,66 +493,74 @@ screen() {
   done
 }
 
-vim() {
-  # what vim is told to run in place of reading a vimrc. it clears itself once it
-  # has sourced: this value points at a file descriptor, so it is only meaningful
-  # in the process that holds it, and leaving it in vim's environment would hand
-  # every child of vim a $VIMINIT aimed at whatever their fd 3 turns out to be
-  local viminit="source /dev/fd/3 | let \$VIMINIT = ''"
+# what vim is told to run in place of reading a vimrc. it clears itself once it
+# has sourced: this value points at a file descriptor, so it is only meaningful
+# in the process that holds it, and leaving it in vim's environment would hand
+# every child of vim a $VIMINIT aimed at whatever their fd 3 turns out to be.
+# a function rather than a variable because functions are all scrash sends to a
+# remote shell (see -shell-init -D), and both the $EDITOR wrapper and the vim()
+# that runs without one have to arrive at the same value
+-viminit() {
+  printf '%s' "source /dev/fd/3 | let \$VIMINIT = ''"
+}
+
+# build the $EDITOR wrapper, unless it is already there. returns non-zero when
+# there is no wrapper to run at all -- $EDITOR is unset because there was no
+# $SCR_TMPDIR to keep it in (see -shell-init), or it could not be written -- and
+# the caller then has to hand vim its configuration itself
+-make-editor() {
   local p d funcs_to_export="-ws -set-clipboard -get-clipboard -screen-env -scr-auth-header -hmac-sha256 -check-owner"
-  if [ -z "$EDITOR" ]; then
-    # there is no $SCR_TMPDIR to keep the wrapper in (see -shell-init), so hand
-    # vim the configuration from right here: it travels on a file descriptor and
-    # needs nothing on disk, which is why this still works on a readonly host
-    if [ -d /dev/fd ]; then
-      VIMINIT="$viminit" command vim "$@" 3< <(-vim-config)
-    else
-      command vim "$@"
-    fi
-    return
-  fi
+  [ -z "$EDITOR" ] && return 1
+  [ -e "$EDITOR" ] && return 0
   d=$(dirname "$EDITOR")
   [ ! -d "$d" ] && mkdir -p "$d" 2>/dev/null
-  if [ ! -e "$EDITOR" ]; then
-    # the wrapper hands vim its configuration on a file descriptor: ":source
-    # /dev/fd/3" is an ordinary :source of an ordinary path, so it gets a script
-    # context (s: variables work) and runs in the buffer vim already opened for
-    # the file, which is where a vimrc's buffer-local :set commands belong. that
-    # makes it a faithful vimrc that never touches the disk, and because :source
-    # of a path is as old as vim itself it is the only such mechanism that reaches
-    # back to the vim 7.1 on Ubuntu 8. $VIMINIT is set here rather than in the
-    # environment because it is only true while fd 3 is actually open.
-    #
-    # -vim-config is called rather than read out of a variable because the
-    # configuration is already in the environment once, as the exported -vimrc and
-    # -vim-plugin-* functions. the declare test is what decides whether we have it
-    # at all: anything that sanitizes the environment (sudoedit) strips those
-    # functions, and there is then nothing to hand over.
-    #
-    # the "exec 3<" is part of the condition rather than a statement inside it: a
-    # failed redirection on an argument-less exec is not fatal, it just returns
-    # non-zero, so running it separately would leave $VIMINIT pointing at a
-    # descriptor we never opened
-    p='#!/usr/bin/env bash\n%s\nexport -f -- %s\nif declare -f -- -vim-config >/dev/null && [ -d /dev/fd ] && exec 3< <(-vim-config); then\n  export VIMINIT=%q\nfi\nexec vim "$@"'
-    # 2>/dev/null ahead of the write: redirections are set up left to right, so
-    # putting it after would let the shell's own "cannot create" land on the
-    # terminal in front of the clearer message below
-    if ! printf "$p" "$(declare -f -- $funcs_to_export)" "$funcs_to_export" "$viminit" 2>/dev/null >"$EDITOR" ||
-      ! chmod 755 "$EDITOR" 2>/dev/null; then
-      # the wrapper is what carries the clipboard functions into vim's environment
-      # past anything that sanitizes it. where we cannot write it we still hand
-      # vim the configuration ourselves, and lose only the clipboard integration
-      echo "$FUNCNAME: could not create $EDITOR, running vim without the scrash clipboard functions" >&2
-      rm -f "$EDITOR" 2>/dev/null
-      if [ -d /dev/fd ]; then
-        VIMINIT="$viminit" command vim "$@" 3< <(-vim-config)
-      else
-        command vim "$@"
-      fi
-      return
-    fi
+  # the wrapper hands vim its configuration on a file descriptor: ":source
+  # /dev/fd/3" is an ordinary :source of an ordinary path, so it gets a script
+  # context (s: variables work) and runs in the buffer vim already opened for
+  # the file, which is where a vimrc's buffer-local :set commands belong. that
+  # makes it a faithful vimrc that never touches the disk, and because :source
+  # of a path is as old as vim itself it is the only such mechanism that reaches
+  # back to the vim 7.1 on Ubuntu 8. $VIMINIT is set here rather than in the
+  # environment because it is only true while fd 3 is actually open.
+  #
+  # -vim-config is called rather than read out of a variable because the
+  # configuration is already in the environment once, as the exported -vimrc and
+  # -vim-plugin-* functions. the declare test is what decides whether we have it
+  # at all: anything that sanitizes the environment (sudoedit) strips those
+  # functions, and there is then nothing to hand over.
+  #
+  # the "exec 3<" is part of the condition rather than a statement inside it: a
+  # failed redirection on an argument-less exec is not fatal, it just returns
+  # non-zero, so running it separately would leave $VIMINIT pointing at a
+  # descriptor we never opened
+  p='#!/usr/bin/env bash\n%s\nexport -f -- %s\nif declare -f -- -vim-config >/dev/null && [ -d /dev/fd ] && exec 3< <(-vim-config); then\n  export VIMINIT=%q\nfi\nexec vim "$@"'
+  # 2>/dev/null ahead of the write: redirections are set up left to right, so
+  # putting it after would let the shell's own "cannot create" land on the
+  # terminal in front of the clearer message below
+  if ! printf "$p" "$(declare -f -- $funcs_to_export)" "$funcs_to_export" "$(-viminit)" 2>/dev/null >"$EDITOR" ||
+    ! chmod 755 "$EDITOR" 2>/dev/null; then
+    # the wrapper is what carries the clipboard functions into vim's environment
+    # past anything that sanitizes it. where we cannot write it we still hand
+    # vim the configuration ourselves, and lose only the clipboard integration
+    echo "$FUNCNAME: could not create $EDITOR, running vim without the scrash clipboard functions" >&2
+    rm -f "$EDITOR" 2>/dev/null
+    return 1
   fi
-  "$EDITOR" "$@"
+}
+
+vim() {
+  if -make-editor; then
+    "$EDITOR" "$@"
+    return
+  fi
+  # no wrapper to run, so hand vim the configuration from right here: it travels
+  # on a file descriptor and needs nothing on disk, which is why this still works
+  # on a readonly host
+  if [ -d /dev/fd ]; then
+    VIMINIT="$(-viminit)" command vim "$@" 3< <(-vim-config)
+  else
+    command vim "$@"
+  fi
 }
 
 -shell-init() {
@@ -706,6 +712,23 @@ vim() {
   if [ "$(type -t -- -bashrc)" = function ]; then
     eval -- "$(-bashrc)"
   fi
+  if [ $declare_mode = 0 ]; then
+    # every new shell gets the $EDITOR wrapper up front rather than leaving it for
+    # the first vim to write: the shell may go on to hand $EDITOR to something that
+    # cannot create it -- sudo above all, where the target user has no business
+    # writing into our $SCR_TMPDIR -- and a vim that has to fall back loses the
+    # clipboard integration. this is also the check that catches a $SCR_TMPDIR
+    # swept out from under a shell that has been running a while.
+    #
+    # after the -bashrc eval, so that the profile's version of any function the
+    # wrapper carries is the one baked into it.
+    #
+    # "|| true" for the same reason the $SCR_TMPDIR failures above only warn: this
+    # function ends by exec'ing the shell the login is for, and the far end of a ssh
+    # boots by running it, so a non-zero return here (or an errexit trip) is an ssh
+    # that dies leaving no way onto the host. vim still works without the wrapper
+    -make-editor || true
+  fi
   fcns=($(compgen -A function "-") screen ssh vim ssh-add scp sftp)
   if [ $declare_mode = 1 ]; then
     declare -f -- ${fcns[*]}
@@ -732,11 +755,9 @@ vim() {
   [ $# -gt 0 ] && shift
   [ "$STY" ] && -screen-env
   bootstr=$(-shell-boot-string -p $SCR_PORT -- "$@")
-  if [ "$EDITOR" -a ! -e "$EDITOR" ]; then
-    # create the editor, might need it under sudo and sudo user will not be
-    # able to create it
-    vim --version >/dev/null
-  fi
+  # create the editor, might need it under sudo and sudo user will not be able to
+  # create it
+  -make-editor || true
   # we pass along STY so that -ws calls can properly detect when to run
   # -screen-env
   sudo -H -u $user bash -c "STY='$STY' $bootstr"

@@ -15,6 +15,14 @@ scr_vim_config="$(-vim-config)"
 # the configuration is produced verbatim, never quoted, escaped or encoded
 [[ "$scr_vim_config" != *"call execute("* ]]
 [ ${#EDITOR} -gt 0 ]
+# every new shell gets the wrapper from -shell-init rather than from the first
+# vim: a shell can go on to hand $EDITOR to something that cannot create it (sudo,
+# where the target user cannot write our $SCR_TMPDIR), so it has to be there
+# before any vim has run
+rm -f $EDITOR
+(-shell-init)
+[ -e $EDITOR ]
+rm -f $EDITOR
 vim --version >/dev/null
 [ -e $EDITOR ]
 # the wrapper calls -vim-config and pipes it over a descriptor: it must not name a

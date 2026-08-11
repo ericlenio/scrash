@@ -8,12 +8,13 @@
   fi
   PS1=$SCR_PS1
   printf "\033k${HOSTNAME}\033\134" >/dev/tty
-  if [ "$STY" -a ${#SUDO_USER} -eq 0 -a ! -f "$EDITOR" ]; then
+  if [ "$STY" -a ${#SUDO_USER} -eq 0 -a "$EDITOR" -a ! -f "$EDITOR" ]; then
     if [ $(($(date +%s)-$SCR_SCREEN_START)) -gt 3600 ]; then
       # for a long running gnu screen session, make sure $EDITOR exists; it
-      # will get wiped from /tmp from time to time
+      # will get wiped from /tmp from time to time. -shell-init creates it for
+      # every new shell, but this one has been sitting here since before the sweep
       echo "missing $EDITOR, creating it now"
-      v --version >/dev/null
+      -make-editor || true
     fi
   fi
 }
