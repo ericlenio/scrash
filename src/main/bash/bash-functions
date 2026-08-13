@@ -455,6 +455,52 @@ screen() {
   return $rc
 }
 
+# the exported function set, fetched from the server and verified before it is
+# printed. this is what the $EDITOR wrapper runs when it starts with no scrash
+# functions in its environment at all: "crontab -e" hands the editor to
+# "/bin/sh -c", and neither dash (Ubuntu) nor ksh (OpenBSD) keeps an environment
+# entry whose name is not a valid shell identifier -- which is every one of
+# bash's "BASH_FUNC_-vim-config%%". ordinary variables do survive that, and
+# $SCR_PORT and $SCR_SEED are all this needs to ask for the rest back.
+#
+# the body is checked rather than trusted, for the reason -shell-boot-string
+# checks its own (see there): the caller evals what comes back, and what answers
+# on that port is only ours for as long as the forward is up. the two are the
+# same protocol written twice, because that one has to travel as a string to a
+# shell that holds nothing yet, and this one runs where the functions already are
+#
+# start= is empty deliberately: given a value the server appends a -shell-init
+# that would exec a shell in place of the editor we are on our way to running
+-get-bash-functions() {
+  local path=/scr-get-bash-functions auth resp sig body key mac
+  [ "$STY" ] && -screen-env
+  # nothing to ask, and nothing to sign with: leave it to the caller to carry on
+  # unconfigured rather than say so on every launch
+  [ -z "$SCR_PORT" -o -z "$SCR_SEED" ] && return 1
+  auth=$(-scr-auth-header GET "$path") || return 1
+  if ! [[ "$auth" =~ t=([0-9]+),n=([a-f0-9]+) ]]; then
+    echo "$FUNCNAME: could not parse auth header" >&2
+    return 1
+  fi
+  key=$(-hmac-sha256 "response:${BASH_REMATCH[1]}:${BASH_REMATCH[2]}")
+  # --compressed because the server gzips this, and -K on a pipe rather than -H
+  # for the reason -ws does it: argv is readable by any local user
+  resp=$(NO_PROXY=127.0.0.1 curl --connect-timeout 5 -f -S -s --compressed \
+    -K <(printf 'header = "Authorization: %s"\n' "$auth") \
+    "http://127.0.0.1:$SCR_PORT$path?platform=$(uname)&hostname=$(hostname)&start=&ssh_level=${SCR_SSH_LEVEL:-0}") || return 1
+  # the signature is the first line and the script is the rest. the server hashed
+  # its body with the trailing newlines stripped, which is what the command
+  # substitution above has already done to ours
+  sig=$(printf %s "$resp" | head -n 1)
+  body=$(printf %s "$resp" | tail -n +2)
+  mac=$(-hmac-sha256 "$body" "$key")
+  if [ "${sig##*=}" != "$mac" ]; then
+    echo "$FUNCNAME: response signature mismatch, discarding it" >&2
+    return 1
+  fi
+  printf "%s\n" "$body"
+}
+
 -ws-about() {
   -ws /scr-about "$@"
 }
@@ -509,7 +555,14 @@ screen() {
 # $SCR_TMPDIR to keep it in (see -shell-init), or it could not be written -- and
 # the caller then has to hand vim its configuration itself
 -make-editor() {
-  local p d funcs_to_export="-ws -set-clipboard -get-clipboard -screen-env -scr-auth-header -hmac-sha256 -check-owner"
+  # just enough to ask the server for everything else: -get-bash-functions, the
+  # two it signs with, and -screen-env (which it has to run first inside screen,
+  # where $SCR_PORT moves with each reattach) plus the -check-owner that guards
+  # the files -screen-env sources. the clipboard functions are deliberately not
+  # here: they reach the server the same way this does, over $SCR_PORT with
+  # $SCR_SEED, so there is no environment in which carrying them would work and
+  # asking for them would not -- and asking gets the vim configuration back too
+  local p d funcs_to_export="-get-bash-functions -scr-auth-header -hmac-sha256 -screen-env -check-owner"
   [ -z "$EDITOR" ] && return 1
   [ -e "$EDITOR" ] && return 0
   d=$(dirname "$EDITOR")
@@ -526,22 +579,25 @@ screen() {
   # -vim-config is called rather than read out of a variable because the
   # configuration is already in the environment once, as the exported -vimrc and
   # -vim-plugin-* functions. the declare test is what decides whether we have it
-  # at all: anything that sanitizes the environment (sudoedit) strips those
-  # functions, and there is then nothing to hand over.
+  # at all, and where we do not (see -get-bash-functions for who strips them) the
+  # wrapper asks the server for the whole set and carries on as if it had been
+  # inherited: eval'd here, exported for the shells vim runs its :! and system()
+  # commands in, and handed to vim on the descriptor exactly as usual.
   #
   # the "exec 3<" is part of the condition rather than a statement inside it: a
   # failed redirection on an argument-less exec is not fatal, it just returns
   # non-zero, so running it separately would leave $VIMINIT pointing at a
   # descriptor we never opened
-  p='#!/usr/bin/env bash\n%s\nexport -f -- %s\nif declare -f -- -vim-config >/dev/null && [ -d /dev/fd ] && exec 3< <(-vim-config); then\n  export VIMINIT=%q\nfi\nexec vim "$@"'
+  p='#!/usr/bin/env bash\n%s\nexport -f -- %s\nif ! declare -f -- -vim-config >/dev/null && scr_fcns=$(-get-bash-functions); then\n  eval -- "$scr_fcns"\n  unset scr_fcns\n  export -f -- $(compgen -A function)\nfi\nif declare -f -- -vim-config >/dev/null && [ -d /dev/fd ] && exec 3< <(-vim-config); then\n  export VIMINIT=%q\nfi\nexec vim "$@"'
   # 2>/dev/null ahead of the write: redirections are set up left to right, so
   # putting it after would let the shell's own "cannot create" land on the
   # terminal in front of the clearer message below
   if ! printf "$p" "$(declare -f -- $funcs_to_export)" "$funcs_to_export" "$(-viminit)" 2>/dev/null >"$EDITOR" ||
     ! chmod 755 "$EDITOR" 2>/dev/null; then
-    # the wrapper is what carries the clipboard functions into vim's environment
-    # past anything that sanitizes it. where we cannot write it we still hand
-    # vim the configuration ourselves, and lose only the clipboard integration
+    # the wrapper is what gets the functions back when something strips them on
+    # the way to vim. where we cannot write it we still hand vim the
+    # configuration ourselves (vim() below), and lose only the routes that go
+    # through $EDITOR rather than through this shell
     echo "$FUNCNAME: could not create $EDITOR, running vim without the scrash clipboard functions" >&2
     rm -f "$EDITOR" 2>/dev/null
     return 1

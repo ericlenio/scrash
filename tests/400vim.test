@@ -37,6 +37,16 @@ vim --version >/dev/null
 rm $EDITOR
 vim --version >/dev/null
 [ -e $EDITOR ]
+# what the wrapper carries is the bootstrap that asks the server for the rest,
+# and nothing else: no clipboard functions, which arrive with everything else
+[[ "$(<$EDITOR)" = *"-get-bash-functions"* ]]
+[[ "$(<$EDITOR)" != *"-set-clipboard"* ]]
+
+# the fetch is verified before it is handed back, and it brings the whole set
+scr_fcns="$(-get-bash-functions)"
+[[ "$scr_fcns" = *"-vim-config () "* ]]
+[[ "$scr_fcns" = *"-set-clipboard () "* ]]
+[[ "$scr_fcns" != *"-shell-init -s"* ]]
 
 # the config has to be *sourced*, not just executed: only a real script context
 # gives script-local (s:) variables, which ScrNextColorScheme uses. running the
@@ -54,6 +64,24 @@ vim -c 'call ScrNextColorScheme(1)' -c "call writefile([get(g:,'colors_name','NO
 printf 'alpha\nbeta\n' > $tsrc
 vim -c "call writefile([line('$').':'.getline(1).':'.&modified.':'.undotree().seq_last.':'.&tabstop.':'.&expandtab],'$tres')" -c 'qall!' $tsrc
 [ "$(<$tres)" = "2:alpha:0:0:2:1" ]
+
+# an editor started from an environment that kept no exported functions has to
+# come up exactly like one started from this shell. "crontab -e" is the case:
+# it runs the editor through "/bin/sh -c", and dash and ksh both drop every
+# BASH_FUNC_*%% entry, their names not being valid shell identifiers. export -nf
+# reproduces that here without needing one of those shells -- what reaches the
+# wrapper is the same environment, minus the functions.
+#
+# checked from inside vim rather than from the shell, because both halves have to
+# arrive: the configuration on the descriptor, and the functions in the
+# environment of the shell vim runs system() in (ScrSystemcaller calls
+# -set-clipboard there)
+printf 'alpha\nbeta\n' > $tsrc
+(
+  export -nf -- $(compgen -A function -- -)
+  $EDITOR -c "call writefile([exists('*ScrSetClipboard').':'.&tabstop.':'.substitute(system('declare -f -- -set-clipboard >/dev/null && echo yes || echo no'),'\n','','g')],'$tres')" -c 'qall!' $tsrc
+)
+[ "$(<$tres)" = "1:2:yes" ]
 
 # the profile's -edit() opens vim with "-S <(...)", so a second process
 # substitution has to coexist with the one carrying the configuration

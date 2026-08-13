@@ -72,6 +72,17 @@ that means `vimdiff`, `view`, or a script calling vim by an absolute path. Every
 route scrash controls is covered, including `$EDITOR` (so `git commit`,
 `sudoedit` and `crontab -e`) and the `vim` shell function.
 
+`crontab -e` needs one more thing to be true. It runs the editor through
+`/bin/sh -c`, and bash exports a function under a name like
+`BASH_FUNC_-vim-config%%`, which is not a valid shell identifier — so dash
+(Ubuntu) and ksh (OpenBSD) both drop every one of them on the way through, and
+the `$EDITOR` wrapper arrives with no scrash functions at all. Ordinary variables
+survive, `$SCR_PORT` and `$SCR_SEED` among them, so the wrapper carries just
+enough to ask the server for the function set back over the same channel
+everything else uses, checks the signature on what comes back, and then proceeds
+normally. Anything that hands `$EDITOR` to a `/bin/sh -c` is covered by the same
+path.
+
 Two other consequences worth knowing: your vimrc may not use `:source` to pull in
 another file that scrash does not know about (there is no file to be relative
 to), and scrash's plugins load during vimrc processing rather than at
