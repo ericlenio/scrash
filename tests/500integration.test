@@ -80,6 +80,19 @@ SCR_PORT1=$(-get-scr-port)
 ans=$(-ssh-scr-server -screen-pipe -u -S $session_id -- -ssh-scr-server uname)
 [[ "$ans" = $(uname) ]]
 
+# scp back to the scrash server has to survive the port change too, not just ssh:
+# the window's own environment still holds the SCR_PORT (and SCR_SEED) this
+# session was started under, so -download only works if the scp path refreshes
+# them out of $SCR_TMPDIR. it did not, and the proxy perl then connected to a
+# forward that was gone: "Cannot create socket ... connect: Connection refused"
+t4=$SCR_TMPDIR/t4
+download_dir=/tmp
+-random-string 100 > $t4
+rm -f $download_dir/t4
+-screen-pipe -u -S $session_id -- -download $t4
+[ $(-md5 $t4) = $(-md5 $download_dir/t4) ]
+rm -f $t4 $download_dir/t4
+
 
 rm $t1
 -ssh-scr-server -screen-pipe -u -S $session_id -- -ws-hello-world -o $t1

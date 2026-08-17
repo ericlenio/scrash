@@ -311,7 +311,12 @@ screen() {
             return 1
           fi
         fi
-        if [[ $session_id =~ ^$session_id_prefix ]]; then
+        # "screen -r 12345.scr-abcd" names the same session as "screen -r
+        # scr-abcd" (and is what screen -ls prints), so accept the pid there too:
+        # skipping the update leaves the session pointing at the $SCR_PORT of
+        # whatever scrash started it, which is dead by the time we reattach from a
+        # new one. -screen-env strips the pid itself (session_id=${STY##*.})
+        if [[ $session_id =~ ^([0-9]+\.)?$session_id_prefix ]]; then
           if ! -screen-env -S $session_id -u; then
             return $?
           fi
@@ -325,7 +330,10 @@ screen() {
         ;;
       (-u)
         set -- "${@:1:i-1}" "${@:i+1}"
-        let i-=1
+        # a plain assignment rather than "let i-=1": let returns non-zero when the
+        # expression evaluates to 0, which is exactly what happens when -u is the
+        # first argument (i=1), and that kills any caller running under errexit
+        i=$((i-1))
         skip=1
         update=1
         ;;
@@ -905,6 +913,16 @@ scp() {
 }
 
 -sxx-init() {
+  # every one of these ends up talking to the server on $SCR_PORT -- the agent
+  # proxy in -ssh-auth-sock, and the -ssh-proxy-connect that -sxx-scr-server hands
+  # ssh as a ProxyCommand -- and inside gnu screen that port moves with each
+  # reconnect. so refresh it here for the same reason ssh() and -ws() do, and
+  # before -ssh-auth-sock rather than inside it: that function makes SSH_AUTH_SOCK
+  # local, which would swallow the refreshed value the sourced file carries.
+  # without this, a session reattached from a *new* scrash still holds the port
+  # (and the $SCR_SEED) of the one it was started under, and -download/-upload die
+  # in the proxy perl with "connect: Connection refused" on a forward that is gone
+  [ "$STY" ] && -screen-env
   if [ "$SCR_SSH_PROXY_JUMP" -a ! -f "$SCR_SSH_PROXY_JUMP" ]; then
     {
       echo '#!/usr/bin/env bash'
