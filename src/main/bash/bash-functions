@@ -1032,7 +1032,13 @@ ssh() {
       cmd+=(exec bash -c "'"$bootstr"'")
       h=$cmdline_ssh_host
       [ "$SSH_STY_LBL" ] && h=$SSH_STY_LBL
-      [ "$STY" ] && printf "\033k$h\033\134" >/dev/tty
+      # -t 1 is the guard that works: /dev/tty exists as a device node even when
+      # the process has no controlling terminal, so -e/-c/-w/-r all test true and
+      # the write then fails with ENXIO ("Device not configured"), taking the
+      # whole command down. only the window title is skipped when not on a tty
+      if [ "$STY" ] && [ -t 1 ]; then
+        printf "\033k$h\033\134" >/dev/tty
+      fi
     else
       # display for forwarded port, might have a use for this someday
       printf "SCR_PORT_FORWARD=%s\n" $SCR_PORT_FORWARD
