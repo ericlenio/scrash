@@ -10,3 +10,17 @@ printf "/^root\015ve\003:q\015" > $t1
 vim -s $t1 /etc/passwd
 [ root = $(-get-clipboard) ]
 rm $t1
+
+# the boot credential must not reach a command line. -s hands the script to the
+# child on a pipe, so nothing in our own ancestry -- the sudo process above all,
+# whose argv outlives the boot -- may show an Authorization header or a response
+# key to ps. only this chain is walked: an ssh session elsewhere on the machine
+# legitimately carries one, so a machine-wide grep would be someone else's noise
+ancestry=$(-s root bash -c 'p=$$
+  while [ -n "$p" ] && [ "$p" -gt 1 ]; do
+    ps -ww -o args= -p $p || break
+    p=$(ps -o ppid= -p $p | tr -d "[:space:]")
+  done')
+[[ $ancestry = *sudo* ]]
+[[ $ancestry != *SCRASH-HMAC* ]]
+[[ $ancestry != *-hmac* ]]
