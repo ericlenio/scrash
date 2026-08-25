@@ -24,3 +24,25 @@ ancestry=$(-s root bash -c 'p=$$
 [[ $ancestry = *sudo* ]]
 [[ $ancestry != *SCRASH-HMAC* ]]
 [[ $ancestry != *-hmac* ]]
+
+# -boot-env-prefix builds the assignment prefix that both -s branches put into
+# the string sudo hands to root's bash -c. wrapped in literal single quotes, as
+# $STY used to be, a value carrying a quote closed it and everything after ran as
+# root. checked on the prefix rather than through -s, because a $STY that is not
+# a real session id stalls the screen machinery long before a shell would run
+inject_probe=$SCR_TMPDIR/inject-probe
+inject_show=$SCR_TMPDIR/inject-show
+rm -f $inject_probe
+printf 'printf %%s "$STY"\n' > $inject_show
+hostile="x'; touch $inject_probe; :'"
+inject_prefix=$(STY="$hostile" -boot-env-prefix)
+# the value arrives intact, as data ...
+[ "$(bash -c "$inject_prefix bash $inject_show")" = "$hostile" ]
+# ... and nothing of it was executed
+[ ! -e $inject_probe ]
+# the form this replaced really was exploitable, so the assertions above are not
+# passing for some unrelated reason
+bash -c "STY='$hostile' bash $inject_show" >/dev/null 2>&1 || true
+[ -e $inject_probe ]
+rm -f $inject_probe $inject_show
+unset inject_probe inject_show hostile inject_prefix

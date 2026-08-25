@@ -877,6 +877,22 @@ vim() {
   printf %s "$body"
 }
 
+# the variables that have to cross a sudo hop, as an assignment prefix ready to be
+# interpolated into the string sudo hands to bash -c. %q is the quoting that
+# survives being re-parsed by that shell: wrapped in literal quotes of ours, a
+# value carrying one closes them and the rest of it runs as the target user
+#
+# here rather than in -shell-boot-string, though that is where the argv branch's
+# command string comes from. that function also builds what ssh() sends to a
+# remote host, and the other -s branch does not go through it at all: it boots
+# from a pipe via -boot-script-local. a variable added there would reach only
+# whichever branch the caller happened to test. both branches take theirs here
+-boot-env-prefix() {
+  local sty_q
+  printf -v sty_q %q "$STY"
+  printf 'STY=%s' "$sty_q"
+}
+
 # sudo shortcut
 # usage: arg1 is the user we want to become (default=root), remaining args are
 # the command we want to run as that user
@@ -884,13 +900,14 @@ vim() {
 # -s nobody
 # -s nobody whoami
 -s() {
-  local user=${1:-root} start=1 script
+  local user=${1:-root} start=1 script env_prefix
   [ $# -gt 0 ] && shift
   [ "$STY" ] && -screen-env
   # create the editor, might need it under sudo and sudo user will not be able to
   # create it. done before the credential is minted so it does not sit unused
   -make-editor || true
   [ $# -gt 0 ] && start=$(-ssh-serialize-cmd "$@")
+  env_prefix=$(-boot-env-prefix)
   # stdin is the only channel that reaches the child without a filesystem: sudo's
   # closefrom shuts every fd above 2 (verified -- /dev/fd/3 is "Bad file
   # descriptor" on the far side), and a here-string wants a temp file on the bash
@@ -913,9 +930,9 @@ vim() {
     # printf's stderr goes away because sudo failing to authenticate never reads
     # the pipe, and the EPIPE that follows is noise on top of sudo's own message
     printf %s "$script" 2>/dev/null |
-      sudo -H -u $user bash -c "scr_boot=\$(cat); { [ -t 1 ] || [ -t 2 ]; } && exec </dev/tty; STY='$STY' eval -- \"\$scr_boot\""
+      sudo -H -u $user bash -c "scr_boot=\$(cat); { [ -t 1 ] || [ -t 2 ]; } && exec </dev/tty; $env_prefix eval -- \"\$scr_boot\""
   else
-    sudo -H -u $user bash -c "STY='$STY' $(-shell-boot-string -p $SCR_PORT -- "$@")"
+    sudo -H -u $user bash -c "$env_prefix $(-shell-boot-string -p $SCR_PORT -- "$@")"
   fi
 }
 
