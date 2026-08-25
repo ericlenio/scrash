@@ -25,20 +25,41 @@ ancestry=$(-s root bash -c 'p=$$
 [[ $ancestry != *SCRASH-HMAC* ]]
 [[ $ancestry != *-hmac* ]]
 
+# -s hands the caller's terminal to the child as $SCR_TTY. the child cannot work
+# it out for itself: sudo may put it on a pty of its own, and /dev/tty over there
+# is then that pty rather than the terminal a prompt has to reach. see -caller-tty
+my_tty=$(tty)
+[ -c "$my_tty" ]
+[ "$my_tty" = "$(-s root bash -c 'echo $SCR_TTY')" ]
+# and on the argv branch too, where stdin is a pipe rather than ours to take
+[ "$my_tty" = "$(echo | -s root bash -c 'echo $SCR_TTY')" ]
+# a non-root target gets the same answer. $SSH_TTY would not have worked here:
+# it names a pts owned by the login user, which nobody cannot open
+[ "$my_tty" = "$(-s nobody bash -c 'echo $SCR_TTY')" ]
+# it survives the exec at the end of -shell-init, so a command started under -s
+# sees it as well
+[ "$my_tty" = "$(-s root bash -s <<< 'echo $SCR_TTY')" ]
+# and -scr-tty inside that shell answers with the user's terminal rather than
+# what its own descriptors say. the two are the same where sudoers has no
+# "Defaults use_pty" (macos), but on a host that has it (Ubuntu 26.04) the
+# descriptors name the pty sudo made and only the handed-across value is right
+[ "$my_tty" = "$(-s root bash -c -- -scr-tty)" ]
+unset my_tty
+
 # -boot-env-prefix builds the assignment prefix that both -s branches put into
 # the string sudo hands to root's bash -c. wrapped in literal single quotes, as
-# $STY used to be, a value carrying a quote closed it and everything after ran as
-# root. checked on the prefix rather than through -s, because a $STY that is not
-# a real session id stalls the screen machinery long before a shell would run
+# these values used to be, one carrying a quote closed it and everything after
+# ran as root. checked on the prefix rather than through -s, because a $STY that
+# is not a real session id stalls the screen machinery long before a shell runs
 inject_probe=$SCR_TMPDIR/inject-probe
 inject_show=$SCR_TMPDIR/inject-show
 rm -f $inject_probe
-printf 'printf %%s "$STY"\n' > $inject_show
+printf 'printf %%s "$STY:$SCR_TTY"\n' > $inject_show
 hostile="x'; touch $inject_probe; :'"
-inject_prefix=$(STY="$hostile" -boot-env-prefix)
-# the value arrives intact, as data ...
-[ "$(bash -c "$inject_prefix bash $inject_show")" = "$hostile" ]
-# ... and nothing of it was executed
+inject_prefix=$(STY="$hostile" -boot-env-prefix /dev/null)
+# both values arrive intact, as data ...
+[ "$(bash -c "$inject_prefix bash $inject_show")" = "$hostile:/dev/null" ]
+# ... and nothing of the hostile one was executed
 [ ! -e $inject_probe ]
 # the form this replaced really was exploitable, so the assertions above are not
 # passing for some unrelated reason

@@ -23,11 +23,12 @@
 }
 
 -tty-echo() {
-  local tty=/dev/tty
-  #if [ "$SSH_CLIENT" ]; then
-    #tty=$SSH_TTY
-  #fi
-  if [ -e "$tty" ]; then
+  # -scr-tty rather than a bare /dev/tty: -e was the wrong test (a device node
+  # with no controlling terminal behind it passes, and the write then dies with
+  # ENXIO -- which is how a suite run without a pty used to fail right here), and
+  # under -s the controlling terminal is sudo's pty rather than the user's
+  local tty
+  if tty=$(-scr-tty); then
     echo "$@" >$tty
   fi
 }
@@ -141,7 +142,7 @@
     done < <(env screen -ls | grep -v $curr_sty)
   )
   if [ -z "$stys" ]; then
-    echo "No screen sessions detected." >/dev/tty
+    -tty-echo "No screen sessions detected."
     return 0
   fi
   if ! pick_sty_line=$(-pick-something "Resume which session?" "$stys"); then
@@ -386,7 +387,19 @@ screen() {
   # strip off "screen." prefix from $TERM to avoid "$TERM too long" issue
   cmd+=(-T ${TERM#screen.} -ln -e$esc)
   export SCR_SCREEN_START=$(date +%s)
-  env screen "${cmd[@]}" "${screen_cmd[@]}"
+  # -u SCR_TTY: this is where the screen daemon is created, and every window shell
+  # it ever forks inherits the environment it is given here. a $SCR_TTY inherited
+  # from a -s further up names the terminal that -s was called on, not the pty
+  # screen makes for each window -- carried in, it would have those windows
+  # prompting on the terminal *underneath* screen, where the menu lands in the raw
+  # client and the read races screen's own reader. dropped here, each window
+  # derives its own at the next -s
+  #
+  # only this call site needs it. -r and -X talk to a daemon whose environment is
+  # already fixed, and the arg handling above still has $SCR_TTY for its own sake:
+  # "screen -r" with no session id prompts through -pick-sty before reaching here,
+  # and under a -s shell the inherited value is the only right answer for it
+  env -u SCR_TTY screen "${cmd[@]}" "${screen_cmd[@]}"
 }
 
 # HMAC-SHA256 of $1, keyed with $SCR_SEED (or with $2 when given). both the key
@@ -691,6 +704,11 @@ vim() {
     export SCR_SSH_USER_KNOWN_HOSTS=$SCR_TMPDIR/ssh-$SCR_SSH_USER-$SCR_SSH_HOST-known-hosts
     : ${SCR_SSH_LEVEL:=0}
     export SCR_SSH_LEVEL
+    # the caller's terminal, handed across by -s. exported rather than left as
+    # the plain assignment the sudo command line makes it, because this function
+    # ends by exec'ing the shell (or the command) the boot was for, and a shell
+    # variable would not survive that
+    [ "$SCR_TTY" ] && export SCR_TTY
     # nothing to set up for vim here: the configuration is already in the
     # environment as the exported -vimrc and -vim-plugin-* functions, and the
     # $EDITOR wrapper built in vim() calls -vim-config to hand it to vim on a file
@@ -877,20 +895,86 @@ vim() {
   printf %s "$body"
 }
 
+# the terminal to talk to a user on -- the single place that answer is worked
+# out. every prompt, menu, pager and diagnostic in here goes through it, so that
+# "which terminal" is decided once and the same way everywhere
+#
+# the order is the whole of it, and it is not the obvious one:
+#
+#   $SCR_TTY   what -s handed across. it wins over anything we could work out
+#              from our own descriptors, because inside a shell -s made those
+#              descriptors are sudo's pty, not the user's terminal -- measured on
+#              Ubuntu 26.04: SCR_TTY=/dev/pts/1 (right) while the descriptors say
+#              /dev/pts/2 (sudo's). deriving here would hand a nested -s the
+#              wrong terminal. it is trustworthy because only -s sets it, and
+#              screen() drops it at the one boundary that invalidates it
+#   fd 0, 2    our own terminal, when we have one. fd 1 is skipped: this is
+#              called through $(...), where stdout is the capture pipe rather
+#              than whatever the caller had. a heredoc or a pipe takes stdin, a
+#              redirect or a $() takes stdout, and stderr survives both
+#   /dev/tty   the controlling terminal, for the case where all of them are
+#              redirected. under "Defaults use_pty" sudoers (Ubuntu 26.04 has it)
+#              this names the pty sudo made rather than the terminal the user is
+#              typing at, which is why $SCR_TTY has to come first
+#   $SSH_TTY   last, and only because it is better than nothing. it is empty on a
+#              local console, it goes stale the moment screen opens a window (its
+#              value is fixed at session start and never tracks the window pty),
+#              and it names a pts owned by the login user, so a non-root -s
+#              target cannot open it
+#
+# every candidate is opened rather than tested with -e or -c, for the reason ssh()
+# gives at its window title: /dev/tty is a device node even when the process has
+# no controlling terminal, so the existence tests all pass and the open then fails
+# with ENXIO. opening for append does not disturb a terminal
+-scr-tty() {
+  local fd t candidates=()
+  # built best answer first, and taken in that order below. the two tests either
+  # side of the loop are a letter apart and mean opposite things: $SCR_TTY is the
+  # value -s handed across and is the one to trust, $SSH_TTY is the last resort
+  # 1. what -s handed across
+  [ "$SCR_TTY" ] && candidates+=("$SCR_TTY")
+  # 2. our own terminal, if we still have one
+  for fd in 0 2; do
+    # <&$fd stays ahead of the discard: reverse them and fd 2 is already
+    # /dev/null by the time it is duplicated from. [ -t $fd ] has ruled out the
+    # open failing, so there is nothing to discard but tty(1)'s "not a tty"
+    [ -t $fd ] && t=$(tty <&$fd 2>/dev/null) && [ -c "$t" ] && candidates+=("$t")
+  done
+  # 3. the controlling terminal, when every descriptor is redirected
+  candidates+=(/dev/tty)
+  # 4. $SSH_TTY -- note SSH_, not SCR_: this is the stale-prone one from the top
+  [ "$SSH_TTY" ] && candidates+=("$SSH_TTY")
+  for t in "${candidates[@]}"; do
+    # 2>/dev/null comes first: redirections are applied left to right, so a
+    # failing open would otherwise report itself before the discard was in place
+    if { : ; } 2>/dev/null <"$t" && { : ; } 2>/dev/null >>"$t"; then
+      printf %s "$t"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # the variables that have to cross a sudo hop, as an assignment prefix ready to be
 # interpolated into the string sudo hands to bash -c. %q is the quoting that
 # survives being re-parsed by that shell: wrapped in literal quotes of ours, a
 # value carrying one closes them and the rest of it runs as the target user
 #
 # here rather than in -shell-boot-string, though that is where the argv branch's
-# command string comes from. that function also builds what ssh() sends to a
-# remote host, and the other -s branch does not go through it at all: it boots
-# from a pipe via -boot-script-local. a variable added there would reach only
-# whichever branch the caller happened to test. both branches take theirs here
+# command string comes from, for two reasons. that function also builds what ssh()
+# sends to a remote host, and $SCR_TTY is a device path on THIS machine -- carried
+# across it would name whatever /dev/pts of that number exists over there, quite
+# possibly a terminal belonging to somebody else. and the other -s branch does not
+# go through it at all: it boots from a pipe via -boot-script-local, so a variable
+# added in -shell-boot-string would reach only whichever branch the caller
+# happened to test. both branches take their prefix from here
+#
+# usage: -boot-env-prefix <tty>
 -boot-env-prefix() {
-  local sty_q
+  local tty="$1" sty_q tty_q
   printf -v sty_q %q "$STY"
-  printf 'STY=%s' "$sty_q"
+  printf -v tty_q %q "$tty"
+  printf 'STY=%s SCR_TTY=%s' "$sty_q" "$tty_q"
 }
 
 # sudo shortcut
@@ -900,14 +984,25 @@ vim() {
 # -s nobody
 # -s nobody whoami
 -s() {
-  local user=${1:-root} start=1 script env_prefix
+  local user=${1:-root} start=1 script tty env_prefix
   [ $# -gt 0 ] && shift
   [ "$STY" ] && -screen-env
   # create the editor, might need it under sudo and sudo user will not be able to
   # create it. done before the credential is minted so it does not sit unused
   -make-editor || true
   [ $# -gt 0 ] && start=$(-ssh-serialize-cmd "$@")
-  env_prefix=$(-boot-env-prefix)
+  # the terminal, carried across by name because the child cannot work it out for
+  # itself -- see -scr-tty. it is only ever opened, never executed, but it does
+  # get interpolated into the sudo command line below, so anything that is not a
+  # plain device path is dropped rather than passed along
+  tty=$(-scr-tty) || tty=
+  if [ "$tty" ] && ! [[ "$tty" =~ ^/dev/[A-Za-z0-9._/-]+$ ]]; then
+    tty=
+  fi
+  # $tty is checked against a device path above and so cannot carry a quote, but
+  # it goes through -boot-env-prefix like $STY does: the safety belongs in the
+  # quoting, not in a validation a later edit could loosen
+  env_prefix=$(-boot-env-prefix "$tty")
   # stdin is the only channel that reaches the child without a filesystem: sudo's
   # closefrom shuts every fd above 2 (verified -- /dev/fd/3 is "Bad file
   # descriptor" on the far side), and a here-string wants a temp file on the bash
@@ -1098,7 +1193,7 @@ ssh() {
     ssh_legal_opts="1246ab:c:e:fgi:kl:m:no:p:qstvxACD:E:F:GI:J:KL:MNO:PQ:R:S:TVw:W:XYy" \
     opt ssh_user_host cmd=(-sxx-init) start=1 rc=0 cmdline_ssh_host \
     h ssh_config=$HOME/.ssh/config \
-    M_flag=0 N_flag=0 S_flag=0
+    M_flag=0 N_flag=0 S_flag=0 title_tty
   if [ ${SCR_SSH_EXEC:-0} = 1 ]; then
     cmd+=(exec ssh)
   else
@@ -1162,12 +1257,14 @@ ssh() {
       cmd+=(exec bash -c "'"$bootstr"'")
       h=$cmdline_ssh_host
       [ "$SSH_STY_LBL" ] && h=$SSH_STY_LBL
-      # -t 1 is the guard that works: /dev/tty exists as a device node even when
-      # the process has no controlling terminal, so -e/-c/-w/-r all test true and
-      # the write then fails with ENXIO ("Device not configured"), taking the
-      # whole command down. only the window title is skipped when not on a tty
-      if [ "$STY" ] && [ -t 1 ]; then
-        printf "\033k$h\033\134" >/dev/tty
+      # -scr-tty rather than a bare /dev/tty: it proves the open instead of
+      # trusting -e/-c/-w/-r, all of which pass on a device node with no
+      # controlling terminal behind it and leave the write to fail with ENXIO
+      # ("Device not configured"), taking the whole command down. it also gets
+      # the title to the right place under -s, where the controlling terminal is
+      # sudo's pty and this escape has to reach the one screen is reading
+      if [ "$STY" ] && title_tty=$(-scr-tty); then
+        printf "\033k$h\033\134" >$title_tty
       fi
     else
       # display for forwarded port, might have a use for this someday
@@ -1235,7 +1332,7 @@ ssh() {
 # anything; 2 user gave some other bogus choice
 #
 -pick-something() {
-  local tty=${SSH_TTY:-/dev/tty} intro_label pick_list use_idx i l c opts="d:" opt OPTIND delim=$'\n'
+  local tty intro_label pick_list use_idx i l c opts="d:" opt OPTIND delim=$'\n'
   local -a pick_array
   while builtin getopts $opts opt; do
     case $opt in
@@ -1244,6 +1341,12 @@ ssh() {
     esac
   done
   shift $(($OPTIND-1))
+  # no terminal means no way to show the list or read the answer, which is the
+  # same outcome for the caller as the user declining to pick: return 1
+  if ! tty=$(-scr-tty); then
+    echo "$FUNCNAME: no terminal to prompt on" >&2
+    return 1
+  fi
   intro_label="$1"
   pick_list="$2"
   use_idx="$3"
@@ -1257,7 +1360,10 @@ ssh() {
       printf "%s. %s\n" $(($i+1)) "$l"
     done
   )
-  l=$(tput lines)
+  # tput reads the size from stdout, which is the caller's $(...) pipe here, so
+  # it can come back empty -- and an empty $l makes the test below an error
+  l=$(tput lines 2>/dev/null)
+  : ${l:=24}
   if [ $((${#pick_array[@]}-2)) -gt $l ]; then
     less <<< "$pick_list" >$tty
   else
@@ -1577,7 +1683,7 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 # If stdout is the tty, the output highlights the search string in red
 #
 -psg() (
-  local ps_cmd ps_output search_string os=$(uname) i l m matched x n=0 ATTR_RED='\x1b[1;31m' ATTR_CLEAR='\x1b[0m' opts="wkhep" opt OPTIND wb1 wb2 pid kill_signal kill_clause edit_mode=0 tmpfile only_pids=0 yn
+  local ps_cmd ps_output search_string os=$(uname) i l m matched x n=0 ATTR_RED='\x1b[1;31m' ATTR_CLEAR='\x1b[0m' opts="wkhep" opt OPTIND wb1 wb2 pid kill_signal kill_clause edit_mode=0 tmpfile only_pids=0 yn tty
   shopt -s nocasematch
   while builtin getopts $opts opt; do
     case $opt in
@@ -1694,8 +1800,8 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
       fi
     fi
     rm -f $tmpfile
-  elif [ ${#output_array[@]} -gt $term_lines ]; then
-    less <<< "$output" >/dev/tty
+  elif [ ${#output_array[@]} -gt $term_lines ] && tty=$(-scr-tty); then
+    less <<< "$output" >$tty
   else
     echo "$output"
   fi

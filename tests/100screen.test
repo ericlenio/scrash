@@ -64,3 +64,26 @@ rm -f $sty_env
 [ ! -e $sty_env ]
 screen -S $resume_sty -X quit
 rm -rf $screen_stub_dir
+
+# screen opens a new pty per window, so a $SCR_TTY inherited from a -s further up
+# names a terminal the window shells are not on. it must not reach them, or they
+# prompt on the terminal underneath screen instead of their own
+SCR_TTY=/dev/bogus-inherited-tty
+export SCR_TTY
+scr_tty_sty=$(screen --generate-session-id)
+scr_tty_probe=$SCR_TMPDIR/scr-tty-probe
+rm -f $scr_tty_probe
+screen -S $scr_tty_sty -d -m
+printf "screen -S %s -X quit" $scr_tty_sty >> "$TEST_CLEANUP_FILE"
+screen -S $scr_tty_sty -X stuff "printf 'window=[%s]\n' \"\$SCR_TTY\" > $scr_tty_probe
+"
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  [ -s "$scr_tty_probe" ] && break
+  sleep 0.5
+done
+[ -s "$scr_tty_probe" ]
+[ "$(cat $scr_tty_probe)" = "window=[]" ]
+# and the caller keeps what it had -- the blanking is local to screen()
+[ "$SCR_TTY" = /dev/bogus-inherited-tty ]
+screen -S $scr_tty_sty -X quit
+unset SCR_TTY scr_tty_sty scr_tty_probe
