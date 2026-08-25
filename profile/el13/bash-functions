@@ -479,3 +479,51 @@ while ($cert_source=~m{(-----BEGIN CERT.*?-----END CERTIFICATE-----)}sg) {
 -openbsd-fix-clock() {
   sudo sh -c "rcctl stop ntpd; rdate -n pool.ntp.org; rcctl start ntpd"
 }
+
+-ubuntu-tomcat-thread-dump() {
+  local log_dir log_file tomcat_version threads_file=/tmp/threads.log
+  for tomcat_version in {9..15}; do
+    log_dir=/var/log/tomcat$tomcat_version
+    if [ -d $log_dir ]; then
+      log_file=$log_dir/catalina.out
+      break
+    fi
+  done
+  if [ ${#log_file} -eq 0 ]; then
+    echo "could not detect catalina.out" >&2
+    return 1
+  fi
+  if ! sudo bash -c "[ -f $log_file ]"; then
+    echo "no such file: $log_file" >&2
+    return 1
+  fi
+  -s root bash -s -- "$log_file" >$threads_file << 'EOF' && echo "wrote $threads_file"
+    log_file=$1
+    set -e
+    pids=($(pgrep java))
+    case ${#pids[@]} in
+      (0)
+        echo "no java pid found" >&2
+        exit 1
+        ;;
+      (1)
+        pid=${pids[0]}
+        ;;
+      (*)
+        if ! pid=$(-pick-something -d ' ' "Which pid?" "${pids[*]}"); then
+          exit 1
+        fi
+        ;;
+    esac
+    echo "triggering thread dump now on pid=$pid, then scraping from $log_file ..." >&2
+    # Trigger the dump in the background after a slight delay
+    # to guarantee `tail` has time to open the file descriptor.
+    ( sleep 0.5; sudo -u tomcat kill -QUIT $pid ) &
+    # Tail the log and pipe to Perl, exiting cleanly on the end marker.
+    tail -f "$log_file" | perl -ne '
+      $p=1 if /Full thread dump/;
+      print if $p;
+      exit if $p && /class space/;
+    '
+EOF
+}
