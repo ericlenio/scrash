@@ -497,7 +497,7 @@ while ($cert_source=~m{(-----BEGIN CERT.*?-----END CERTIFICATE-----)}sg) {
     echo "no such file: $log_file" >&2
     return 1
   fi
-  -s root bash -s -- "$log_file" >$threads_file << 'EOF' && echo "wrote $threads_file"
+  -s root bash -s -- "$log_file" >$threads_file << 'EOF'
     log_file=$1
     set -e
     pids=($(pgrep java))
@@ -526,4 +526,9 @@ while ($cert_source=~m{(-----BEGIN CERT.*?-----END CERTIFICATE-----)}sg) {
       exit if $p && /class space/;
     '
 EOF
+  # a here-doc followed by "&& cmd" on the same line is not something bash 3.2
+  # can re-serialize: its declare -f puts the "&&" on the line after the EOF,
+  # so the function fails to parse when it is imported from the environment
+  local rc=$?
+  [ $rc -eq 0 ] && echo "wrote $threads_file"
 }
