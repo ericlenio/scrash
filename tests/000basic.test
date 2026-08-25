@@ -17,6 +17,28 @@ CURL_HOME=$(dirname "$curlrc") bash -c -- -ws-hello-world
 bootstr=$(-shell-boot-string -p $SCR_PORT hostname)
 h=$(CURL_HOME=$(dirname "$curlrc") bash -c "$bootstr")
 [ "$h" = $(hostname) ]
+
+# the boot string is parsed by another shell -- root's on the sudo path, the
+# login user's on the far side of an ssh -- so nothing may reach it as syntax.
+# $SCR_SID is the value that used to: -mint-session-key splices it into the auth
+# header verbatim and -boot-credential's regex only checks the t= and n= fields.
+# it now travels base64-encoded, decoded by the shell that runs the string
+boot_probe=$SCR_TMPDIR/boot-inject-probe
+rm -f $boot_probe
+# no spaces in the payload: one with them is truncated by the word splitting in
+# -mint-session-key's "sess=($(...))", which is luck and not a defence
+boot_hostile='x";id>'"$boot_probe"';:"'
+bootstr_hostile=$(SCR_SID="$boot_hostile" -shell-boot-string -p $SCR_PORT hostname)
+# it does not reach the string as text ...
+[[ $bootstr_hostile != *"$boot_probe"* ]]
+# ... and running the string executes nothing of it
+bash -c "$bootstr_hostile" >/dev/null 2>&1 || true
+[ ! -e $boot_probe ]
+# the numbers interpolated alongside it are checked rather than trusted
+! -shell-boot-string -p '1;id' hostname 2>/dev/null
+! -shell-boot-string -p $SCR_PORT -l '0;id' hostname 2>/dev/null
+rm -f $boot_probe
+unset boot_probe boot_hostile bootstr_hostile
 session_id=$(screen --generate-session-id)
 [ ${#session_id} -gt 0 ]
 [[ $session_id =~ ^[-[:alnum:]]+$ ]]

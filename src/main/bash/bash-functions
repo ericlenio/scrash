@@ -963,19 +963,54 @@ vim() {
   #
   # a sudo hop on this machine does not have that constraint and does not come
   # through here: see -boot-script-local, which keeps both out of argv entirely
-  local cred resp_key auth_header
+  # everything below is interpolated into a string another shell parses -- root's
+  # on the sudo path, the login user's on the far side of an ssh -- so nothing
+  # reaches it unconstrained. the numbers are checked; the credential is encoded
+  #
+  # base64 is the fix for the credential because it has no character a shell
+  # treats as syntax. raw, the header carries whatever is in $SCR_SID:
+  # -mint-session-key splices it in verbatim ("${SCR_SID:+$SCR_SID.}$sid") and
+  # -boot-credential's regex only checks the t= and n= fields, so a quote in it
+  # closes the ones around the header and the rest of the value runs as root here
+  # -- verified, not theoretical
+  #
+  # %q would not do: ssh() wraps this whole string in single quotes to hand it to
+  # the remote shell, so a single quote anywhere in here breaks that wrapping, and
+  # %q emits them. base64 never does
+  #
+  # this is the same trick $start already arrives by (-ssh-serialize-cmd) and that
+  # -serialize-args uses for the -pw remote path. it is spelled out with openssl
+  # rather than calling either, because the shell that reads this string has no
+  # scrash functions yet -- openssl is all it has. secrecy is unchanged: the value
+  # is the same argv either way, and the note above says why that is accepted
+  if ! [[ "$remote_port" =~ ^[0-9]+$ ]]; then
+    echo "$FUNCNAME: port is not a number: $remote_port" >&2
+    return 1
+  fi
+  if ! [[ "$ssh_level" =~ ^[0-9]+$ ]]; then
+    echo "$FUNCNAME: ssh level is not a number: $ssh_level" >&2
+    return 1
+  fi
+  # $start is either the literal 1 or base64 from -ssh-serialize-cmd
+  if ! [[ "$start" =~ ^[A-Za-z0-9+/=]+$ ]]; then
+    echo "$FUNCNAME: start is not base64" >&2
+    return 1
+  fi
+  local cred resp_key auth_header auth_b64 key_b64
   cred=$(-boot-credential "$base_path") || return 1
   resp_key=${cred%% *}
   auth_header=${cred#* }
+  auth_b64=$(printf %s "$auth_header" | openssl enc -a -A)
+  key_b64=$(printf %s "$resp_key" | openssl enc -a -A)
 
-  printf 'eval -- "$(r=$(NO_PROXY=%s curl -Sfs --compressed -H \"Authorization: %s\" http://%s:%s/scr-get-bash-functions?platform=$(uname)\&hostname=$(hostname)\&start=%s\&ssh_level=%s); s=$(printf %%s \"$r\" | head -n 1); b=$(printf %%s \"$r\" | tail -n +2); m=$(printf %%s \"$b\" | openssl dgst -sha256 -hmac %s); [ \"${s##*=}\" = \"${m##*= }\" ] && printf %%s \"$b\" || echo false)"' \
+  printf 'eval -- "$(a=$(printf %%s %s | openssl enc -d -a -A); k=$(printf %%s %s | openssl enc -d -a -A); r=$(NO_PROXY=%s curl -Sfs --compressed -H \"Authorization: $a\" http://%s:%s/scr-get-bash-functions?platform=$(uname)\&hostname=$(hostname)\&start=%s\&ssh_level=%s); s=$(printf %%s \"$r\" | head -n 1); b=$(printf %%s \"$r\" | tail -n +2); m=$(printf %%s \"$b\" | openssl dgst -sha256 -hmac \"$k\"); [ \"${s##*=}\" = \"${m##*= }\" ] && printf %%s \"$b\" || echo false)"' \
+    "$auth_b64" \
+    "$key_b64" \
     "$curl_host" \
-    "$auth_header" \
     "$curl_host" \
     "$remote_port" \
     "$start" \
-    "$ssh_level" \
-    "$resp_key"
+    "$ssh_level"
 }
 
 ssh-add() {
