@@ -18,13 +18,14 @@ set -e
 
 usage() {
   echo "usage: $(basename $0) /path/to/star.example.com.key"
+  echo "if the key doesn't exist this script will create it"
   exit 1
 }
 
-keyfile=$1
-if [ ! -f $keyfile ]; then
+if [ "$1" = -h ]; then
   usage
 fi
+keyfile=$1
 keyfileb=$(basename $keyfile)
 csrfile=/tmp/${keyfileb/.key/.csr}
 if [ $keyfile = $csrfile ]; then
@@ -39,8 +40,12 @@ else
   echo "hint: key file name should follow \"star.something.com.key\"" >&2
   usage
 fi
-subj="/C=US/ST=New York/L=East Rochester/O=LincWare/OU=IT Department/CN=*.$domain"
+subj="/C=US/ST=New York/L=Webster/O=LincDoc, LLC/OU=Devops/CN=*.$domain"
 
 echo "Proceeding to generate $csrfile with subject: $subj"
-openssl req -new -key $keyfile -out $csrfile -subj "$subj"
+if [ -f $keyfile ]; then
+  openssl req -new -key $keyfile -out $csrfile -subj "$subj"
+else
+  openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:secp384r1 -nodes -keyout $keyfile -out $csrfile -subj "$subj"
+fi
 echo SUCCESS
