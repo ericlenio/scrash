@@ -115,3 +115,117 @@ grep -q "^SCR_SEED=" $seed_file
 # and nothing in $SCR_TMPDIR may be writable by group or others: we execute
 # ($EDITOR, bin/*) and source (screenrc, scr-sty-env-*) out of it
 [ -z "$(find $TEST_REMOTE_TMPDIR -perm -0002 -o -perm -0020)" ]
+
+# the case all of this exists for: ssh to a server, run gnu screen there, sudo to
+# another user and open vim -- then the ssh connection drops out from under it.
+# ssh in again, reattach, and that vim's copy and paste still have to work.
+#
+# the sudo'd vim is the interesting part. it cannot read the mode 600
+# scr-sty-seed-* file, so it keeps the key it booted with for good; what it can
+# read is the world readable scr-sty-env-* file, which is where the reattach
+# publishes the new connection's $SCR_PORT. the key has to outlive the ssh
+# connection it was minted under, and the port has to be the new one.
+#
+# what this cannot do is attach an interactive screen client: the test sshd
+# refuses ptys, and "screen -r" will not run without one. a reattach is
+# "screen -u ... -X", which runs the same -screen-env -u that the -r path does
+drop_sid=$(-screen-session -r)
+tv=$TEST_REMOTE_TMPDIR/drop-vim
+ta=$TEST_REMOTE_TMPDIR/drop-ssh-a
+tb=$TEST_REMOTE_TMPDIR/drop-ssh-b
+fv=$TEST_REMOTE_TMPDIR/drop-vim-fifo
+fa=$TEST_REMOTE_TMPDIR/drop-ssh-a-fifo
+fb=$TEST_REMOTE_TMPDIR/drop-ssh-b-fifo
+mkfifo -m 0666 $fv $fa $fb
+r1=$(-random-string)
+r2=$(-random-string)
+r3=$(-random-string)
+
+# the port the session's windows would use right now
+-drop-scr-port() {
+  local p=$(-screen-pipe -S $drop_sid bash -c -- '-screen-env -p')
+  [[ "$p" =~ ^[0-9]+$ ]]
+  echo $p
+}
+
+# what a dropped connection leaves on the client side: nothing. take the whole
+# process tree, ssh and its ProxyCommand together, without letting any of it
+# say goodbye
+-drop-kill-tree() {
+  local p
+  for p in $(pgrep -P $1 || true); do
+    -drop-kill-tree $p
+  done
+  kill -KILL $1 2>/dev/null || true
+}
+
+# true while something is listening on 127.0.0.1:<port>
+-drop-port-open() {
+  (exec 3<>/dev/tcp/127.0.0.1/$1) 2>/dev/null
+}
+
+# the vim session, all of it typed up front. on the first connection: type r1 and
+# copy it, report, then wait. on the second: paste into an empty line and report
+# what landed, then type r3 and copy that, report, quit
+printf "i$r1\0330ve\003:call writefile(['copied'],'$fv')\015:call readfile('$fv')\015o\033:call ScrPasteClipboard()\015:call writefile([getline('.')],'$fv')\015o$r3\0330ve\003:call writefile(['copied'],'$fv')\015:q!\015" > $tv
+
+# the first connection: open the sudo'd vim in a new window, then stay connected
+# the way an interactive login does. the fifo is only there so that the remote
+# end has something to wait on
+cat <<EOF >$ta
+screen -u -S $drop_sid -X screen bash -c -- "-s $passwd_user vim -s $tv"
+cat $fa
+EOF
+-ssh-scr-server bash $ta >/dev/null 2>&1 &
+ssh_a=$!
+printf "\nkill -KILL %s 2>/dev/null\n[ -p %s ] && true <>%s\n" $ssh_a $fa $fa >> "$TEST_CLEANUP_FILE"
+[ "$(cat $fv)" = copied ]
+[ $r1 = $(-get-clipboard) ]
+port_a=$(-drop-scr-port)
+-drop-port-open $port_a
+
+# drop it. the forward is gone once its port stops answering, and that is the
+# proof the connection is too -- not just that our end of it went away
+-drop-kill-tree $ssh_a
+wait $ssh_a 2>/dev/null || true
+for ((i=0;i<20;i++)); do
+  -drop-port-open $port_a || break
+  sleep 0.5
+done
+! -drop-port-open $port_a || false
+# the remote half of a dropped login lingers until its read fails; end it
+true <>$fa
+
+# the second connection: reattach, and stay connected while vim carries on
+cat <<EOF >$tb
+screen -u -S $drop_sid -X echo reattached
+cat $fb
+EOF
+{ -ssh-scr-server bash $tb >/dev/null 2>&1 || true; } &
+ssh_b=$!
+printf "\n[ -p %s ] && true <>%s\n" $fb $fb >> "$TEST_CLEANUP_FILE"
+for ((i=0;i<40;i++)); do
+  port_b=$(-drop-scr-port)
+  [ $port_b != $port_a ] && break
+  sleep 0.5
+done
+[ $port_b != $port_a ]
+-drop-port-open $port_b
+
+# carry on: paste has to bring back what the clipboard holds now, and copy has
+# to reach it, both from a shell holding a key minted under a connection that
+# no longer exists
+echo $r2 | -set-clipboard
+echo > $fv
+pasted=$(cat $fv)
+echo pasted=$pasted
+[ "$pasted" = $r2 ]
+[ "$(cat $fv)" = copied ]
+[ $r3 = $(-get-clipboard) ]
+
+# hang up properly this time
+true <>$fb
+wait $ssh_b
+rm -f $tv $ta $tb $fv $fa $fb
+unset -f -- -drop-scr-port -drop-kill-tree -drop-port-open
+unset pasted drop_sid tv ta tb fv fa fb r1 r2 r3 ssh_a ssh_b port_a port_b i

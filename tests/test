@@ -144,7 +144,7 @@ same as above, but also include test case file(s) matching on \"vim\":
     esac
   done
   "${cmd[@]}"
-  printf "screen -S %s -X quit" $session_id >> "$TEST_CLEANUP_FILE"
+  printf "\nscreen -S %s -X quit\n" $session_id >> "$TEST_CLEANUP_FILE"
   echo $session_id
 }
 
