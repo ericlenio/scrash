@@ -141,3 +141,37 @@ printf "/^root\015vey:call ScrSetClipboard(@\")\015:q\015" > $t1
 vim -s $t1 /etc/passwd
 #'rm $t1
 [ root = $(-get-clipboard) ]
+
+# the $EDITOR wrapper carries on-disk copies of the handful of functions it needs
+# to bootstrap itself, and it used to define them ahead of the "did we lose them"
+# test -- so a wrapper left over from an older scrash silently overrode the live
+# definitions for every vim it launched, all of them, with no version change to
+# hint at it. that is how a stale -screen-env kept a sudo'd vim from picking up a
+# re-keyed SCR_SEED after a scrash restart: the fix was live in the shell and
+# absent from the vim
+[ -x "$EDITOR" ]
+# nothing may be defined before the guard: line 2 opens it
+[ "$(sed -n 2p "$EDITOR")" = 'if ! declare -f -- -vim-config >/dev/null; then' ]
+
+# proof rather than inspection: with the environment intact, a live definition has
+# to be what vim inherits. the wrapper ends in "exec vim", so the probe goes on
+# PATH under that name and reports what reached it
+mkdir -p $SCR_TMPDIR/probebin
+printf '#!/usr/bin/env bash\ndeclare -f -- -check-owner | grep -o PROBE-LIVE\n' > $SCR_TMPDIR/probebin/vim
+chmod 755 $SCR_TMPDIR/probebin/vim
+ans=$(
+  eval -- '-check-owner () { echo PROBE-LIVE; }'
+  export -f -- -check-owner
+  PATH=$SCR_TMPDIR/probebin:$PATH "$EDITOR" </dev/null
+)
+[ "$ans" = PROBE-LIVE ]
+rm -rf $SCR_TMPDIR/probebin
+
+# and the wrapper is brought up to date rather than left as whatever the first
+# shell wrote: the $SCR_TMPDIR sweep only fires on a $SCR_VERSION change, so
+# between releases an edit to any of these functions never reached a vim
+printf '#!/usr/bin/env bash\n# tampered\nexec vim "$@"' > "$EDITOR"
+-make-editor
+! grep -q '# tampered' "$EDITOR" || false
+grep -q 'export -f -- -get-bash-functions' "$EDITOR"
+unset ans
