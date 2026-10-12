@@ -67,3 +67,25 @@ bash -c "STY='$hostile' bash $inject_show" >/dev/null 2>&1 || true
 [ -e $inject_probe ]
 rm -f $inject_probe $inject_show
 unset inject_probe inject_show hostile inject_prefix
+
+# .version is ours to write, not a sudo'd shell's. as root, -shell-init left a
+# root-owned one that no later shell of ours could rewrite; as a non-root target
+# it could not even create it, and said so on the user's terminal on every boot
+# ("/tmp/scr-.../.version: Permission denied"). the check it drives only feeds
+# -clear-cache, which refuses under sudo anyway, so -shell-init skips the whole
+# thing there now
+version_file=$SCR_TMPDIR/.version
+rm -f $version_file
+# stderr, not stdout: the complaint went to the terminal, and a "true" that
+# returns 0 is exactly how it went unnoticed
+err=$(-s nobody true 2>&1 >/dev/null)
+[[ "$err" != *.version* ]]
+[ ! -e $version_file ]
+-s root true
+[ ! -e $version_file ]
+# and when we write it ourselves it belongs to us, so the next version change can
+# still replace it. put it back by hand rather than leaving the next boot to force
+# a cache clear in the middle of the suite
+echo $SCR_VERSION > $version_file
+-check-owner $version_file
+unset version_file err

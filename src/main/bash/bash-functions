@@ -812,7 +812,14 @@ vim() {
       echo "WARNING: scrash is running without $SCR_TMPDIR: no \$EDITOR wrapper (so no clipboard integration under sudoedit), no screenrc, no git over ssh" >&2
     fi
     version_file="$SCR_TMPDIR/.version"
-    if [ $tmpdir_ok = 1 -a "$start" ]; then
+    # the whole version dance is skipped under sudo, because writing it is not a
+    # sudo'd shell's business -- the same reason the $EDITOR wrapper is written
+    # before we ever hand $EDITOR to one (see below). as root it left a root-owned
+    # .version that no later shell could rewrite; as a non-root target it could
+    # not even try, and every "-s nobody" boot said so ("Permission denied") on
+    # the user's terminal. nothing is lost by skipping: the only thing the check
+    # drives is -clear-cache, which refuses under sudo of its own accord
+    if [ $tmpdir_ok = 1 -a "$start" -a -z "$SUDO_USER" ]; then
       if [ ! -f "$version_file" ]; then
         -tty-echo "force clear cache now, no version file exists ($version_file)"
         clear_cache=1
@@ -828,7 +835,7 @@ vim() {
     if [ $tmpdir_ok = 1 -a $clear_cache = 1 ]; then
       -clear-cache
     fi
-    if [ $tmpdir_ok = 1 -a ! -f "$version_file" ]; then
+    if [ $tmpdir_ok = 1 -a ! -f "$version_file" -a -z "$SUDO_USER" ]; then
       echo $SCR_VERSION > "$version_file"
     fi
     if [ "$GIT_SSH" -a ! -f "$GIT_SSH" ]; then
