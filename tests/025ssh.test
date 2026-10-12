@@ -9,10 +9,11 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
   [ "$hostname" = $(hostname) ]
 
   # add in some tests around the version file
-  version_file=$SCR_TMPDIR/.version
+  # the far end's: that is what a ssh session boots into (see TEST_REMOTE_TMPDIR)
+  version_file=$TEST_REMOTE_TMPDIR/.version
   [ -f $version_file ]
   rm $version_file
-  # this next ssh session should use the same $SCR_TMPDIR, and re-create the
+  # this next ssh session should use that same $SCR_TMPDIR, and re-create the
   # version file
   ssh-keyscan -p $SCR_SSH_PORT $SCR_SSH_HOST >$SCR_SSH_USER_KNOWN_HOSTS 2>/dev/null
   hostname=$(ssh -p $SCR_SSH_PORT -oUserKnownHostsFile=$SCR_SSH_USER_KNOWN_HOSTS $SCR_SSH_HOST hostname)

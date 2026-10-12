@@ -44,6 +44,16 @@ same as above, but also include test case file(s) matching on \"vim\":
   #eval -- "$(curl -S -f -s --compressed $url)"
   -shell-init -C
   rm -f "$SCR_TMPDIR/.version"
+  # the far end of a localhost ssh is at SCR_SSH_LEVEL 1, so its $SCR_TMPDIR is in
+  # /tmp while ours is under the home directory (see -scr-tmpdir). tests that
+  # check what the far end wrote look there, and so do files handed to a sudo'd
+  # user, who cannot get into our home. it starts clean, with a .version already
+  # in it so that the first remote login does not clear out files a test has put
+  # there ahead of it
+  TEST_REMOTE_TMPDIR=$(SCR_SSH_LEVEL=1 -scr-tmpdir)
+  rm -rf "$TEST_REMOTE_TMPDIR"
+  mkdir -m 755 -p "$TEST_REMOTE_TMPDIR/bin"
+  echo $SCR_VERSION > "$TEST_REMOTE_TMPDIR/.version"
   # TEST_ERROR_FILE is a semaphore to stop -on-error from running more than
   # once; necessary due to "set -E"
   TEST_ERROR_FILE="$SCR_TMPDIR/err"

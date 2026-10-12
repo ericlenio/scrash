@@ -42,7 +42,9 @@
     -tty-echo "$FUNCNAME: skip because we detected sudo is in effect" >&2
     return
   fi
-  if [[ "$SCR_TMPDIR" =~ ^/tmp/ ]]; then
+  # only ever a directory -scr-tmpdir could have named, so that a stray or empty
+  # $SCR_TMPDIR cannot aim this at something else
+  if [[ "$SCR_TMPDIR" =~ ^/tmp/ || "$SCR_TMPDIR" = "$HOME/.cache/scrash/"?* ]]; then
     # keep the bin subdir, empty out everything else. walked with the shell rather
     # than find(1): OpenBSD documents -mindepth as a primary ("true if the current
     # search depth is at least n") where gnu and macos make it a global option, so
@@ -120,6 +122,40 @@
   done
 }
 
+# where $SCR_TMPDIR goes. on the machine running scrash (SCR_SSH_LEVEL 0) that is
+# under the home directory of the user who started it rather than in /tmp: the
+# macos tmp_cleaner deletes anything in /tmp that has gone three days without
+# being read, written or changed, which took $GIT_SSH (written once, at login)
+# out from under long lived sessions. nothing ages out a home directory. the far
+# end of a ssh stays in /tmp, where a readonly or shared home is the bigger risk.
+#
+# the port stays in the name so that a second scrash ("scrash -p 3333") gets a
+# directory of its own; two of them cannot be on the same port.
+#
+# XDG_CACHE_HOME is not honoured on purpose: a sudo'd shell has to arrive at the
+# same path, and sudo does not carry the invoking user's environment across
+-scr-tmpdir() {
+  local user=${SUDO_USER:-$USER} home=$HOME
+  if [ "${SCR_SSH_LEVEL:-0}" != 0 ]; then
+    printf %s "/tmp/scr-$user-$SCR_ENV-$SCR_PORT_0"
+    return
+  fi
+  if [ "$SUDO_USER" ]; then
+    # sudo -H has pointed $HOME at the target user's home, so look up the invoking
+    # user's. the name is checked before it reaches eval
+    if ! [[ "$SUDO_USER" =~ ^[A-Za-z0-9._][A-Za-z0-9._-]*$ ]]; then
+      echo "$FUNCNAME: unexpected SUDO_USER: $SUDO_USER" >&2
+      return 1
+    fi
+    eval "home=~$SUDO_USER"
+  fi
+  if [ "${home:0:1}" != / ]; then
+    echo "$FUNCNAME: no home directory for $user" >&2
+    return 1
+  fi
+  printf %s "$home/.cache/scrash/scr-$user-$SCR_ENV-$SCR_PORT_0"
+}
+
 -random-string() {
   local length=${1:-16} r="" c
   while [ ${#r} -lt $length ]; do
@@ -185,6 +221,15 @@
   if [ -z "$STY" ]; then
     echo "$FUNCNAME: no value for STY" >&2
     return 1
+  fi
+  # a sudo'd shell running as a user who cannot get into the invoking user's
+  # $SCR_TMPDIR has nothing to refresh from, and needs nothing: that only happens
+  # on the scrash machine, where it sits under their home (see -scr-tmpdir), and
+  # there SCR_PORT never changes -- a reconnect is something that happens to a
+  # remote host
+  if [ "$SUDO_USER" ] && [ ! -d "$SCR_TMPDIR" ]; then
+    [ $echo_port = 1 ] && echo $SCR_PORT
+    return 0
   fi
   local session_id=${STY##*.}
   local SCR_STY_ENV=$SCR_TMPDIR/$file_prefix$session_id
@@ -699,7 +744,7 @@ vim() {
 }
 
 -shell-init() {
-  local opts="CDvs:" opt OPTIND log_tty verbose=0 f i fcns num_fcns test_mode=0 test_groups start clear_cache=0 declare_mode=0 show_test_groups version_file old_version tmpdir_ok mkdir_err
+  local opts="CDvs:" opt OPTIND log_tty verbose=0 f i fcns num_fcns test_mode=0 test_groups start clear_cache=0 declare_mode=0 show_test_groups version_file old_version tmpdir_ok tmpdir_quiet=0 mkdir_err
   while builtin getopts $opts opt; do
     case $opt in
       (v) verbose=1
@@ -724,12 +769,13 @@ vim() {
     # SCR_ENV is like node's NODE_ENV, we can use it to create a separate name
     # space for run time files and such
     export SCR_ENV=${SCR_ENV:-dev}
-    export SCR_TMPDIR=/tmp/scr-${SUDO_USER:-$USER}-$SCR_ENV-$SCR_PORT_0
+    : ${SCR_SSH_LEVEL:=0}
+    export SCR_SSH_LEVEL
+    SCR_TMPDIR=$(-scr-tmpdir) || SCR_TMPDIR=
+    export SCR_TMPDIR
     export EDITOR=$SCR_TMPDIR/bin/editor
     export SCR_SCREENRC=$SCR_TMPDIR/screenrc
     export SCR_SSH_USER_KNOWN_HOSTS=$SCR_TMPDIR/ssh-$SCR_SSH_USER-$SCR_SSH_HOST-known-hosts
-    : ${SCR_SSH_LEVEL:=0}
-    export SCR_SSH_LEVEL
     # the caller's terminal, handed across by -s. exported rather than left as
     # the plain assignment the sudo command line makes it, because this function
     # ends by exec'ing the shell (or the command) the boot was for, and a shell
@@ -769,7 +815,16 @@ vim() {
     # skipped, and the variables naming those files are cleared rather than left
     # pointing at a directory we could not create or could not trust
     tmpdir_ok=1
-    if [ -e "$SCR_TMPDIR" ]; then
+    # under sudo the directory is the invoking user's, and -s has already made sure
+    # it exists (it runs -make-editor first, as that user), so it is never ours to
+    # create. not seeing it means we are a user who cannot get into it -- on the
+    # scrash machine it sits in the invoking user's home -- which is expected
+    # rather than worth a warning: such a shell gets its vim configuration on a
+    # file descriptor and has no port to refresh (see -screen-env)
+    if [ "$SUDO_USER" ] && [ ! -d "$SCR_TMPDIR" ]; then
+      tmpdir_ok=0
+      tmpdir_quiet=1
+    elif [ -e "$SCR_TMPDIR" ]; then
       # Must be a directory, not a symlink
       if [ -L "$SCR_TMPDIR" ] || [ ! -d "$SCR_TMPDIR" ]; then
         echo "WARNING: $SCR_TMPDIR is not a valid directory, removing..." >&2
@@ -809,7 +864,8 @@ vim() {
       # still gets its whole configuration -- that arrives on a file descriptor and
       # never needed a file. most everything else here is compromised
       unset EDITOR SCR_SCREENRC GIT_SSH SCR_SSH_PROXY_JUMP
-      echo "WARNING: scrash is running without $SCR_TMPDIR: no \$EDITOR wrapper (so no clipboard integration under sudoedit), no screenrc, no git over ssh" >&2
+      [ $tmpdir_quiet = 1 ] ||
+        echo "WARNING: scrash is running without $SCR_TMPDIR: no \$EDITOR wrapper (so no clipboard integration under sudoedit), no screenrc, no git over ssh" >&2
     fi
     version_file="$SCR_TMPDIR/.version"
     # the whole version dance is skipped under sudo, because writing it is not a

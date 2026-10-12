@@ -1,7 +1,8 @@
 # vim:filetype=bash
 -clear-cache
 [ "$SCR_SSH_USER" ]
-t1=$SCR_TMPDIR/t1
+# somewhere "-s nobody" below can read it, which our home directory is not
+t1=$TEST_REMOTE_TMPDIR/t1
 len=1000
 download_dir=/tmp
 -random-string $len > $t1
@@ -15,7 +16,7 @@ rm $download_dir/t1
 [ -s $download_dir/t1 ]
 [ $(-md5 $t1) = $(-md5 $download_dir/t1) ]
 # test file with space in the name
-t2="$SCR_TMPDIR/t2 file"
+t2="$TEST_REMOTE_TMPDIR/t2 file"
 -random-string $len > "$t2"
 [ -s "$t2" ]
 -download "$t2"

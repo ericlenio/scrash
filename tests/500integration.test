@@ -14,11 +14,11 @@ session_id=$(-screen-session -r)
 }
 
 SCR_PORT0=$(-get-scr-port)
-t1=$SCR_TMPDIR/t1
-t2=$SCR_TMPDIR/t2
-t3=$SCR_TMPDIR/t3
-f2=$SCR_TMPDIR/f2
-logfile=$SCR_TMPDIR/logfile
+t1=$TEST_REMOTE_TMPDIR/t1
+t2=$TEST_REMOTE_TMPDIR/t2
+t3=$TEST_REMOTE_TMPDIR/t3
+f2=$TEST_REMOTE_TMPDIR/f2
+logfile=$TEST_REMOTE_TMPDIR/logfile
 mkfifo -m 0666 $f2
 passwd_user=nobody
 r=$(-random-string)
@@ -85,11 +85,13 @@ ans=$(-ssh-scr-server -screen-pipe -u -S $session_id -- -ssh-scr-server uname)
 # session was started under, so -download only works if the scp path refreshes
 # them out of $SCR_TMPDIR. it did not, and the proxy perl then connected to a
 # forward that was gone: "Cannot create socket ... connect: Connection refused"
-t4=$SCR_TMPDIR/t4
+t4=$TEST_REMOTE_TMPDIR/t4
 download_dir=/tmp
 -random-string 100 > $t4
 rm -f $download_dir/t4
--screen-pipe -u -S $session_id -- -download $t4
+# this reattach is made from here rather than over ssh, so it has to publish
+# into the far end's $SCR_TMPDIR, which is where the session's windows look
+SCR_TMPDIR=$TEST_REMOTE_TMPDIR -screen-pipe -u -S $session_id -- -download $t4
 [ $(-md5 $t4) = $(-md5 $download_dir/t4) ]
 rm -f $t4 $download_dir/t4
 
@@ -105,11 +107,11 @@ rm $t1 $t2 $t3 $f2
 # SCR_SEED is the key every request is signed with, so -screen-env keeps it in its
 # own mode 600 file rather than in the world readable scr-sty-env-* file that a
 # sudo'd process has to be able to read
-seed_file=$SCR_TMPDIR/scr-sty-seed-$session_id
+seed_file=$TEST_REMOTE_TMPDIR/scr-sty-seed-$session_id
 [ -f $seed_file ]
 grep -q "^SCR_SEED=" $seed_file
 [ $(ls -l $seed_file | cut -c1-10) = -rw------- ]
-! grep -rq SCR_SEED $SCR_TMPDIR/scr-sty-env-* || false
+! grep -rq SCR_SEED $TEST_REMOTE_TMPDIR/scr-sty-env-* || false
 # and nothing in $SCR_TMPDIR may be writable by group or others: we execute
 # ($EDITOR, bin/*) and source (screenrc, scr-sty-env-*) out of it
-[ -z "$(find $SCR_TMPDIR -perm -0002 -o -perm -0020)" ]
+[ -z "$(find $TEST_REMOTE_TMPDIR -perm -0002 -o -perm -0020)" ]
