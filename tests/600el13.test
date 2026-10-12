@@ -112,7 +112,7 @@ if [ "$SCR_SSH_AUTH_SOCK" ]; then
   fi
 
 
-  if [ "$RA_USER_PASSWORD_64" ] && online remoteadmin.private:3333; then
+  if [ -s "$SCR_PASSWORD_FILE" ] && online remoteadmin.private:3333; then
     ra_host=ltc.admitplus.work
     echo "testing remoteadmin simple command to $ra_host ..."
     h=$(-ra $ra_host hostname)

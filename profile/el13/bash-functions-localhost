@@ -189,14 +189,17 @@
     [ "$yesno" -a "$yesno" != y ] && return
   fi
 
-  #local pwkey="LincWare LDAP:$RA_USER"
-  #local pw=$(pw "$pwkey")
-  if [ -z "$RA_USER_PASSWORD_64" ]; then
-    echo "$FUNCNAME: no value for RA_USER_PASSWORD_64" >&2
+  # looked up when it is needed rather than held in an exported variable, where
+  # every process started from the shell inherited it
+  local pw
+  if ! pw=$(-pw "LincWare LDAP") || [ -z "$pw" ]; then
+    echo "$FUNCNAME: could not acquire password" >&2
     return 1
   fi
-  if ! pw=$(echo "$RA_USER_PASSWORD_64" | openssl enc -d -a -A); then
-    echo "$FUNCNAME: could not acquire password" >&2
+  # -pw prints one line per matching entry, and two passwords run together are
+  # not one we should send
+  if [[ "$pw" == *$'\n'* ]]; then
+    echo "$FUNCNAME: more than one password entry matches \"LincWare LDAP\"" >&2
     return 1
   fi
   local raw agents auth=$(printf "%s:%s" "$RA_USER" "$pw" | openssl enc -a -A)
