@@ -89,3 +89,8 @@ err=$(-s nobody true 2>&1 >/dev/null)
 echo $SCR_VERSION > $version_file
 -check-owner $version_file
 unset version_file err
+
+# the sudo boot url carries the command as base64 too (see 025ssh.test for why
+# "~~~")
+[[ $(-ssh-serialize-cmd echo '~~~') = *+* ]]
+[ "$(-s root echo '~~~')" = '~~~' ]

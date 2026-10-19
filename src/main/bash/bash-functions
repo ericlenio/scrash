@@ -966,8 +966,9 @@ vim() {
   resp_key=${cred%% *}
   auth_header=${cred#* }
   local url resp sig body
+  # %2B: see -shell-boot-string
   printf -v url "http://127.0.0.1:%s%s?platform=%s&hostname=%s&start=%s&ssh_level=%s" \
-    "$SCR_PORT" "$base_path" "$(uname)" "$(hostname)" "$start" "$SCR_SSH_LEVEL"
+    "$SCR_PORT" "$base_path" "$(uname)" "$(hostname)" "${start//+/%2B}" "$SCR_SSH_LEVEL"
   if ! resp=$(NO_PROXY=127.0.0.1 curl -Sfs --compressed \
     -K <(printf 'header = "Authorization: %s"\n' "$auth_header") "$url"); then
     echo "$FUNCNAME: could not fetch the boot script" >&2
@@ -1197,6 +1198,11 @@ vim() {
     echo "$FUNCNAME: start is not base64" >&2
     return 1
   fi
+  # it goes into the boot url as a query value, where a "+" decodes as a space:
+  # the server then handed the far end a corrupt command, which either failed
+  # with an eval syntax error or quietly ran something else. base64 has no
+  # other character that needs escaping in a query value. -boot-script-local
+  # and the args64= callers (-pw) do the same
   local cred resp_key auth_header auth_b64 key_b64
   cred=$(-boot-credential "$base_path") || return 1
   resp_key=${cred%% *}
@@ -1210,7 +1216,7 @@ vim() {
     "$curl_host" \
     "$curl_host" \
     "$remote_port" \
-    "$start" \
+    "${start//+/%2B}" \
     "$ssh_level"
 }
 
@@ -1756,7 +1762,9 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
   if [ $SCR_SSH_LEVEL = 0 ]; then
     -pw-localhost "$@"
   else
-    if -ws /scr-get-password?args64=$(-serialize-args "$@"); then
+    local args64=$(-serialize-args "$@")
+    # %2B: see -shell-boot-string
+    if -ws "/scr-get-password?args64=${args64//+/%2B}"; then
       :
     else
       echo "$FUNCNAME: failed" >&2

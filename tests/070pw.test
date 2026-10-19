@@ -57,8 +57,16 @@ pwkey=$(-pw -i 0 "$pwkey1")
 
 [ "$backslash_pw" = "$(-pw backslashes)" ]
 
+# a remote request carries its args as base64 in the url, where a "+" used to
+# decode as a space. "~~~" encodes with a "+" wherever it lands in the string;
+# check that for the args -ssh-pw really sends, or this proves nothing
+plus_pw=$(random_string)
+add_pw "~~~" "plus-user" "$plus_pw"
+[[ $(-serialize-args -pw -p $SCR_PASSWORD_FILE "~~~") = *+* ]]
+
 pw=$(-ssh-pw -i -1 "$pwkey")
 [ "$pw" = "$pw1" ]
+[ "$(-ssh-pw "~~~")" = "$plus_pw" ]
 pw=$(-ssh-pw -i 2 "$pwkey")
 [ "$pw" = "$pw1" ]
 user=$(-ssh-pw -i 1 "$pwkey")
