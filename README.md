@@ -167,8 +167,10 @@ short-lived STS session credentials for that profile with
 environment for that one command. They are kept, unexported, in the remote shell
 until a minute before they expire, so one approval covers a burst of commands.
 
-Nothing is handed out unless you list the profiles a remote may ask for in
-`$HOME/.config/scrash/config`:
+This only happens for the profiles you list in `$HOME/.config/scrash/config`;
+any other `aws` command on a remote host runs the real aws cli untouched, so a
+host with an EC2 instance role or its own `~/.aws` works as it always did. With
+nothing listed (the default) the wrapper stays out of the way entirely:
 
     SCR_AWS_REMOTE_PROFILES="default commcare"
     # optional: credential lifetime in seconds, 900 (the default) to 43200
@@ -181,11 +183,15 @@ What this does and does not protect against:
   cannot call IAM (STS session credentials cannot, without MFA)
 * root on the remote can still read them out of the running aws process while
   they last
+* every remote shell learns the *names* of the listed profiles (it needs them
+  to know which commands to handle); whether a request is granted is still
+  decided on your machine
 
-The profile's region comes along unless you set one yourself, and the remote's
-own `~/.aws` is ignored. Credentials already in the remote environment
+For a listed profile, its region comes along unless you set one yourself, and
+the remote's own `~/.aws` is ignored. Credentials already in the remote environment
 (`AWS_ACCESS_KEY_ID`) are left alone, and `command aws` bypasses the wrapper
-entirely, e.g. to use an EC2 instance role. Profiles that are themselves SSO or
+even for a listed profile, e.g. to use an EC2 instance role when one of your
+listed profiles is `default`. Profiles that are themselves SSO or
 assume-role profiles are not supported yet: GetSessionToken needs IAM user keys.
 
 # Testing

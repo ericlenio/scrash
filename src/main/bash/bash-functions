@@ -1799,14 +1799,17 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 # there can still read it while it lives; nothing short of running aws on the
 # scrash machine instead avoids that.
 #
-# credentials already in the environment (AWS_ACCESS_KEY_ID) are left alone, and
-# "command aws" skips all of this, e.g. for an EC2 instance role
+# only the profiles listed in $SCR_AWS_REMOTE_PROFILES (set by the server at
+# boot) are handled this way. any other aws command runs the real aws cli
+# untouched, so a host with an EC2 instance role or its own ~/.aws works as it
+# always did. credentials already in the environment (AWS_ACCESS_KEY_ID) are
+# left alone too, and "command aws" skips all of this
 aws() {
-  if [ "${SCR_SSH_LEVEL:-0}" = 0 -o "$AWS_ACCESS_KEY_ID" ]; then
+  if [ "${SCR_SSH_LEVEL:-0}" = 0 -o "$AWS_ACCESS_KEY_ID" -o -z "$SCR_AWS_REMOTE_PROFILES" ]; then
     command aws "$@"
     return $?
   fi
-  local profile=${AWS_PROFILE:-${AWS_DEFAULT_PROFILE:-default}} args=() need_creds=1
+  local profile=${AWS_PROFILE:-${AWS_DEFAULT_PROFILE:-default}} args=() need_creds=1 orig=("$@") p ours=0
   while [ $# -gt 0 ]; do
     case $1 in
       (--profile)
@@ -1831,6 +1834,13 @@ aws() {
     esac
     shift
   done
+  for p in $SCR_AWS_REMOTE_PROFILES; do
+    [ "$p" = "$profile" ] && ours=1
+  done
+  if [ $ours = 0 ]; then
+    command aws "${orig[@]}"
+    return $?
+  fi
   if [ $need_creds = 1 ]; then
     # one approval covers a burst of commands: reuse what we have for this
     # profile until a minute before it expires. $SECONDS rather than the clock,

@@ -24,6 +24,10 @@ const SCR_SSH_USER=process.env.SCR_SSH_USER;
 const SCR_SSH_HOST=process.env.SCR_SSH_HOST;
 const SCR_SSH_PORT=process.env.SCR_SSH_PORT;
 const SCR_SSH_AUTH_SOCK=process.env.SCR_SSH_AUTH_SOCK;
+// the aws profiles a remote shell may ask for credentials for. it goes into a
+// script the far end evals, so only plain profile names get through
+const SCR_AWS_REMOTE_PROFILES=(process.env.SCR_AWS_REMOTE_PROFILES || '')
+  .split(/\s+/).filter(p=>/^[A-Za-z0-9_.-]+$/.test(p)).join(' ');
 
 // failed-auth rate limiter: once more than AUTH_FAIL_MAX auth failures occur
 // within AUTH_FAIL_WINDOW_MS, further FAILING requests are rejected cheaply
@@ -483,6 +487,10 @@ class Server extends http.Server {
         write(`SCR_SSH_HOST=${SCR_SSH_HOST} `);
         write(`SCR_SSH_PORT=${SCR_SSH_PORT} `);
         write(`SCR_SSH_LEVEL=${sshLevel ? sshLevel : 0} `);
+        // so the aws() wrapper knows which profiles are ours to handle and can
+        // leave every other aws command alone. names only; whether a request is
+        // allowed is still decided here, by -aws-localhost
+        write(`SCR_AWS_REMOTE_PROFILES="${SCR_AWS_REMOTE_PROFILES}" `);
         write(`\n`);
         write(`-shell-init -s ${start}\n`);
       }

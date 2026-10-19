@@ -85,12 +85,30 @@ out=$(-ssh-aws 'AWS_ACCESS_KEY_ID=AKIAREMOTE aws --profile scrash-test s3 ls')
 [[ $out = *"key=AKIAREMOTE"* ]]
 [ ! -e $sts_calls ]
 
-# a profile that is not in SCR_AWS_REMOTE_PROFILES gets nothing, and neither
-# does a name that is not a plain profile name. the aws cli is never run
-! out=$(-ssh-aws 'aws --profile not-allowed s3 ls' 2>/dev/null) || false
-[[ $out != *"args="* ]]
-! out=$(-ssh-aws 'aws --profile "scrash-test;x" s3 ls' 2>/dev/null) || false
-[[ $out != *"args="* ]]
+# a profile that is not in SCR_AWS_REMOTE_PROFILES is not ours: the real aws cli
+# runs exactly as it was asked to, with whatever credentials the host has of its
+# own (an EC2 instance role, its own ~/.aws), and the server is never asked
+out=$(-ssh-aws 'aws --profile not-ours s3 ls')
+[[ $out = *"args=--profile not-ours s3 ls"* ]]
+[[ $out = *"key="$'\n'* ]]
+[[ $out = *"config="$'\n'* ]]
+out=$(-ssh-aws 'AWS_PROFILE=not-ours aws s3 ls')
+[[ $out = *"args=s3 ls"* ]]
+[[ $out = *"profile=not-ours"* ]]
+[ ! -e $sts_calls ]
+
+# and with no profiles listed at all -- the default -- the wrapper is out of the
+# way entirely, even for a profile the server would hand out
+out=$(-ssh-aws 'SCR_AWS_REMOTE_PROFILES= aws --profile scrash-test s3 ls')
+[[ $out = *"args=--profile scrash-test s3 ls"* ]]
+[[ $out = *"key="$'\n'* ]]
+[ ! -e $sts_calls ]
+
+# the list the remote holds only routes; the server decides. asked directly, it
+# refuses a profile that is not on its list, and a name that is not a plain
+# profile name
+! -ssh-aws '-aws-credentials not-ours' 2>/dev/null || false
+! -ssh-aws '-aws-credentials "scrash-test;x"' 2>/dev/null || false
 [ ! -e $sts_calls ]
 
 # without a signature the server says nothing at all
