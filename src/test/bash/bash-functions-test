@@ -17,6 +17,21 @@
   [ -f "$SCR_TMPDIR-pw-confirm-approve" ]
 }
 
+# test double for -aws-session-token (bash-functions-localhost), which would call
+# the real STS with whatever is in ~/.aws. hands back fixed, well-formed fake
+# credentials instead, and appends "<profile> <ttl>" to a file so 080aws.test can
+# count how often it was asked. the file sits next to $SCR_TMPDIR for the reason
+# the -pw-confirm flag does
+-aws-session-token() {
+  printf '%s %s\n' "$1" "$2" >> "$SCR_TMPDIR-aws-sts-calls"
+  printf '%s\n' \
+    AWS_ACCESS_KEY_ID=ASIASCRASHTEST000001 \
+    AWS_SECRET_ACCESS_KEY=scrash/test+secret= \
+    AWS_SESSION_TOKEN=scrash/test+token= \
+    AWS_DEFAULT_REGION=us-test-1 \
+    "SCR_AWS_TTL=$2"
+}
+
 # runs a bash command in gnu screen, waiting for the command to finish
 -screen-pipe() (
   local stdin stdout stderr rcfifo fifo eof_stdout=0 eof_stderr=0 opts="uS:" opt OPTIND cmd=() pids=()

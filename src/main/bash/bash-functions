@@ -553,6 +553,46 @@ screen() {
   return $rc
 }
 
+# GET <path>?<query> from the server and print the body, but only if it carries
+# the signature the server makes over it with this request's response key
+# (Server.js #bodySignature). for anything the caller is about to act on rather
+# than just show: what answers on $SCR_PORT is only ours for as long as the
+# forward is up, and any local user can be listening there instead.
+#
+# -shell-boot-string checks its own response the same way, written out again,
+# because that one has to travel as a string to a shell that holds nothing yet
+#
+# usage: -ws-signed <path> [query]
+-ws-signed() {
+  local path="$1" query="$2" auth resp sig body key mac
+  [ "$STY" ] && -screen-env
+  # nothing to ask, and nothing to sign with: leave it to the caller to decide
+  # whether that is worth saying
+  [ -z "$SCR_PORT" -o -z "$SCR_SEED" ] && return 1
+  auth=$(-scr-auth-header GET "$path") || return 1
+  if ! [[ "$auth" =~ t=([0-9]+),n=([a-f0-9]+) ]]; then
+    echo "$FUNCNAME: could not parse auth header" >&2
+    return 1
+  fi
+  key=$(-hmac-sha256 "response:${BASH_REMATCH[1]}:${BASH_REMATCH[2]}")
+  # --compressed because the server may gzip, and -K on a pipe rather than -H
+  # for the reason -ws does it: argv is readable by any local user
+  resp=$(NO_PROXY=127.0.0.1 curl --connect-timeout 5 -f -S -s --compressed \
+    -K <(printf 'header = "Authorization: %s"\n' "$auth") \
+    "http://127.0.0.1:$SCR_PORT$path${query:+?$query}") || return 1
+  # the signature is the first line and the body is the rest. the server hashed
+  # its body with the trailing newlines stripped, which is what the command
+  # substitution above has already done to ours
+  sig=$(printf %s "$resp" | head -n 1)
+  body=$(printf %s "$resp" | tail -n +2)
+  mac=$(-hmac-sha256 "$body" "$key")
+  if [ "${sig##*=}" != "$mac" ]; then
+    echo "$FUNCNAME: response signature mismatch on $path, discarding it" >&2
+    return 1
+  fi
+  printf "%s\n" "$body"
+}
+
 # the exported function set, fetched from the server and verified before it is
 # printed. this is what the $EDITOR wrapper runs when it starts with no scrash
 # functions in its environment at all: "crontab -e" hands the editor to
@@ -561,42 +601,12 @@ screen() {
 # bash's "BASH_FUNC_-vim-config%%". ordinary variables do survive that, and
 # $SCR_PORT and $SCR_SEED are all this needs to ask for the rest back.
 #
-# the body is checked rather than trusted, for the reason -shell-boot-string
-# checks its own (see there): the caller evals what comes back, and what answers
-# on that port is only ours for as long as the forward is up. the two are the
-# same protocol written twice, because that one has to travel as a string to a
-# shell that holds nothing yet, and this one runs where the functions already are
+# the caller evals what comes back, hence -ws-signed.
 #
 # start= is empty deliberately: given a value the server appends a -shell-init
 # that would exec a shell in place of the editor we are on our way to running
 -get-bash-functions() {
-  local path=/scr-get-bash-functions auth resp sig body key mac
-  [ "$STY" ] && -screen-env
-  # nothing to ask, and nothing to sign with: leave it to the caller to carry on
-  # unconfigured rather than say so on every launch
-  [ -z "$SCR_PORT" -o -z "$SCR_SEED" ] && return 1
-  auth=$(-scr-auth-header GET "$path") || return 1
-  if ! [[ "$auth" =~ t=([0-9]+),n=([a-f0-9]+) ]]; then
-    echo "$FUNCNAME: could not parse auth header" >&2
-    return 1
-  fi
-  key=$(-hmac-sha256 "response:${BASH_REMATCH[1]}:${BASH_REMATCH[2]}")
-  # --compressed because the server gzips this, and -K on a pipe rather than -H
-  # for the reason -ws does it: argv is readable by any local user
-  resp=$(NO_PROXY=127.0.0.1 curl --connect-timeout 5 -f -S -s --compressed \
-    -K <(printf 'header = "Authorization: %s"\n' "$auth") \
-    "http://127.0.0.1:$SCR_PORT$path?platform=$(uname)&hostname=$(hostname)&start=&ssh_level=${SCR_SSH_LEVEL:-0}") || return 1
-  # the signature is the first line and the script is the rest. the server hashed
-  # its body with the trailing newlines stripped, which is what the command
-  # substitution above has already done to ours
-  sig=$(printf %s "$resp" | head -n 1)
-  body=$(printf %s "$resp" | tail -n +2)
-  mac=$(-hmac-sha256 "$body" "$key")
-  if [ "${sig##*=}" != "$mac" ]; then
-    echo "$FUNCNAME: response signature mismatch, discarding it" >&2
-    return 1
-  fi
-  printf "%s\n" "$body"
+  -ws-signed /scr-get-bash-functions "platform=$(uname)&hostname=$(hostname)&start=&ssh_level=${SCR_SSH_LEVEL:-0}"
 }
 
 -ws-about() {
@@ -660,7 +670,7 @@ screen() {
   # here: they reach the server the same way this does, over $SCR_PORT with
   # $SCR_SEED, so there is no environment in which carrying them would work and
   # asking for them would not -- and asking gets the vim configuration back too
-  local p d want tmp funcs_to_export="-get-bash-functions -scr-auth-header -hmac-sha256 -screen-env -check-owner"
+  local p d want tmp funcs_to_export="-get-bash-functions -ws-signed -scr-auth-header -hmac-sha256 -screen-env -check-owner"
   [ -z "$EDITOR" ] && return 1
   d=$(dirname "$EDITOR")
   [ ! -d "$d" ] && mkdir -p "$d" 2>/dev/null
@@ -932,7 +942,7 @@ vim() {
     # that dies leaving no way onto the host. vim still works without the wrapper
     -make-editor || true
   fi
-  fcns=($(compgen -A function "-") screen ssh vim ssh-add scp sftp)
+  fcns=($(compgen -A function "-") screen ssh vim ssh-add scp sftp aws)
   if [ $declare_mode = 1 ]; then
     declare -f -- ${fcns[*]}
     return
@@ -1202,7 +1212,7 @@ vim() {
   # the server then handed the far end a corrupt command, which either failed
   # with an eval syntax error or quietly ran something else. base64 has no
   # other character that needs escaping in a query value. -boot-script-local
-  # and the args64= callers (-pw) do the same
+  # and the args64= callers (-pw, -aws-credentials) do the same
   local cred resp_key auth_header auth_b64 key_b64
   cred=$(-boot-credential "$base_path") || return 1
   resp_key=${cred%% *}
@@ -1771,6 +1781,124 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
       return 1
     fi
   fi
+}
+
+# aws cli wrapper. on the scrash machine it is just the aws cli, reading ~/.aws
+# itself. anywhere we have ssh'd to, ~/.aws stays where it is: the profile is
+# taken off the command line, the server mints short-lived STS credentials for it
+# after the local user approves (-aws-localhost), and those go to the real aws
+# cli in its environment for this one invocation.
+#
+# what that leaves on the remote is a credential that dies in minutes (900s by
+# default) and cannot reach IAM, in the environment of one aws process and in a
+# non-exported variable of this shell -- never in argv and never on disk. root
+# there can still read it while it lives; nothing short of running aws on the
+# scrash machine instead avoids that.
+#
+# credentials already in the environment (AWS_ACCESS_KEY_ID) are left alone, and
+# "command aws" skips all of this, e.g. for an EC2 instance role
+aws() {
+  if [ "${SCR_SSH_LEVEL:-0}" = 0 -o "$AWS_ACCESS_KEY_ID" ]; then
+    command aws "$@"
+    return $?
+  fi
+  local profile=${AWS_PROFILE:-${AWS_DEFAULT_PROFILE:-default}} args=() need_creds=1
+  while [ $# -gt 0 ]; do
+    case $1 in
+      (--profile)
+        if [ $# -lt 2 ]; then
+          echo "$FUNCNAME: --profile needs a value" >&2
+          return 1
+        fi
+        profile=$2
+        shift
+        ;;
+      (--profile=*)
+        profile=${1#--profile=}
+        ;;
+      (--version|help)
+        # nothing to authenticate, so nothing to ask the user to approve
+        need_creds=0
+        args+=("$1")
+        ;;
+      (*)
+        args+=("$1")
+        ;;
+    esac
+    shift
+  done
+  if [ $need_creds = 1 ]; then
+    # one approval covers a burst of commands: reuse what we have for this
+    # profile until a minute before it expires. $SECONDS rather than the clock,
+    # so skew between here and the scrash machine does not matter
+    if [ "$__scr_aws_profile" != "$profile" ] || [ $SECONDS -ge ${__scr_aws_until:-0} ]; then
+      -aws-credentials "$profile" || return 1
+    fi
+  fi
+  # a subshell so the exports reach only the aws process. the profile it was
+  # given means nothing here, and the remote's own ~/.aws must not mix in
+  (
+    unset AWS_PROFILE AWS_DEFAULT_PROFILE
+    export AWS_CONFIG_FILE=/dev/null AWS_SHARED_CREDENTIALS_FILE=/dev/null
+    if [ $need_creds = 1 ]; then
+      export AWS_ACCESS_KEY_ID=$__scr_aws_key AWS_SECRET_ACCESS_KEY=$__scr_aws_secret AWS_SESSION_TOKEN=$__scr_aws_token
+      if [ -z "$AWS_REGION$AWS_DEFAULT_REGION" -a "$__scr_aws_region" ]; then
+        export AWS_DEFAULT_REGION=$__scr_aws_region
+      fi
+    fi
+    exec aws "${args[@]}"
+  )
+}
+
+# fetch credentials for profile $1 into this shell's (non-exported) __scr_aws_*
+# variables, for aws() above. the response is signed (-ws-signed), and every value
+# is checked against what an AWS credential can look like before it is kept: it
+# comes from the far end of a port any local user could be answering on
+-aws-credentials() {
+  local profile="$1" body line k v key= secret= token= region= ttl= args64
+  args64=$(-serialize-args "$profile")
+  # %2B: see -shell-boot-string
+  if ! body=$(-ws-signed /scr-get-aws-credentials "args64=${args64//+/%2B}"); then
+    echo "$FUNCNAME: no credentials for aws profile $profile (not allowed, not approved, or the server could not get them)" >&2
+    return 1
+  fi
+  # a process substitution, not a here-string: bash before 5.1 writes a
+  # here-string to a temporary file
+  while IFS= read -r line; do
+    k=${line%%=*}
+    v=${line#*=}
+    case $k in
+      (AWS_ACCESS_KEY_ID)
+        [[ $v =~ ^[A-Z0-9]+$ ]] && key=$v
+        ;;
+      (AWS_SECRET_ACCESS_KEY)
+        [[ $v =~ ^[A-Za-z0-9/+=]+$ ]] && secret=$v
+        ;;
+      (AWS_SESSION_TOKEN)
+        [[ $v =~ ^[A-Za-z0-9/+=]+$ ]] && token=$v
+        ;;
+      (AWS_DEFAULT_REGION)
+        [[ $v =~ ^[a-z0-9-]*$ ]] && region=$v
+        ;;
+      (SCR_AWS_TTL)
+        [[ $v =~ ^[0-9]+$ ]] && ttl=$v
+        ;;
+    esac
+  done < <(printf '%s\n' "$body")
+  if [ -z "$key" -o -z "$secret" -o -z "$token" -o -z "$ttl" ]; then
+    echo "$FUNCNAME: malformed credentials for aws profile $profile" >&2
+    return 1
+  fi
+  __scr_aws_profile=$profile
+  __scr_aws_key=$key
+  __scr_aws_secret=$secret
+  __scr_aws_token=$token
+  __scr_aws_region=$region
+  __scr_aws_until=$((SECONDS + ttl - 60))
+  # under "set -a" every assignment above was also an export, which would hand
+  # the credentials to every child of this shell. never empty here (we just set
+  # them), which matters: a bare "export -n" lists the whole environment instead
+  export -n $(compgen -v __scr_)
 }
 
 #

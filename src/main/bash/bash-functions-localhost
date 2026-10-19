@@ -187,14 +187,92 @@
   esac
 }
 
+# remote-request entry point for the aws() wrapper (bash-functions), reached
+# through getAwsCredentials in Server.js as "-aws-localhost -A <args64>", where
+# the one arg is an aws profile name. prints short-lived credentials for it as
+# KEY=value lines, which is the whole response body.
+#
+# ~/.aws itself never leaves this machine. the remote gets STS session
+# credentials, and only for a profile listed in SCR_AWS_REMOTE_PROFILES
+# (space-separated, in ~/.config/scrash/config) that the local user has just
+# approved. nothing is listed by default, so nothing is handed out by default.
+#
+# SCR_AWS_REMOTE_TTL sets their lifetime in seconds, default 900, the least STS
+# allows
+-aws-localhost() {
+  local opt OPTIND args profile p allowed=0 ttl=${SCR_AWS_REMOTE_TTL:-900}
+  while builtin getopts "A:" opt; do
+    case $opt in
+      (A)
+        -deserialize-args "$OPTARG"
+        ;;
+      (*)
+        return 1
+        ;;
+    esac
+  done
+  if [ ${#args[@]} -ne 1 ]; then
+    echo "$FUNCNAME: expected one aws profile name" >&2
+    return 1
+  fi
+  profile=${args[0]}
+  # it reaches the aws cli as an argument and the approval window as text
+  if ! [[ "$profile" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+    echo "$FUNCNAME: invalid aws profile name" >&2
+    return 1
+  fi
+  for p in $SCR_AWS_REMOTE_PROFILES; do
+    [ "$p" = "$profile" ] && allowed=1
+  done
+  if [ $allowed = 0 ]; then
+    echo "$FUNCNAME: aws profile $profile is not in SCR_AWS_REMOTE_PROFILES" >&2
+    return 1
+  fi
+  if ! [[ "$ttl" =~ ^[0-9]+$ ]] || [ $ttl -lt 900 -o $ttl -gt 43200 ]; then
+    echo "$FUNCNAME: SCR_AWS_REMOTE_TTL must be 900..43200 seconds" >&2
+    return 1
+  fi
+  # the session id comes from Server.js, which verified it; the host name a
+  # remote could report about itself would not be worth showing
+  if ! SCR_CONFIRM_KIND="AWS credential" -pw-confirm "aws profile $profile for $ttl seconds (session ${SCR_REMOTE_SID:-unknown})"; then
+    echo "$FUNCNAME: remote aws credential request denied" >&2
+    return 1
+  fi
+  -aws-session-token "$profile" "$ttl"
+}
+
+# STS session credentials for local aws profile $1, valid for $2 seconds, as the
+# KEY=value lines -aws-localhost hands back. the credentials only ever pass
+# through pipes and printf (a builtin), so they are never in an argv.
+#
+# GetSessionToken needs long-lived (IAM user) keys behind the profile, which is
+# what ~/.aws/credentials holds; an SSO or assume-role profile fails here
+-aws-session-token() {
+  local profile="$1" ttl="$2" key secret token region
+  read -r key secret token < <(command aws sts get-session-token --profile "$profile" \
+    --duration-seconds "$ttl" --output text \
+    --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]')
+  if [ -z "$token" ]; then
+    echo "$FUNCNAME: sts get-session-token failed for aws profile $profile" >&2
+    return 1
+  fi
+  region=$(command aws configure get region --profile "$profile") || region=
+  printf '%s\n' \
+    "AWS_ACCESS_KEY_ID=$key" \
+    "AWS_SECRET_ACCESS_KEY=$secret" \
+    "AWS_SESSION_TOKEN=$token" \
+    "AWS_DEFAULT_REGION=$region" \
+    "SCR_AWS_TTL=$ttl"
+}
+
 # Prompt the local user (in a fresh gnu screen window) to approve a remote
-# password request. Returns 0 to approve, non-zero to deny. Fail-closed: a
+# password request (or, with $SCR_CONFIRM_KIND, some other kind of request). Returns 0 to approve, non-zero to deny. Fail-closed: a
 # missing screen session, any setup error, or no answer within the timeout all
 # deny. Args are the (untrusted, remote-supplied) -pw arguments; they are
 # stripped to printable characters so they cannot spoof the prompt. Only ever
 # runs locally (it is in SCR_LOCALHOST_FUNCS).
 -pw-confirm() {
-  local timeout=${SCR_REMOTE_PW_CONFIRM_TIMEOUT:-30} dir fifo label decision=deny
+  local timeout=${SCR_REMOTE_PW_CONFIRM_TIMEOUT:-30} dir fifo label decision=deny kind=${SCR_CONFIRM_KIND:-password}
   if [ -z "$STY" ]; then
     echo "$FUNCNAME: no screen session (STY unset); denying" >&2
     return 1
@@ -211,7 +289,7 @@
   # new window like every other scrash function -- same bash -c '"$@"' idiom
   # Server.js uses)
   env screen -X screen -t scrash-approval \
-    bash -c '"$@"' -- -pw-confirm-dialog "$fifo" "$timeout" "$label"
+    bash -c '"$@"' -- -pw-confirm-dialog "$fifo" "$timeout" "$label" "$kind"
   read -r -t $((timeout+5)) decision < "$fifo" || decision=deny
   rm -rf "$dir"
   [ "$decision" = approve ]
@@ -253,19 +331,18 @@ EOF
 
 # Runs inside the fresh gnu screen window opened by -pw-confirm: shows the
 # request, reads y/N with its own timeout, and writes the decision back over
-# the fifo. Args: fifo timeout label
+# the fifo. Args: fifo timeout label [kind]
 -pw-confirm-dialog() {
-  local fifo="$1" timeout="$2" label="$3" ans
+  local fifo="$1" timeout="$2" label="$3" kind="${4:-password}" ans
   clear 2>/dev/null || true
-  cat <<'EOF'
-============================================================
-  scrash - REMOTE password request
-============================================================
-
-  A remote (ssh) session is requesting a password from your
-  LOCAL encrypted store. Approve ONLY if you just initiated
-  this yourself.
-EOF
+  printf '%s\n' \
+    '============================================================' \
+    "  scrash - REMOTE $kind request" \
+    '============================================================' \
+    '' \
+    "  A remote (ssh) session is requesting a $kind from" \
+    '  this LOCAL machine. Approve ONLY if you just initiated' \
+    '  this yourself.'
   # bold + bright yellow so the requested key stands out; safe to wrap in escapes
   # because -pw-confirm already stripped the label to printable characters
   printf '\n  request: \033[1;93m%s\033[0m\n\n' "$label"

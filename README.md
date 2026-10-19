@@ -10,7 +10,7 @@ username of the server daemon process.
 # Conventions
 The bash shell is customized with various functions whose names all begin with
 a hyphen, with a few exceptions for "wrapper" functions to customize the
-following executables: ssh, ssh-add, scp, sftp, screen, vim. There are a number
+following executables: ssh, ssh-add, scp, sftp, screen, vim, aws. There are a number
 of exported shell variables, with prefix of `SCR_`. (Type `-vars` to see the
 full list of shell variables.)
 
@@ -156,6 +156,37 @@ Finally, add `export SCR_PASSWORD_KEY_ID=xxxxxxxx` into your personal bashrc.
     keyid=62E8908EA7F905BFA49B6C04A4E70411424EAD8E
     gpg --export $keyid | ssh new-system gpg --import
     gpg --export-secret-key $keyid | ssh new-system gpg --import
+
+# aws
+On a host you have ssh'd to, `aws` works with the profiles in your local
+`~/.aws` without that directory ever leaving your machine. When you run, say,
+`aws --profile commcare s3 ls` there, the scrash server asks you to approve the
+request (in a new gnu screen window, as for a remote `-pw`), then mints
+short-lived STS session credentials for that profile with
+`aws sts get-session-token` and hands them to the remote aws cli in its
+environment for that one command. They are kept, unexported, in the remote shell
+until a minute before they expire, so one approval covers a burst of commands.
+
+Nothing is handed out unless you list the profiles a remote may ask for in
+`$HOME/.config/scrash/config`:
+
+    SCR_AWS_REMOTE_PROFILES="default commcare"
+    # optional: credential lifetime in seconds, 900 (the default) to 43200
+    SCR_AWS_REMOTE_TTL=900
+
+What this does and does not protect against:
+
+* your long-lived keys never reach the remote, in any form
+* the minted credentials are never in a command line or on disk there, and
+  cannot call IAM (STS session credentials cannot, without MFA)
+* root on the remote can still read them out of the running aws process while
+  they last
+
+The profile's region comes along unless you set one yourself, and the remote's
+own `~/.aws` is ignored. Credentials already in the remote environment
+(`AWS_ACCESS_KEY_ID`) are left alone, and `command aws` bypasses the wrapper
+entirely, e.g. to use an EC2 instance role. Profiles that are themselves SSO or
+assume-role profiles are not supported yet: GetSessionToken needs IAM user keys.
 
 # Testing
 Test cases are found in `./tests/*.test`, and they are just bash scripts that

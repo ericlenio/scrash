@@ -1,0 +1,110 @@
+# vim:filetype=bash
+
+# the aws() wrapper on a remote host asks the server for short-lived credentials
+# (-aws-localhost) and hands them to the real aws cli for one invocation. the
+# real STS is replaced by a test double (-aws-session-token in
+# src/test/bash/bash-functions-test) and the real aws cli by the script below,
+# which prints what it was given
+
+aws_bin=$TEST_REMOTE_TMPDIR/aws-bin
+mkdir -m 755 -p $aws_bin
+cat > $aws_bin/aws <<'AWS'
+#!/usr/bin/env bash
+printf '%s\n' \
+  "args=$*" \
+  "key=$AWS_ACCESS_KEY_ID" \
+  "secret=$AWS_SECRET_ACCESS_KEY" \
+  "token=$AWS_SESSION_TOKEN" \
+  "region=$AWS_DEFAULT_REGION" \
+  "profile=$AWS_PROFILE" \
+  "config=$AWS_CONFIG_FILE" \
+  "credentials=$AWS_SHARED_CREDENTIALS_FILE"
+AWS
+chmod 755 $aws_bin/aws
+
+# run the given commands in one remote (level 1) shell, with the fake aws first
+# on the PATH
+-ssh-aws() {
+  -ssh-scr-server bash -c -- 'PATH=$1:$PATH; shift; eval "$@"' -- $aws_bin "$@" </dev/null
+}
+
+sts_calls=$SCR_TMPDIR-aws-sts-calls
+pw_approve_flag=$SCR_TMPDIR-pw-confirm-approve
+rm -f $sts_calls
+touch $pw_approve_flag
+
+# on the scrash machine itself the wrapper is out of the way: ~/.aws is right
+# here, so the profile goes through to the aws cli untouched and nothing is minted
+out=$(PATH=$aws_bin:$PATH aws --profile scrash-test s3 ls)
+[[ $out = *"args=--profile scrash-test s3 ls"* ]]
+[[ $out = *"key="$'\n'* ]]
+[ ! -e $sts_calls ]
+
+# remotely: the profile is taken off the command line and replaced by the
+# minted credentials, with the profile's region, and the remote's own ~/.aws
+# is kept out of it
+out=$(-ssh-aws 'aws --profile scrash-test s3 ls')
+[[ $out = *"args=s3 ls"* ]]
+[[ $out = *"key=ASIASCRASHTEST000001"* ]]
+[[ $out = *"secret=scrash/test+secret="* ]]
+[[ $out = *"token=scrash/test+token="* ]]
+[[ $out = *"region=us-test-1"* ]]
+[[ $out = *"profile="$'\n'* ]]
+[[ $out = *"config=/dev/null"* ]]
+[[ $out = *"credentials=/dev/null"* ]]
+[ "$(cat $sts_calls)" = "scrash-test 900" ]
+
+# AWS_PROFILE selects the profile too, --profile=x is the same as --profile x,
+# and one approval covers every command in a shell until the credentials are
+# about to expire
+rm -f $sts_calls
+out=$(-ssh-aws 'AWS_PROFILE=scrash-test aws s3 ls; aws --profile=scrash-test ec2 describe-instances')
+[[ $out = *"args=s3 ls"* ]]
+[[ $out = *"args=ec2 describe-instances"* ]]
+[ $(wc -l < $sts_calls) -eq 1 ]
+
+# the cached credentials stay out of the environment even under "set -a", where
+# every assignment is an export: a child of the shell sees none of them
+out=$(-ssh-aws 'set -a; aws --profile scrash-test s3 ls >/dev/null; env | grep -c "^__scr_aws_" || true')
+[ "$out" = 0 ]
+
+# a region the user asked for wins over the profile's
+out=$(-ssh-aws 'AWS_DEFAULT_REGION=eu-west-9 aws --profile scrash-test s3 ls')
+[[ $out = *"region=eu-west-9"* ]]
+
+# nothing to authenticate, nothing asked for
+rm -f $sts_calls
+out=$(-ssh-aws 'aws --version')
+[[ $out = *"args=--version"* ]]
+[[ $out = *"key="$'\n'* ]]
+[ ! -e $sts_calls ]
+
+# credentials the remote already has in its environment are its business
+out=$(-ssh-aws 'AWS_ACCESS_KEY_ID=AKIAREMOTE aws --profile scrash-test s3 ls')
+[[ $out = *"args=--profile scrash-test s3 ls"* ]]
+[[ $out = *"key=AKIAREMOTE"* ]]
+[ ! -e $sts_calls ]
+
+# a profile that is not in SCR_AWS_REMOTE_PROFILES gets nothing, and neither
+# does a name that is not a plain profile name. the aws cli is never run
+! out=$(-ssh-aws 'aws --profile not-allowed s3 ls' 2>/dev/null) || false
+[[ $out != *"args="* ]]
+! out=$(-ssh-aws 'aws --profile "scrash-test;x" s3 ls' 2>/dev/null) || false
+[[ $out != *"args="* ]]
+[ ! -e $sts_calls ]
+
+# without a signature the server says nothing at all
+if curl -f -s "http://127.0.0.1:$SCR_PORT/scr-get-aws-credentials?args64=$(-serialize-args scrash-test)" 2>/dev/null; then
+  rc=$?
+else
+  rc=$?
+fi
+[ $rc = 22 ]
+
+# and a request the local user does not approve gets nothing either
+rm -f $pw_approve_flag
+! out=$(-ssh-aws 'aws --profile scrash-test s3 ls' 2>/dev/null) || false
+[[ $out != *"args="* ]]
+[ ! -e $sts_calls ]
+
+rm -rf $aws_bin $sts_calls $pw_approve_flag

@@ -112,6 +112,8 @@ class Server extends http.Server {
           //return this.uploadFile(req,res);
         case "/scr-get-password":
           return this.getPassword(url,req,res);
+        case "/scr-get-aws-credentials":
+          return this.getAwsCredentials(url,req,res);
         default:
           res.statusCode=404;
       }
@@ -279,6 +281,24 @@ class Server extends http.Server {
     const {timestamp,nonce,key}=req.scrAuth;
     return crypto.createHmac('sha256',key)
       .update(`response:${timestamp}:${nonce}`).digest('hex');
+  }
+
+  /**
+   * signature for a response body the client has to be able to trust (see
+   * -ws-signed). it goes out as the first line of the body rather than a header
+   * so the client can verify it with nothing but curl and openssl. trailing
+   * newlines are stripped because the client reads the body through command
+   * substitution, which strips them too
+   *
+   * @param {http.IncomingMessage} req - a request that passed #verifyAuth
+   *
+   * @param {string} body
+   *
+   * @return {string} hex signature
+   */
+  #bodySignature(req,body) {
+    return crypto.createHmac('sha256',this.#responseKey(req))
+      .update(body.replace(/\n+$/,'')).digest('hex');
   }
 
   // record an auth failure at time `now` (ms); returns true if failures within
@@ -468,13 +488,8 @@ class Server extends http.Server {
       }
       const body=parts.join('');
       // the client evals this script, so it has to be able to tell that the
-      // script came from us and not from whatever else answered on that port.
-      // the signature goes out as the first line (a comment) rather than a
-      // header so the client can verify it with nothing but curl and openssl.
-      // trailing newlines are stripped here because the client reads the body
-      // through command substitution, which strips them too
-      const sig=crypto.createHmac('sha256',this.#responseKey(req))
-        .update(body.replace(/\n+$/,'')).digest('hex');
+      // script came from us and not from whatever else answered on that port
+      const sig=this.#bodySignature(req,body);
       const gz=zlib.createGzip({level:zlib.constants.Z_MAX_LEVEL});
       gz.on('error',reject);
       res.setHeader('Content-Encoding','gzip');
@@ -681,6 +696,46 @@ class Server extends http.Server {
       res.setHeader('Content-Type','text/plain');
       req.pipe(p.stdin);
       p.stdout.on('data',data=>res.write(data));
+    });
+  }
+
+  /**
+   * short-lived AWS credentials for the aws() wrapper on a remote host. the work
+   * (allowlist, local approval, STS) is all in -aws-localhost; this only carries
+   * the result back. unlike getPassword the body is buffered and signed: the
+   * caller hands what it gets to the aws cli, and a credential slipped in by
+   * whatever else answered on that port would send the user's data to somebody
+   * else's account without a single error.
+   *
+   * nothing from stdout is logged, and a failure says only that it failed
+   */
+  getAwsCredentials(url,req,res) {
+    if (!url.searchParams.has('args64')) {
+      res.statusCode=400;
+      const e=new Error(`getAwsCredentials: missing parameter: args64`);
+      return Promise.reject(e);
+    }
+    return new Promise((resolve,reject)=>{
+      const args64=url.searchParams.get('args64');
+      const sid=req.scrAuth.sid || 'local';
+      const p=spawn("/usr/bin/env",['bash','-c','"$@"','--','-aws-localhost','-A',args64],
+        {stdio:['ignore','pipe',process.stderr],env:{...process.env,SCR_REMOTE_SID:sid}});
+      const out=[];
+      p.on("error",reject);
+      p.stdout.on('data',data=>out.push(data));
+      p.on('close',(rc,signal)=>{
+        if (rc!==0) {
+          const e=new Error(`getAwsCredentials: refused for session ${sid}`);
+          e.statusCode=403;
+          return reject(e);
+        }
+        const body=Buffer.concat(out).toString();
+        res.setHeader('Content-Type','text/plain');
+        res.setHeader('Cache-Control','no-store');
+        res.end(`#SCRASH-RESP-SIG=${this.#bodySignature(req,body)}\n${body}`);
+        console.log("getAwsCredentials: sent credentials to session",sid);
+        resolve();
+      });
     });
   }
 
