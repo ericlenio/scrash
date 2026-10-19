@@ -976,9 +976,8 @@ vim() {
   resp_key=${cred%% *}
   auth_header=${cred#* }
   local url resp sig body
-  # %2B: see -shell-boot-string
   printf -v url "http://127.0.0.1:%s%s?platform=%s&hostname=%s&start=%s&ssh_level=%s" \
-    "$SCR_PORT" "$base_path" "$(uname)" "$(hostname)" "${start//+/%2B}" "$SCR_SSH_LEVEL"
+    "$SCR_PORT" "$base_path" "$(uname)" "$(hostname)" "$(-url-escape-b64 "$start")" "$SCR_SSH_LEVEL"
   if ! resp=$(NO_PROXY=127.0.0.1 curl -Sfs --compressed \
     -K <(printf 'header = "Authorization: %s"\n' "$auth_header") "$url"); then
     echo "$FUNCNAME: could not fetch the boot script" >&2
@@ -1208,11 +1207,6 @@ vim() {
     echo "$FUNCNAME: start is not base64" >&2
     return 1
   fi
-  # it goes into the boot url as a query value, where a "+" decodes as a space:
-  # the server then handed the far end a corrupt command, which either failed
-  # with an eval syntax error or quietly ran something else. base64 has no
-  # other character that needs escaping in a query value. -boot-script-local
-  # and the args64= callers (-pw, -aws-credentials) do the same
   local cred resp_key auth_header auth_b64 key_b64
   cred=$(-boot-credential "$base_path") || return 1
   resp_key=${cred%% *}
@@ -1226,7 +1220,7 @@ vim() {
     "$curl_host" \
     "$curl_host" \
     "$remote_port" \
-    "${start//+/%2B}" \
+    "$(-url-escape-b64 "$start")" \
     "$ssh_level"
 }
 
@@ -1753,6 +1747,18 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
   -sxx-scr-server scp "$@" $SCR_SSH_USER@$SCR_SSH_HOST:/tmp
 }
 
+# print base64 $1 escaped for use as a url query value. "+" is the one base64
+# character that needs it: in a query value it decodes as a space, so the
+# server passed on corrupt base64 -- a remote command that failed with an eval
+# syntax error, or quietly did nothing, depending only on how its bytes lined
+# up. "/" and "=" go through as they are.
+#
+# for base64 only (-ssh-serialize-cmd, -serialize-args); it is not a general
+# url encoder
+-url-escape-b64() {
+  printf %s "${1//+/%2B}"
+}
+
 -serialize-args() {
   # to do: replace -ssh-serialize-cmd perhaps with this?
   printf "%s\037" "$@" | openssl enc -a -A
@@ -1772,9 +1778,7 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
   if [ $SCR_SSH_LEVEL = 0 ]; then
     -pw-localhost "$@"
   else
-    local args64=$(-serialize-args "$@")
-    # %2B: see -shell-boot-string
-    if -ws "/scr-get-password?args64=${args64//+/%2B}"; then
+    if -ws "/scr-get-password?args64=$(-url-escape-b64 "$(-serialize-args "$@")")"; then
       :
     else
       echo "$FUNCNAME: failed" >&2
@@ -1855,10 +1859,8 @@ aws() {
 # is checked against what an AWS credential can look like before it is kept: it
 # comes from the far end of a port any local user could be answering on
 -aws-credentials() {
-  local profile="$1" body line k v key= secret= token= region= ttl= args64
-  args64=$(-serialize-args "$profile")
-  # %2B: see -shell-boot-string
-  if ! body=$(-ws-signed /scr-get-aws-credentials "args64=${args64//+/%2B}"); then
+  local profile="$1" body line k v key= secret= token= region= ttl=
+  if ! body=$(-ws-signed /scr-get-aws-credentials "args64=$(-url-escape-b64 "$(-serialize-args "$profile")")"); then
     echo "$FUNCNAME: no credentials for aws profile $profile (not allowed, not approved, or the server could not get them)" >&2
     return 1
   fi
