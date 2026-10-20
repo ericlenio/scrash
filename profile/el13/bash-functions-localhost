@@ -822,7 +822,7 @@ and ~/.aws/credentials (or set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY):
   }
 
   main() {
-    local opt opts=hdp: OPTIND choice fcn_array fcn fcn_args n_fcn_args i arg instance_idx PS3 aws_profile=default
+    local opt opts=hdp: OPTIND choice fcn_array fcn fcn_args n_fcn_args i arg instance_idx PS3 aws_profile=lincware
     while builtin getopts $opts opt; do
       case $opt in
         (h) usage
