@@ -28,6 +28,16 @@ const SCR_SSH_AUTH_SOCK=process.env.SCR_SSH_AUTH_SOCK;
 // script the far end evals, so only plain profile names get through
 const SCR_AWS_REMOTE_PROFILES=(process.env.SCR_AWS_REMOTE_PROFILES || '')
   .split(/\s+/).filter(p=>/^[A-Za-z0-9_.-]+$/.test(p)).join(' ');
+// the longest a remote aws command can go on getting credentials, however
+// actively it uses them (seconds); see sendAwsCredentials
+const SCR_AWS_REMOTE_MAX=parseInt(process.env.SCR_AWS_REMOTE_MAX,10) || 86400;
+// the aws cli starts asking for new credentials when the ones it has have less
+// than 15 minutes left, and will not use them at all with less than 10. mint new
+// ones once a cached set is down to AWS_REFRESH_MARGIN_MS, but go on handing out
+// the old set meanwhile while it has more than AWS_USABLE_MS: the aws cli gives
+// up on a request to us after 2 seconds, which an STS call can take
+const AWS_REFRESH_MARGIN_MS=20*60*1000;
+const AWS_USABLE_MS=11*60*1000;
 
 // failed-auth rate limiter: once more than AUTH_FAIL_MAX auth failures occur
 // within AUTH_FAIL_WINDOW_MS, further FAILING requests are rejected cheaply
@@ -67,6 +77,14 @@ class Server extends http.Server {
   #authFailures = [];      // timestamps (ms) of recent auth failures
   #authThrottled = false;  // whether failure responses are currently throttled
   #lastAlert = 0;          // when #alert last reached the screen status line
+  // remote aws requests the local user has approved: "<sid> <args64>" -> when
+  // the approval runs out (ms). see getAwsToken
+  #awsGrants = new Map();
+  // credentials minted for an approved "<sid> <args64>", shared by every token
+  // issued for it: {creds, expires, pending}
+  #awsCreds = new Map();
+  // sha256 of each live token -> {grantKey, profile, ttl, created, lastUsed}
+  #awsTokens = new Map();
 
   init({port}) {
     console.error(`starting Server.js v${SCR_VERSION}, configuration: ${SCR_ENV}, profile: ${SCR_PROFILE}`);
@@ -84,6 +102,12 @@ class Server extends http.Server {
   onRequest(req,res) {
     req.on('error',e=>this.sendErrorResponse(res,e));
     res.on('error',e=>this.sendErrorResponse(res,e));
+    // the one request that is not signed: it comes from the aws cli itself,
+    // which can only send a fixed Authorization header. see sendAwsCredentials
+    if (req.url && new URL(req.url,'http://127.0.0.1').pathname==="/scr-aws-credentials") {
+      return this.sendAwsCredentials(req,res)
+        .catch(e=>this.sendErrorResponse(res,e,e.statusCode||401));
+    }
     this.authorizeRequest(req).then(()=>{
       const url=new URL(req.url,`http://${req.headers.host || '127.0.0.1'}`);
       const accepts=req.headers.accept
@@ -116,8 +140,8 @@ class Server extends http.Server {
           //return this.uploadFile(req,res);
         case "/scr-get-password":
           return this.getPassword(url,req,res);
-        case "/scr-get-aws-credentials":
-          return this.getAwsCredentials(url,req,res);
+        case "/scr-get-aws-token":
+          return this.getAwsToken(url,req,res);
         default:
           res.statusCode=404;
       }
@@ -708,43 +732,204 @@ class Server extends http.Server {
   }
 
   /**
-   * short-lived AWS credentials for the aws() wrapper on a remote host. the work
-   * (allowlist, local approval, STS) is all in -aws-localhost; this only carries
-   * the result back. unlike getPassword the body is buffered and signed: the
-   * caller hands what it gets to the aws cli, and a credential slipped in by
-   * whatever else answered on that port would send the user's data to somebody
-   * else's account without a single error.
+   * a token the aws() wrapper on a remote host hands to the aws cli, which then
+   * gets its credentials from sendAwsCredentials for as long as it runs. the
+   * aws cli refreshes credentials itself before they expire, so a command can
+   * outlast any one set of them -- a large database dump streamed to S3 -- and
+   * the remote never holds anything that outlives the command for long.
    *
-   * nothing from stdout is logged, and a failure says only that it failed
+   * the allowlist and the local approval are in -aws-localhost. the body is
+   * signed: a token from somebody else's server would point the aws cli at
+   * credentials for somebody else's account, and nothing would fail.
    */
-  getAwsCredentials(url,req,res) {
+  getAwsToken(url,req,res) {
     if (!url.searchParams.has('args64')) {
       res.statusCode=400;
-      const e=new Error(`getAwsCredentials: missing parameter: args64`);
+      const e=new Error(`getAwsToken: missing parameter: args64`);
       return Promise.reject(e);
     }
     return new Promise((resolve,reject)=>{
       const args64=url.searchParams.get('args64');
       const sid=req.scrAuth.sid || 'local';
+      // one approval covers a remote session for $SCR_AWS_REMOTE_TTL: a script
+      // calls aws over and over, from pipelines and $(...), and should not ask
+      // each time. keyed on the session id, which the signature on this request
+      // proves, and on the exact request, so another profile or another session
+      // (a further ssh hop has its own) is asked about separately. the window is
+      // fixed from the approval and later requests do not extend it. this widens
+      // nothing: whatever can sign as that session on the remote can read the
+      // token of any aws command running there anyway
+      const now=Date.now();
+      const grantKey=`${sid} ${args64}`;
+      this.#pruneAws(now);
+      const granted=this.#awsGrants.has(grantKey);
       const p=spawn("/usr/bin/env",['bash','-c','"$@"','--','-aws-localhost','-A',args64],
-        {stdio:['ignore','pipe',process.stderr],env:{...process.env,SCR_REMOTE_SID:sid}});
+        {stdio:['ignore','pipe',process.stderr],env:{...process.env,SCR_REMOTE_SID:sid,
+          SCR_AWS_PREAPPROVED:granted ? '1' : ''}});
       const out=[];
       p.on("error",reject);
       p.stdout.on('data',data=>out.push(data));
       p.on('close',(rc,signal)=>{
-        if (rc!==0) {
-          const e=new Error(`getAwsCredentials: refused for session ${sid}`);
+        const lines=Buffer.concat(out).toString();
+        const field=k=>(lines.match(new RegExp(`^${k}=(.*)$`,'m')) || [])[1];
+        const profile=field('SCR_AWS_PROFILE');
+        const ttl=parseInt(field('SCR_AWS_TTL'),10);
+        if (rc!==0 || !profile || !ttl) {
+          const e=new Error(`getAwsToken: refused for session ${sid}`);
           e.statusCode=403;
           return reject(e);
         }
-        const body=Buffer.concat(out).toString();
-        res.setHeader('Content-Type','text/plain');
-        res.setHeader('Cache-Control','no-store');
-        res.end(`#SCRASH-RESP-SIG=${this.#bodySignature(req,body)}\n${body}`);
-        console.log("getAwsCredentials: sent credentials to session",sid);
-        resolve();
+        if (!granted) {
+          this.#awsGrants.set(grantKey,now+ttl*1000);
+        }
+        // have credentials ready before the aws cli asks, so that its first
+        // request is answered at once (see AWS_USABLE_MS)
+        const slot=this.#awsSlot(grantKey);
+        const ready=slot.creds && slot.expires-Date.now() >= AWS_REFRESH_MARGIN_MS
+          ? Promise.resolve()
+          : this.#refreshAwsCredentials(slot,profile,ttl);
+        ready.then(()=>{
+          const token=crypto.randomBytes(32).toString('hex');
+          this.#awsTokens.set(this.#sha256(token),{grantKey,profile,ttl,created:now,lastUsed:Date.now()});
+          const body=`SCR_AWS_TOKEN=${token}\nAWS_DEFAULT_REGION=${field('AWS_DEFAULT_REGION') || ''}\n`;
+          res.setHeader('Content-Type','text/plain');
+          res.setHeader('Cache-Control','no-store');
+          res.end(`#SCRASH-RESP-SIG=${this.#bodySignature(req,body)}\n${body}`);
+          console.log("getAwsToken: issued a token to session",sid,granted ? "(already approved)" : "");
+          resolve();
+        },reject);
       });
     });
+  }
+
+  /**
+   * credentials for the aws cli on a remote host, in the form it expects from a
+   * container credentials endpoint (AWS_CONTAINER_CREDENTIALS_FULL_URI): it
+   * sends the token from getAwsToken as its Authorization header, and comes back
+   * by itself whenever what it has is close to expiring.
+   *
+   * this cannot be signed the way every other request is, because the aws cli
+   * sends a fixed header. the token stands in: 256 random bits, kept here only
+   * as a hash, good for one profile, and dead once its command has stopped
+   * asking -- unused for twice the credential lifetime, which a running command
+   * never is, since it refreshes well before then -- or SCR_AWS_REMOTE_MAX after
+   * it was issued, however much it is used.
+   *
+   * every token for one approved session and profile shares one set of
+   * credentials, minted again only when it is getting short, so a script's worth
+   * of aws commands costs one STS call per credential lifetime
+   */
+  sendAwsCredentials(req,res) {
+    const now=Date.now();
+    const auth=req.headers['authorization'] || '';
+    const hash=/^[a-f0-9]{64}$/.test(auth) ? this.#sha256(auth) : null;
+    const token=hash && this.#awsTokens.get(hash);
+    if (!token || now-token.lastUsed > token.ttl*2000 || now-token.created > SCR_AWS_REMOTE_MAX*1000) {
+      if (token) this.#awsTokens.delete(hash);
+      const e=new Error("sendAwsCredentials: no such token, or it has expired");
+      e.statusCode=401;
+      if (this.#recordAuthFailure(now)) {
+        e.statusCode=429;
+        e.quiet=true;
+      }
+      return Promise.reject(e);
+    }
+    token.lastUsed=now;
+    const slot=this.#awsSlot(token.grantKey);
+    const left=slot.creds ? slot.expires-now : 0;
+    let ready=Promise.resolve();
+    if (left < AWS_REFRESH_MARGIN_MS) {
+      const minting=this.#refreshAwsCredentials(slot,token.profile,token.ttl);
+      // what we have is still worth handing out: do that now, and the aws cli
+      // will be back for the new set before it needs it
+      if (left < AWS_USABLE_MS) ready=minting;
+    }
+    return ready.then(()=>{
+      console.log("sendAwsCredentials: aws profile",token.profile,"credentials, good for",
+        Math.round((slot.expires-Date.now())/60000),"more minutes");
+      res.setHeader('Content-Type','application/json');
+      res.setHeader('Cache-Control','no-store');
+      res.end(JSON.stringify({...slot.creds,Expiration:new Date(slot.expires).toISOString()}));
+    });
+  }
+
+  /**
+   * STS session credentials for local aws profile <profile>, from
+   * -aws-session-token. their expiry is taken from our own clock, a minute
+   * short, rather than parsed out of what STS said
+   *
+   * @return {Promise<{creds:object,expires:number}>}
+   */
+  #mintAwsCredentials(profile,ttl) {
+    return new Promise((resolve,reject)=>{
+      const started=Date.now();
+      const p=spawn("/usr/bin/env",['bash','-c','"$@"','--','-aws-session-token',profile,String(ttl)],
+        {stdio:['ignore','pipe',process.stderr]});
+      const out=[];
+      p.on("error",reject);
+      p.stdout.on('data',data=>out.push(data));
+      p.on('close',rc=>{
+        const lines=Buffer.concat(out).toString();
+        const field=k=>(lines.match(new RegExp(`^${k}=(.*)$`,'m')) || [])[1];
+        const creds={
+          AccessKeyId:field('AWS_ACCESS_KEY_ID'),
+          SecretAccessKey:field('AWS_SECRET_ACCESS_KEY'),
+          Token:field('AWS_SESSION_TOKEN'),
+        };
+        if (rc!==0 || !creds.AccessKeyId || !creds.SecretAccessKey || !creds.Token) {
+          const e=new Error(`mintAwsCredentials: could not get credentials for aws profile ${profile}`);
+          e.statusCode=503;
+          return reject(e);
+        }
+        console.log("mintAwsCredentials: minted credentials for aws profile",profile);
+        resolve({creds,expires:started+ttl*1000-60000});
+      });
+    });
+  }
+
+  #awsSlot(grantKey) {
+    let slot=this.#awsCreds.get(grantKey);
+    if (!slot) {
+      slot={};
+      this.#awsCreds.set(grantKey,slot);
+    }
+    return slot;
+  }
+
+  // mint a new set of credentials into <slot>, unless that is already under way:
+  // concurrent requests from several commands share one STS call. a failure is
+  // logged here as well as returned, since a background refresh has nobody
+  // waiting on it to report it
+  #refreshAwsCredentials(slot,profile,ttl) {
+    if (!slot.pending) {
+      slot.pending=this.#mintAwsCredentials(profile,ttl)
+        .then(minted=>{ Object.assign(slot,minted); })
+        .finally(()=>{ slot.pending=null; });
+      slot.pending.catch(e=>console.error(e.toString()));
+    }
+    return slot.pending;
+  }
+
+  // forget approvals, tokens and credentials nothing can use any more
+  #pruneAws(now) {
+    for (const [k,until] of this.#awsGrants) {
+      if (until<=now) this.#awsGrants.delete(k);
+    }
+    const live=new Set();
+    for (const [h,t] of this.#awsTokens) {
+      if (now-t.lastUsed > t.ttl*2000 || now-t.created > SCR_AWS_REMOTE_MAX*1000) {
+        this.#awsTokens.delete(h);
+      } else {
+        live.add(t.grantKey);
+      }
+    }
+    for (const k of this.#awsCreds.keys()) {
+      if (!live.has(k)) this.#awsCreds.delete(k);
+    }
+  }
+
+  #sha256(s) {
+    return crypto.createHash('sha256').update(s).digest('hex');
   }
 
   sendErrorResponse(res,e,statusCode=500) {

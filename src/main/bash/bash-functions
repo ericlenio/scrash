@@ -1814,15 +1814,20 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 
 # aws cli wrapper. on the scrash machine it is just the aws cli, reading ~/.aws
 # itself. anywhere we have ssh'd to, ~/.aws stays where it is: the profile is
-# taken off the command line, the server mints short-lived STS credentials for it
-# after the local user approves (-aws-localhost), and those go to the real aws
-# cli in its environment for this one invocation.
+# taken off the command line, and once the local user has approved
+# (-aws-localhost) the server issues a token for it (getAwsToken in Server.js).
+# the real aws cli gets that token and the server's address as a container
+# credentials endpoint (AWS_CONTAINER_CREDENTIALS_FULL_URI, over the port
+# forwarded back to the server), so it fetches STS session credentials itself,
+# and fetches fresh ones whenever they are close to expiring: a command can run
+# for as long as it needs to.
 #
-# what that leaves on the remote is a credential that dies in minutes (900s by
-# default) and cannot reach IAM, in the environment of one aws process and in a
-# non-exported variable of this shell -- never in argv and never on disk. root
-# there can still read it while it lives; nothing short of running aws on the
-# scrash machine instead avoids that.
+# what that leaves on the remote is a token in the environment of one aws
+# process, which stops working soon after the process stops using it, and the
+# credentials the aws cli holds in memory -- never in argv and never on disk.
+# root there can still read either while they last; nothing short of running
+# aws on the scrash machine instead avoids that. a command needs the ssh
+# connection, and the scrash server, for as long as it runs.
 #
 # only the profiles listed in $SCR_AWS_REMOTE_PROFILES (set by the server at
 # boot) are handled this way. any other aws command runs the real aws cli
@@ -1835,7 +1840,8 @@ aws() {
     command aws "$@"
     return $?
   fi
-  local profile=${AWS_PROFILE:-${AWS_DEFAULT_PROFILE:-default}} args=() need_creds=1 orig=("$@") p ours=0
+  local profile=${AWS_PROFILE:-${AWS_DEFAULT_PROFILE:-default}} args=() need_creds=1 orig=("$@") p ours=0 \
+    body line token= region=
   while [ $# -gt 0 ]; do
     case $1 in
       (--profile)
@@ -1867,76 +1873,49 @@ aws() {
     command aws "${orig[@]}"
     return $?
   fi
+  # the port moves when gnu screen is reattached; -ws-signed refreshes it too,
+  # but in a subshell, and the aws cli has to be told the current one
+  [ "$STY" ] && -screen-env
   if [ $need_creds = 1 ]; then
-    # one approval covers a burst of commands: reuse what we have for this
-    # profile until a minute before it expires. $SECONDS rather than the clock,
-    # so skew between here and the scrash machine does not matter
-    if [ "$__scr_aws_profile" != "$profile" ] || [ $SECONDS -ge ${__scr_aws_until:-0} ]; then
-      -aws-credentials "$profile" || return 1
+    if ! body=$(-ws-signed /scr-get-aws-token "args64=$(-url-escape-b64 "$(-serialize-args "$profile")")"); then
+      echo "$FUNCNAME: no credentials for aws profile $profile (not allowed, not approved, or the server could not get them)" >&2
+      return 1
+    fi
+    # the response is signed (-ws-signed), and still nothing is kept that does
+    # not look like what it should. a process substitution, not a here-string:
+    # bash before 5.1 writes a here-string to a temporary file
+    while IFS= read -r line; do
+      case $line in
+        (SCR_AWS_TOKEN=*)
+          [[ ${line#*=} =~ ^[a-f0-9]{64}$ ]] && token=${line#*=}
+          ;;
+        (AWS_DEFAULT_REGION=*)
+          [[ ${line#*=} =~ ^[a-z0-9-]*$ ]] && region=${line#*=}
+          ;;
+      esac
+    done < <(printf '%s\n' "$body")
+    if [ -z "$token" ]; then
+      echo "$FUNCNAME: malformed response for aws profile $profile" >&2
+      return 1
     fi
   fi
   # a subshell so the exports reach only the aws process. the profile it was
-  # given means nothing here, and the remote's own ~/.aws must not mix in
+  # given means nothing here, the remote's own ~/.aws must not mix in, and
+  # nothing the aws cli would rank above the endpoint may be left set
   (
-    unset AWS_PROFILE AWS_DEFAULT_PROFILE
+    unset AWS_PROFILE AWS_DEFAULT_PROFILE AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
+      AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_SESSION_NAME \
+      AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE
     export AWS_CONFIG_FILE=/dev/null AWS_SHARED_CREDENTIALS_FILE=/dev/null
     if [ $need_creds = 1 ]; then
-      export AWS_ACCESS_KEY_ID=$__scr_aws_key AWS_SECRET_ACCESS_KEY=$__scr_aws_secret AWS_SESSION_TOKEN=$__scr_aws_token
-      if [ -z "$AWS_REGION$AWS_DEFAULT_REGION" -a "$__scr_aws_region" ]; then
-        export AWS_DEFAULT_REGION=$__scr_aws_region
+      export AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:$SCR_PORT/scr-aws-credentials \
+        AWS_CONTAINER_AUTHORIZATION_TOKEN=$token
+      if [ -z "$AWS_REGION$AWS_DEFAULT_REGION" -a "$region" ]; then
+        export AWS_DEFAULT_REGION=$region
       fi
     fi
     exec aws "${args[@]}"
   )
-}
-
-# fetch credentials for profile $1 into this shell's (non-exported) __scr_aws_*
-# variables, for aws() above. the response is signed (-ws-signed), and every value
-# is checked against what an AWS credential can look like before it is kept: it
-# comes from the far end of a port any local user could be answering on
--aws-credentials() {
-  local profile="$1" body line k v key= secret= token= region= ttl=
-  if ! body=$(-ws-signed /scr-get-aws-credentials "args64=$(-url-escape-b64 "$(-serialize-args "$profile")")"); then
-    echo "$FUNCNAME: no credentials for aws profile $profile (not allowed, not approved, or the server could not get them)" >&2
-    return 1
-  fi
-  # a process substitution, not a here-string: bash before 5.1 writes a
-  # here-string to a temporary file
-  while IFS= read -r line; do
-    k=${line%%=*}
-    v=${line#*=}
-    case $k in
-      (AWS_ACCESS_KEY_ID)
-        [[ $v =~ ^[A-Z0-9]+$ ]] && key=$v
-        ;;
-      (AWS_SECRET_ACCESS_KEY)
-        [[ $v =~ ^[A-Za-z0-9/+=]+$ ]] && secret=$v
-        ;;
-      (AWS_SESSION_TOKEN)
-        [[ $v =~ ^[A-Za-z0-9/+=]+$ ]] && token=$v
-        ;;
-      (AWS_DEFAULT_REGION)
-        [[ $v =~ ^[a-z0-9-]*$ ]] && region=$v
-        ;;
-      (SCR_AWS_TTL)
-        [[ $v =~ ^[0-9]+$ ]] && ttl=$v
-        ;;
-    esac
-  done < <(printf '%s\n' "$body")
-  if [ -z "$key" -o -z "$secret" -o -z "$token" -o -z "$ttl" ]; then
-    echo "$FUNCNAME: malformed credentials for aws profile $profile" >&2
-    return 1
-  fi
-  __scr_aws_profile=$profile
-  __scr_aws_key=$key
-  __scr_aws_secret=$secret
-  __scr_aws_token=$token
-  __scr_aws_region=$region
-  __scr_aws_until=$((SECONDS + ttl - 60))
-  # under "set -a" every assignment above was also an export, which would hand
-  # the credentials to every child of this shell. never empty here (we just set
-  # them), which matters: a bare "export -n" lists the whole environment instead
-  export -n $(compgen -v __scr_)
 }
 
 #

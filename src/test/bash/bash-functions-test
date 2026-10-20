@@ -27,9 +27,12 @@
   printf '%s\n' \
     AWS_ACCESS_KEY_ID=ASIASCRASHTEST000001 \
     AWS_SECRET_ACCESS_KEY=scrash/test+secret= \
-    AWS_SESSION_TOKEN=scrash/test+token= \
-    AWS_DEFAULT_REGION=us-test-1 \
-    "SCR_AWS_TTL=$2"
+    AWS_SESSION_TOKEN=scrash/test+token=
+}
+
+# test double for -aws-profile-region: there is no scrash-test profile in ~/.aws
+-aws-profile-region() {
+  echo us-test-1
 }
 
 # runs a bash command in gnu screen, waiting for the command to finish

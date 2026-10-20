@@ -161,38 +161,63 @@ Finally, add `export SCR_PASSWORD_KEY_ID=xxxxxxxx` into your personal bashrc.
 On a host you have ssh'd to, `aws` works with the profiles in your local
 `~/.aws` without that directory ever leaving your machine. When you run, say,
 `aws --profile commcare s3 ls` there, the scrash server asks you to approve the
-request (in a new gnu screen window, as for a remote `-pw`), then mints
-short-lived STS session credentials for that profile with
-`aws sts get-session-token` and hands them to the remote aws cli in its
-environment for that one command. They are kept, unexported, in the remote shell
-until a minute before they expire, so one approval covers a burst of commands.
+request (in a new gnu screen window, as for a remote `-pw`). The remote aws cli
+then gets its credentials from the scrash server, through the port every remote
+shell already has forwarded back to it: short-lived STS session credentials,
+minted with `aws sts get-session-token`. The aws cli fetches new ones by itself
+before they expire, so a command can run for as long as it needs to -- a large
+database dump streamed to S3, say. Nothing is written to the remote's disk, and
+no config file is needed there.
+
+One approval covers that remote session and profile for `SCR_AWS_REMOTE_TTL`
+(an hour by default): every aws command the session starts in that time,
+including from subshells, pipelines and scripts, goes ahead without asking
+again. The window runs from the approval and is not extended by later commands;
+a command that is already running carries on regardless. Another session, a
+further ssh hop or another profile is asked about separately.
 
 This only happens for the profiles you list in `$HOME/.config/scrash/config`;
 any other `aws` command on a remote host runs the real aws cli untouched, so a
 host with an EC2 instance role or its own `~/.aws` works as it always did. With
 nothing listed (the default) the wrapper stays out of the way entirely:
 
-    SCR_AWS_REMOTE_PROFILES="default commcare"
-    # optional: credential lifetime in seconds, 900 (the default) to 43200
-    SCR_AWS_REMOTE_TTL=900
+    SCR_AWS_REMOTE_PROFILES="lincware commcare"
+    # optional: credential lifetime, and how long one approval covers a session,
+    # in seconds: 1800 to 43200, default 3600
+    SCR_AWS_REMOTE_TTL=3600
+    # optional: the longest one remote aws command can keep getting credentials,
+    # in seconds, default 86400 (a day)
+    SCR_AWS_REMOTE_MAX=86400
 
 What this does and does not protect against:
 
 * your long-lived keys never reach the remote, in any form
-* the minted credentials are never in a command line or on disk there, and
-  cannot call IAM (STS session credentials cannot, without MFA)
-* root on the remote can still read them out of the running aws process while
-  they last
+* each aws command gets its own token for the scrash server, in its environment
+  only -- never in a command line, never on disk. a token is good for one
+  profile, stops working once its command has not used it for twice
+  `SCR_AWS_REMOTE_TTL` (a running command refreshes well before that), and
+  after `SCR_AWS_REMOTE_MAX` regardless
+* the credentials themselves live in the aws process's memory, and cannot call
+  IAM (STS session credentials cannot, without MFA)
+* root on the remote, or your own user there, can still read the token or the
+  credentials of a running command
 * every remote shell learns the *names* of the listed profiles (it needs them
   to know which commands to handle); whether a request is granted is still
   decided on your machine
 
+A remote aws command needs the ssh connection and your scrash server for as
+long as it runs, since that is where fresh credentials come from: if your
+machine sleeps or the connection drops for longer than the credentials have
+left, the command fails at its next request.
+
 For a listed profile, its region comes along unless you set one yourself, and
-the remote's own `~/.aws` is ignored. Credentials already in the remote environment
-(`AWS_ACCESS_KEY_ID`) are left alone, and `command aws` bypasses the wrapper
-even for a listed profile, e.g. to use an EC2 instance role when one of your
-listed profiles is `default`. Profiles that are themselves SSO or
+the remote's own `~/.aws` is ignored. Credentials already in the remote
+environment (`AWS_ACCESS_KEY_ID`) are left alone, and `command aws` bypasses the
+wrapper even for a listed profile, e.g. to use an EC2 instance role when one of
+your listed profiles is `default`. Profiles that are themselves SSO or
 assume-role profiles are not supported yet: GetSessionToken needs IAM user keys.
+The remote aws cli has to support `AWS_CONTAINER_CREDENTIALS_FULL_URI` with
+`AWS_CONTAINER_AUTHORIZATION_TOKEN`, which aws cli v2 does; an old v1 may not.
 
 # Testing
 Test cases are found in `./tests/*.test`, and they are just bash scripts that

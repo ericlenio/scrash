@@ -1,20 +1,30 @@
 # vim:filetype=bash
 
-# the aws() wrapper on a remote host asks the server for short-lived credentials
-# (-aws-localhost) and hands them to the real aws cli for one invocation. the
-# real STS is replaced by a test double (-aws-session-token in
-# src/test/bash/bash-functions-test) and the real aws cli by the script below,
-# which prints what it was given
+# the aws() wrapper on a remote host asks the server for a token (getAwsToken,
+# after -aws-localhost has approved) and hands it to the real aws cli along with
+# the address of the server's credentials endpoint (sendAwsCredentials). the real
+# STS is replaced by a test double (-aws-session-token in
+# src/test/bash/bash-functions-test), and the real aws cli by the script below,
+# which fetches its credentials from that endpoint the way the aws cli does
+# ($FAKE_AWS_FETCHES times, to stand in for its refreshes) and prints what it got
+# and what it was given
 
 aws_bin=$TEST_REMOTE_TMPDIR/aws-bin
 mkdir -m 755 -p $aws_bin
 cat > $aws_bin/aws <<'AWS'
 #!/usr/bin/env bash
+creds=
+if [ "$AWS_CONTAINER_CREDENTIALS_FULL_URI" ]; then
+  for ((i=0; i<${FAKE_AWS_FETCHES:-1}; i++)); do
+    creds=$(curl -sf -H "Authorization: $AWS_CONTAINER_AUTHORIZATION_TOKEN" \
+      "$AWS_CONTAINER_CREDENTIALS_FULL_URI") || creds=FAILED
+  done
+fi
 printf '%s\n' \
   "args=$*" \
+  "creds=$creds" \
+  "uri=$AWS_CONTAINER_CREDENTIALS_FULL_URI" \
   "key=$AWS_ACCESS_KEY_ID" \
-  "secret=$AWS_SECRET_ACCESS_KEY" \
-  "token=$AWS_SESSION_TOKEN" \
   "region=$AWS_DEFAULT_REGION" \
   "profile=$AWS_PROFILE" \
   "config=$AWS_CONFIG_FILE" \
@@ -30,6 +40,7 @@ chmod 755 $aws_bin/aws
 
 sts_calls=$SCR_TMPDIR-aws-sts-calls
 pw_approve_flag=$SCR_TMPDIR-pw-confirm-approve
+good_creds='"AccessKeyId":"ASIASCRASHTEST000001","SecretAccessKey":"scrash/test+secret=","Token":"scrash/test+token=","Expiration":"'
 rm -f $sts_calls
 touch $pw_approve_flag
 
@@ -37,44 +48,67 @@ touch $pw_approve_flag
 # here, so the profile goes through to the aws cli untouched and nothing is minted
 out=$(PATH=$aws_bin:$PATH aws --profile scrash-test s3 ls)
 [[ $out = *"args=--profile scrash-test s3 ls"* ]]
-[[ $out = *"key="$'\n'* ]]
+[[ $out = *"uri="$'\n'* ]]
 [ ! -e $sts_calls ]
 
-# remotely: the profile is taken off the command line and replaced by the
-# minted credentials, with the profile's region, and the remote's own ~/.aws
-# is kept out of it
+# remotely: the profile is taken off the command line, the aws cli gets its
+# credentials from the server, with the profile's region, and the remote's own
+# ~/.aws is kept out of it. the credentials are minted when the aws cli first
+# asks, with the default lifetime
 out=$(-ssh-aws 'aws --profile scrash-test s3 ls')
 [[ $out = *"args=s3 ls"* ]]
-[[ $out = *"key=ASIASCRASHTEST000001"* ]]
-[[ $out = *"secret=scrash/test+secret="* ]]
-[[ $out = *"token=scrash/test+token="* ]]
+[[ $out = *"creds={$good_creds"* ]]
+[[ $out = *"uri=http://127.0.0.1:"*"/scr-aws-credentials"* ]]
+[[ $out = *"key="$'\n'* ]]
 [[ $out = *"region=us-test-1"* ]]
 [[ $out = *"profile="$'\n'* ]]
 [[ $out = *"config=/dev/null"* ]]
 [[ $out = *"credentials=/dev/null"* ]]
-[ "$(cat $sts_calls)" = "scrash-test 900" ]
+[ "$(cat $sts_calls)" = "scrash-test 3600" ]
 
-# AWS_PROFILE selects the profile too, --profile=x is the same as --profile x,
-# and one approval covers every command in a shell until the credentials are
-# about to expire
-rm -f $sts_calls
+# AWS_PROFILE selects the profile too, and --profile=x is the same as --profile x
 out=$(-ssh-aws 'AWS_PROFILE=scrash-test aws s3 ls; aws --profile=scrash-test ec2 describe-instances')
 [[ $out = *"args=s3 ls"* ]]
 [[ $out = *"args=ec2 describe-instances"* ]]
-[ $(wc -l < $sts_calls) -eq 1 ]
-
-# the cached credentials stay out of the environment even under "set -a", where
-# every assignment is an export: a child of the shell sees none of them
-out=$(-ssh-aws 'set -a; aws --profile scrash-test s3 ls >/dev/null; env | grep -c "^__scr_aws_" || true')
-[ "$out" = 0 ]
+[ $(grep -c "creds={$good_creds" <<< "$out") = 2 ]
 
 # a script running under "set -u" gets the wrapper too, since it is exported:
 # it must not die with "unbound variable" (AWS_ACCESS_KEY_ID, STY, ...), for
 # our profiles or anybody else's, and nounset must still be on afterwards
 out=$(-ssh-aws 'unset STY; set -u; aws --profile not-ours s3 ls; aws --profile scrash-test s3 ls; [[ $- = *u* ]] && echo nounset-kept')
 [[ $out = *"args=--profile not-ours s3 ls"* ]]
-[[ $out = *"key=ASIASCRASHTEST000001"* ]]
+[[ $out = *"creds={$good_creds"* ]]
 [[ $out = *nounset-kept* ]]
+
+# a script calls aws from pipelines and $(...), over and over. one approval
+# covers the whole session: with it withdrawn after the first command (the flag
+# file is the test double's answer) the same session carries on without being
+# asked. every command gets its own token, and they all share one set of
+# credentials, minted once
+rm -f $sts_calls
+out=$(-ssh-aws "echo | aws --profile scrash-test s3 ls; rm $pw_approve_flag; echo | aws --profile scrash-test s3 ls; x=\$(aws --profile scrash-test s3 ls); echo \"\$x\"")
+[ $(grep -c "creds={$good_creds" <<< "$out") = 3 ]
+[ $(wc -l < $sts_calls) -eq 1 ]
+# ...but a session that was never approved is asked, and here refused
+! out=$(-ssh-aws 'aws --profile scrash-test s3 ls' 2>/dev/null) || false
+[[ $out != *"args="* ]]
+touch $pw_approve_flag
+
+# a running command comes back for credentials as often as it needs to (the
+# aws cli refreshes them before they expire), and its token keeps working
+# whether or not the session would be approved now
+rm -f $sts_calls
+out=$(-ssh-aws "FAKE_AWS_FETCHES=1 aws --profile scrash-test s3 ls >/dev/null; rm $pw_approve_flag; FAKE_AWS_FETCHES=5 aws --profile scrash-test s3 cp - s3://bucket/key")
+[[ $out = *"creds={$good_creds"* ]]
+[ $(wc -l < $sts_calls) -eq 1 ]
+touch $pw_approve_flag
+
+# the credentials endpoint is not signed -- the aws cli can only send a fixed
+# header -- so it is the token or nothing
+for hdr in "" "Authorization: 0000000000000000000000000000000000000000000000000000000000000000" "Authorization: not-a-token"; do
+  rc=0; curl -sf ${hdr:+-H "$hdr"} "http://127.0.0.1:$SCR_PORT/scr-aws-credentials" >/dev/null 2>&1 || rc=$?
+  [ $rc = 22 ]
+done
 
 # a region the user asked for wins over the profile's
 out=$(-ssh-aws 'AWS_DEFAULT_REGION=eu-west-9 aws --profile scrash-test s3 ls')
@@ -84,13 +118,14 @@ out=$(-ssh-aws 'AWS_DEFAULT_REGION=eu-west-9 aws --profile scrash-test s3 ls')
 rm -f $sts_calls
 out=$(-ssh-aws 'aws --version')
 [[ $out = *"args=--version"* ]]
-[[ $out = *"key="$'\n'* ]]
+[[ $out = *"uri="$'\n'* ]]
 [ ! -e $sts_calls ]
 
 # credentials the remote already has in its environment are its business
 out=$(-ssh-aws 'AWS_ACCESS_KEY_ID=AKIAREMOTE aws --profile scrash-test s3 ls')
 [[ $out = *"args=--profile scrash-test s3 ls"* ]]
 [[ $out = *"key=AKIAREMOTE"* ]]
+[[ $out = *"uri="$'\n'* ]]
 [ ! -e $sts_calls ]
 
 # a profile that is not in SCR_AWS_REMOTE_PROFILES is not ours: the real aws cli
@@ -98,7 +133,7 @@ out=$(-ssh-aws 'AWS_ACCESS_KEY_ID=AKIAREMOTE aws --profile scrash-test s3 ls')
 # own (an EC2 instance role, its own ~/.aws), and the server is never asked
 out=$(-ssh-aws 'aws --profile not-ours s3 ls')
 [[ $out = *"args=--profile not-ours s3 ls"* ]]
-[[ $out = *"key="$'\n'* ]]
+[[ $out = *"uri="$'\n'* ]]
 [[ $out = *"config="$'\n'* ]]
 out=$(-ssh-aws 'AWS_PROFILE=not-ours aws s3 ls')
 [[ $out = *"args=s3 ls"* ]]
@@ -109,22 +144,19 @@ out=$(-ssh-aws 'AWS_PROFILE=not-ours aws s3 ls')
 # way entirely, even for a profile the server would hand out
 out=$(-ssh-aws 'SCR_AWS_REMOTE_PROFILES= aws --profile scrash-test s3 ls')
 [[ $out = *"args=--profile scrash-test s3 ls"* ]]
-[[ $out = *"key="$'\n'* ]]
+[[ $out = *"uri="$'\n'* ]]
 [ ! -e $sts_calls ]
 
 # the list the remote holds only routes; the server decides. asked directly, it
 # refuses a profile that is not on its list, and a name that is not a plain
 # profile name
-! -ssh-aws '-aws-credentials not-ours' 2>/dev/null || false
-! -ssh-aws '-aws-credentials "scrash-test;x"' 2>/dev/null || false
+for profile in not-ours 'scrash-test;x'; do
+  ! -ssh-aws "-ws-signed /scr-get-aws-token \"args64=\$(-url-escape-b64 \"\$(-serialize-args '$profile')\")\"" 2>/dev/null || false
+done
 [ ! -e $sts_calls ]
 
 # without a signature the server says nothing at all
-if curl -f -s "http://127.0.0.1:$SCR_PORT/scr-get-aws-credentials?args64=$(-serialize-args scrash-test)" 2>/dev/null; then
-  rc=$?
-else
-  rc=$?
-fi
+rc=0; curl -f -s "http://127.0.0.1:$SCR_PORT/scr-get-aws-token?args64=$(-serialize-args scrash-test)" >/dev/null 2>&1 || rc=$?
 [ $rc = 22 ]
 
 # and a request the local user does not approve gets nothing either

@@ -188,19 +188,23 @@
 }
 
 # remote-request entry point for the aws() wrapper (bash-functions), reached
-# through getAwsCredentials in Server.js as "-aws-localhost -A <args64>", where
-# the one arg is an aws profile name. prints short-lived credentials for it as
-# KEY=value lines, which is the whole response body.
+# through getAwsToken in Server.js as "-aws-localhost -A <args64>", where the one
+# arg is an aws profile name. decides whether a remote session may have
+# credentials for that profile, and prints what the server needs to issue it a
+# token (SCR_AWS_PROFILE, AWS_DEFAULT_REGION, SCR_AWS_TTL as KEY=value lines).
+# the credentials themselves come later, from -aws-session-token, as the aws
+# cli asks for them.
 #
-# ~/.aws itself never leaves this machine. the remote gets STS session
+# ~/.aws itself never leaves this machine. the remote only ever sees STS session
 # credentials, and only for a profile listed in SCR_AWS_REMOTE_PROFILES
-# (space-separated, in ~/.config/scrash/config) that the local user has just
+# (space-separated, in ~/.config/scrash/config) that the local user has
 # approved. nothing is listed by default, so nothing is handed out by default.
 #
-# SCR_AWS_REMOTE_TTL sets their lifetime in seconds, default 900, the least STS
-# allows
+# SCR_AWS_REMOTE_TTL sets the credentials' lifetime in seconds, and how long one
+# approval covers a session: default 3600, at least 1800, because the aws cli
+# starts refreshing credentials 15 minutes before they expire
 -aws-localhost() {
-  local opt OPTIND args profile p allowed=0 ttl=${SCR_AWS_REMOTE_TTL:-900}
+  local opt OPTIND args profile p allowed=0 ttl=${SCR_AWS_REMOTE_TTL:-3600} region
   while builtin getopts "A:" opt; do
     case $opt in
       (A)
@@ -228,27 +232,42 @@
     echo "$FUNCNAME: aws profile $profile is not in SCR_AWS_REMOTE_PROFILES" >&2
     return 1
   fi
-  if ! [[ "$ttl" =~ ^[0-9]+$ ]] || [ $ttl -lt 900 -o $ttl -gt 43200 ]; then
-    echo "$FUNCNAME: SCR_AWS_REMOTE_TTL must be 900..43200 seconds" >&2
+  if ! [[ "$ttl" =~ ^[0-9]+$ ]] || [ $ttl -lt 1800 -o $ttl -gt 43200 ]; then
+    echo "$FUNCNAME: SCR_AWS_REMOTE_TTL must be 1800..43200 seconds" >&2
     return 1
   fi
   # the session id comes from Server.js, which verified it; the host name a
-  # remote could report about itself would not be worth showing
-  if ! SCR_CONFIRM_KIND="AWS credential" -pw-confirm "aws profile $profile for $ttl seconds (session ${SCR_REMOTE_SID:-unknown})"; then
+  # remote could report about itself would not be worth showing.
+  #
+  # SCR_AWS_PREAPPROVED is set by Server.js (getAwsToken), and only when the
+  # user approved this same request from this same session less than $ttl
+  # seconds ago; it always sets it, empty or not, so an inherited value cannot
+  # get through
+  if [ "$SCR_AWS_PREAPPROVED" != 1 ] &&
+    ! SCR_CONFIRM_KIND="AWS credential" -pw-confirm "aws profile $profile for session ${SCR_REMOTE_SID:-unknown}: every command it starts in the next $((ttl/60)) minutes"; then
     echo "$FUNCNAME: remote aws credential request denied" >&2
     return 1
   fi
-  -aws-session-token "$profile" "$ttl"
+  region=$(-aws-profile-region "$profile") || region=
+  printf '%s\n' \
+    "SCR_AWS_PROFILE=$profile" \
+    "AWS_DEFAULT_REGION=$region" \
+    "SCR_AWS_TTL=$ttl"
 }
 
-# STS session credentials for local aws profile $1, valid for $2 seconds, as the
-# KEY=value lines -aws-localhost hands back. the credentials only ever pass
-# through pipes and printf (a builtin), so they are never in an argv.
+# the region configured for local aws profile $1, if any
+-aws-profile-region() {
+  command aws configure get region --profile "$1"
+}
+
+# STS session credentials for local aws profile $1, valid for $2 seconds, as
+# KEY=value lines for Server.js (#mintAwsCredentials). the credentials only ever
+# pass through pipes and printf (a builtin), so they are never in an argv.
 #
 # GetSessionToken needs long-lived (IAM user) keys behind the profile, which is
 # what ~/.aws/credentials holds; an SSO or assume-role profile fails here
 -aws-session-token() {
-  local profile="$1" ttl="$2" key secret token region
+  local profile="$1" ttl="$2" key secret token
   read -r key secret token < <(command aws sts get-session-token --profile "$profile" \
     --duration-seconds "$ttl" --output text \
     --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]')
@@ -256,13 +275,10 @@
     echo "$FUNCNAME: sts get-session-token failed for aws profile $profile" >&2
     return 1
   fi
-  region=$(command aws configure get region --profile "$profile") || region=
   printf '%s\n' \
     "AWS_ACCESS_KEY_ID=$key" \
     "AWS_SECRET_ACCESS_KEY=$secret" \
-    "AWS_SESSION_TOKEN=$token" \
-    "AWS_DEFAULT_REGION=$region" \
-    "SCR_AWS_TTL=$ttl"
+    "AWS_SESSION_TOKEN=$token"
 }
 
 # Prompt the local user (in a fresh gnu screen window) to approve a remote
