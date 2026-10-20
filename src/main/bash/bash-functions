@@ -1,5 +1,24 @@
 # vim:filetype=bash
 
+# every scrash function is exported into every shell scrash starts, so a script
+# running under "set -u" calls them too -- a "bash -s" heredoc on a remote host,
+# say. scrash is not written for nounset: it tests variables such as $STY, which
+# is unset outside gnu screen, and aborted the caller with "unbound variable".
+# rather than audit everything each entry point can reach, the functions a script
+# is likely to call (aws, -s, ssh and its relatives, -pw) start with
+#
+#   case $- in (*u*) -without-nounset $FUNCNAME "$@"; return $?;; esac
+#
+# which runs them again with nounset off and puts it back afterwards. bash 4.4
+# has "local -" for this, but the bash 3.2 we still support does not
+-without-nounset() {
+  local rc=0
+  set +u
+  "$@" || rc=$?
+  set -u
+  return $rc
+}
+
 -log() {
   if [ $# = 0 ]; then
     if [ "$SCR_DEBUG" = 1 ]; then
@@ -1083,6 +1102,7 @@ vim() {
 # -s nobody
 # -s nobody whoami
 -s() {
+  case $- in (*u*) -without-nounset $FUNCNAME "$@"; return $?;; esac
   local user=${1:-root} start=1 script tty env_prefix
   [ $# -gt 0 ] && shift
   [ "$STY" ] && -screen-env
@@ -1225,14 +1245,17 @@ vim() {
 }
 
 ssh-add() {
+  case $- in (*u*) -without-nounset $FUNCNAME "$@"; return $?;; esac
   -sxx-init env $FUNCNAME "$@"
 }
 
 sftp() {
+  case $- in (*u*) -without-nounset $FUNCNAME "$@"; return $?;; esac
   -sxx-init env $FUNCNAME "$@"
 }
 
 scp() {
+  case $- in (*u*) -without-nounset $FUNCNAME "$@"; return $?;; esac
   -sxx-init env $FUNCNAME "$@"
 }
 
@@ -1286,6 +1309,7 @@ scp() {
 }
 
 ssh() {
+  case $- in (*u*) -without-nounset $FUNCNAME "$@"; return $?;; esac
   # link to ssh officially supported command line flags:
   # https://github.com/openssh/openssh-portable/blob/V_9_3_P1/ssh.c#L710
   local SCR_PORT_FORWARD bootstr OPTIND \
@@ -1775,6 +1799,7 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 # limitation: password cannot contain a colon because that is assumed to be the
 # delimiter here
 -pw() {
+  case $- in (*u*) -without-nounset $FUNCNAME "$@"; return $?;; esac
   if [ $SCR_SSH_LEVEL = 0 ]; then
     -pw-localhost "$@"
   else
@@ -1805,6 +1830,7 @@ bi_directional_pipe(\*STDIN,\*STDOUT,$socket);
 # always did. credentials already in the environment (AWS_ACCESS_KEY_ID) are
 # left alone too, and "command aws" skips all of this
 aws() {
+  case $- in (*u*) -without-nounset $FUNCNAME "$@"; return $?;; esac
   if [ "${SCR_SSH_LEVEL:-0}" = 0 -o "$AWS_ACCESS_KEY_ID" -o -z "$SCR_AWS_REMOTE_PROFILES" ]; then
     command aws "$@"
     return $?

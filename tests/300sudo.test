@@ -94,3 +94,7 @@ unset version_file err
 # "~~~")
 [[ $(-ssh-serialize-cmd echo '~~~') = *+* ]]
 [ "$(-s root echo '~~~')" = '~~~' ]
+
+# a script under "set -u" outside gnu screen (no $STY) can use -s too, and keeps
+# its nounset
+[ "$(unset STY; set -u; -s root echo hi; [[ $- = *u* ]] && echo nounset-kept)" = hi$'\n'nounset-kept ]

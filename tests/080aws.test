@@ -68,6 +68,14 @@ out=$(-ssh-aws 'AWS_PROFILE=scrash-test aws s3 ls; aws --profile=scrash-test ec2
 out=$(-ssh-aws 'set -a; aws --profile scrash-test s3 ls >/dev/null; env | grep -c "^__scr_aws_" || true')
 [ "$out" = 0 ]
 
+# a script running under "set -u" gets the wrapper too, since it is exported:
+# it must not die with "unbound variable" (AWS_ACCESS_KEY_ID, STY, ...), for
+# our profiles or anybody else's, and nounset must still be on afterwards
+out=$(-ssh-aws 'unset STY; set -u; aws --profile not-ours s3 ls; aws --profile scrash-test s3 ls; [[ $- = *u* ]] && echo nounset-kept')
+[[ $out = *"args=--profile not-ours s3 ls"* ]]
+[[ $out = *"key=ASIASCRASHTEST000001"* ]]
+[[ $out = *nounset-kept* ]]
+
 # a region the user asked for wins over the profile's
 out=$(-ssh-aws 'AWS_DEFAULT_REGION=eu-west-9 aws --profile scrash-test s3 ls')
 [[ $out = *"region=eu-west-9"* ]]
