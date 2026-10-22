@@ -645,24 +645,25 @@ EOF
 
 -ec2() (
   set -e
+  local aws_profile=lincware
 
   usage() {
-    echo 'usage: ${FUNCNAME[2]} [-h][-d][-p profile]
+    echo "usage: ${FUNCNAME[2]} [-h][-d][-p profile]
 simple front end for LincWare AWS EC2 operations
 -h: this help
--p: specify a particular AWS credentials
+-p: specify a particular AWS CLI profile (default=$aws_profile)
 -d: pass --dry-run flag to ec2 command
 
 set up ~/.aws/config (or set AWS_DEFAULT_OUTPUT, AWS_DEFAULT_REGION):
-  [default]
+  [client_identifier]
   output = json
   region = us-east-1
 
 and ~/.aws/credentials (or set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY):
-  [default]
+  [client_identifier]
   aws_access_key_id = AKIAXXXXXXXXXXXXXXXX
   aws_secret_access_key = XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-'
+"
   }
 
   local VM_INSTANCE_DATA=() VM_INSTANCE_IDX dry_run=0 \
@@ -822,7 +823,7 @@ and ~/.aws/credentials (or set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY):
   }
 
   main() {
-    local opt opts=hdp: OPTIND choice fcn_array fcn fcn_args n_fcn_args i arg instance_idx PS3 aws_profile=lincware
+    local opt opts=hdp: OPTIND choice fcn_array fcn fcn_args n_fcn_args i arg instance_idx PS3
     while builtin getopts $opts opt; do
       case $opt in
         (h) usage
@@ -861,13 +862,23 @@ and ~/.aws/credentials (or set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY):
   main "$@"
 )
 
+_ec2-declare() {
+  local clients=(commcare commcare-test fundltc ohana cedarhurst) i client funcdef
+  for ((i=0;i<${#clients[@]};i++)); do
+    client=${clients[$i]}
+    printf -v funcdef -- "-ec2%s() { -ec2 -p %s; }" $client $client
+    eval -- "$funcdef"
+  done
+}
+_ec2-declare && unset -f _ec2-declare
+
 # load the LincWare devops secrets into vim:
 # https://us-east-1.console.aws.amazon.com/secretsmanager/secret?name=lincware-devops&region=us-east-1
 -ec2-secrets() (
-  set -e -o pipefail
+  set -eo pipefail
 
   local AWS_DEFAULT_REGION=us-east-1 AWS_PAGER= \
-    secret_id=lincware-devops aws_profile=default as_json=0
+    secret_id=lincware-devops aws_profile=lincware as_json=0
 
   # deliberately not "local": the EXIT trap runs after the function frames are
   # popped, so cleanup would see an empty value. Safe because we are a subshell.
