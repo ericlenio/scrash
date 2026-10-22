@@ -765,11 +765,34 @@ and ~/.aws/credentials (or set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY):
   }
 
   edit_instance_in_browser() {
-    local instance_idx=$1 instance_id url
+    local instance_idx=$1 instance_id console_url url
     instance_id=$(get_instance_id $instance_idx)
-    printf -v url "https://%s.console.aws.amazon.com/ec2/home?region=%s#InstanceDetails:instanceId=%s" $AWS_DEFAULT_REGION $AWS_DEFAULT_REGION $instance_id
+    printf -v console_url "https://%s.console.aws.amazon.com/ec2/home?region=%s#InstanceDetails:instanceId=%s" $AWS_DEFAULT_REGION $AWS_DEFAULT_REGION $instance_id
+    url=$(console_signin_url "$console_url")
     printf %s "$url" | -set-clipboard
-    echo "URL is copied to clipboard ($url)"
+    echo "sign-in URL is copied to clipboard (single use, valid 15 minutes, lands on $console_url)"
+  }
+
+  # trade the profile's IAM user keys for a federated console sign-in URL, so
+  # the browser goes straight to destination_url without a password prompt.
+  # The policy below grants nothing extra: a federated session gets only the
+  # intersection of it and the IAM user's own permissions.
+  console_signin_url() {
+    local destination_url=$1 creds session resp signin_token destination
+    creds=$(aws sts get-federation-token --profile $aws_profile \
+      --name "${USER:-scrash}" \
+      --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}' \
+      --output json)
+    session=$(jq -c '{sessionId:.Credentials.AccessKeyId,sessionKey:.Credentials.SecretAccessKey,sessionToken:.Credentials.SessionToken}' <<<"$creds")
+    resp=$(curl -sSf --get https://signin.aws.amazon.com/federation \
+      --data-urlencode Action=getSigninToken --data-urlencode "Session=$session")
+    signin_token=$(jq -r '.SigninToken // empty' <<<"$resp")
+    if [ -z "$signin_token" ]; then
+      echo "$FUNCNAME: no sign-in token from AWS federation endpoint" >&2
+      return 1
+    fi
+    destination=$(jq -rn --arg u "$destination_url" '$u|@uri')
+    echo "https://signin.aws.amazon.com/federation?Action=login&Issuer=scrash&Destination=$destination&SigninToken=$signin_token"
   }
 
   ec2_instance_cmd() {
@@ -835,6 +858,10 @@ and ~/.aws/credentials (or set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY):
           ;;
       esac
     done
+    # use the profile's own region (e.g., ohana is us-west-2) so the console
+    # URLs match the instances the CLI lists
+    AWS_DEFAULT_REGION=$(aws configure get region --profile $aws_profile || true)
+    AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
     PS3="choose an operation (1-${#VM_MENU_CHOICES[@]}): "
     select choice in "${VM_MENU_CHOICES[@]}"; do
       fcn_array=($choice)
