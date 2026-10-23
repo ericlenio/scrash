@@ -702,7 +702,8 @@ and ~/.aws/credentials (or set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY):
       "console_output VM_INSTANCE_ID" 
       "console_screenshot VM_INSTANCE_ID" 
       "edit_instance_in_browser VM_INSTANCE_ID"
-      "reboot VM_INSTANCE_ID" 
+      "reboot VM_INSTANCE_ID"
+      "serial_console VM_INSTANCE_ID"
       "ssh_root VM_INSTANCE_ID"
       "start VM_INSTANCE_ID" 
       "status" 
@@ -784,6 +785,45 @@ and ~/.aws/credentials (or set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY):
     local instance_idx=$1 ip
     ip=$(get_private_ip $instance_idx)
     ssh root@$ip
+  }
+
+  # interactive EC2 serial console: push a throwaway key (AWS honors it for 60
+  # seconds) and ssh to the serial console endpoint. Needs a Nitro instance,
+  # serial console access enabled for the account/region, and an OS user with
+  # a password to log in at the console prompt. "~." disconnects.
+  serial_console() {
+    local instance_idx=$1 instance_id state enabled key_dir rc=0
+    instance_id=$(get_instance_id $instance_idx)
+    validate_instance_id "$instance_id"
+    state=$(get_instance_state $instance_idx)
+    if [ "$state" != running ]; then
+      echo "$FUNCNAME: instance is $state, not running" >&2
+      return 1
+    fi
+    enabled=$(aws ec2 get-serial-console-access-status --profile $aws_profile \
+      --query SerialConsoleAccessEnabled --output text)
+    if [ "$enabled" != True ]; then
+      echo "$FUNCNAME: serial console access is disabled in $AWS_DEFAULT_REGION; enable it with:
+  aws ec2 enable-serial-console-access --profile $aws_profile" >&2
+      return 1
+    fi
+    if [ $dry_run = 1 ]; then
+      echo "$FUNCNAME: dry run, not connecting to $instance_id"
+      return
+    fi
+    key_dir=$(mktemp -d)
+    ssh-keygen -q -t ed25519 -N '' -C scrash-serial-console -f $key_dir/key
+    if aws ec2-instance-connect send-serial-console-ssh-public-key \
+        --profile $aws_profile --instance-id $instance_id --serial-port 0 \
+        --ssh-public-key file://$key_dir/key.pub --output text >/dev/null; then
+      echo "connecting to serial console of $instance_id (\"~.\" to disconnect, press enter for a login prompt)"
+      ssh -i $key_dir/key -o IdentitiesOnly=yes \
+        $instance_id.port0@serial-console.ec2-instance-connect.$AWS_DEFAULT_REGION.aws || true
+    else
+      rc=1
+    fi
+    rm -rf $key_dir
+    return $rc
   }
 
   edit_instance_in_browser() {
