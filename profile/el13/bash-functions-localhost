@@ -1,4 +1,9 @@
 # vim:filetype=bash
+
+# the LincWare clients with their own AWS account; each one gets an -ec2<client>
+# and -rds<client> wrapper (see _aws-client-declare) for its ~/.aws profile
+LINCWARE_AWS_CLIENTS=(commcare commcare-test fundltc ohana cedarhurst)
+
 -edit() {
   cd "$SCR_GIT_PROJECT_DIR"
   vim -S <(
@@ -934,13 +939,14 @@ and ~/.aws/credentials (or set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY):
   local aws_profile=lincware
 
   usage() {
-    echo "usage: ${FUNCNAME[2]} [-h][-p profile][-t window][-m db_id [-w seconds]]
+    echo "usage: ${FUNCNAME[2]} [-h][-p profile][-t window][-m db_id [-w]]
 simple front end for LincWare AWS RDS instances
 -h: this help
 -p: specify a particular AWS CLI profile (default=$aws_profile)
 -t: how far back metrics, top_sql and events look: Nm, Nh or Nd (default=$window)
 -m: skip the menu and print the metrics for db_id
--w: with -m, redraw the metrics every N seconds until interrupted
+-w: with -m, redraw the metrics every minute until interrupted; RDS
+    publishes its metrics once a minute, so refreshing faster shows nothing new
 
 Uses the same ~/.aws/config and ~/.aws/credentials setup as -ec2."
   }
@@ -986,7 +992,7 @@ Uses the same ~/.aws/config and ~/.aws/credentials setup as -ec2."
       "ReplicaLag:replica lag s:num"
       "BurstBalance:burst balance %:pct"
       "CPUCreditBalance:CPU credits:num"
-    ) red= yellow= reset=
+    ) red= yellow= reset= spark_colors=()
 
   rds_aws() {
     aws --profile $aws_profile --region $region "$@"
@@ -1120,8 +1126,21 @@ Uses the same ~/.aws/config and ~/.aws/credentials setup as -ec2."
     pi_top db.sql_tokenized db.sql_tokenized.statement
   }
 
+  # the get-metric-data queries for every metric in RDS_METRICS, at the
+  # given period. Ids are m<index into RDS_METRICS>.
+  metric_queries() {
+    local db_id=$1 period=$2
+    printf '%s\n' "${RDS_METRICS[@]}" | jq -R . | jq -sc --arg db $db_id --argjson p $period '
+      to_entries | map({
+        Id: "m\(.key)",
+        MetricStat: {
+          Metric: {Namespace: "AWS/RDS", MetricName: (.value | split(":")[0]),
+                   Dimensions: [{Name: "DBInstanceIdentifier", Value: $db}]},
+          Period: $p, Stat: "Average"}})'
+  }
+
   metrics() {
-    local db_idx=$1 db_id db_class end vcpus queries row label now avg peak note level trend color
+    local db_idx=$1 db_id db_class end vcpus row label now avg peak note level trend color
     db_id=$(get_db_info $db_idx db_id)
     db_class=$(get_db_info $db_idx db_class)
     # DB load only means something next to the vCPU count: load above it is
@@ -1130,21 +1149,21 @@ Uses the same ~/.aws/config and ~/.aws/credentials setup as -ec2."
     vcpus=$(rds_aws ec2 describe-instance-types --instance-types ${db_class#db.} \
       --query 'InstanceTypes[0].VCpuInfo.DefaultVCpus' --output text 2>/dev/null || true)
     [[ $vcpus =~ ^[0-9]+$ ]] || vcpus=null
-    queries=$(printf '%s\n' "${RDS_METRICS[@]}" | jq -R . | jq -sc --arg db $db_id --argjson p $period_s '
-      to_entries | map({
-        Id: "m\(.key)",
-        MetricStat: {
-          Metric: {Namespace: "AWS/RDS", MetricName: (.value | split(":")[0]),
-                   Dimensions: [{Name: "DBInstanceIdentifier", Value: $db}]},
-          Period: $p, Stat: "Average"}})')
     end=$(date +%s)
-    printf "%s  %s %s  %s  %s    last %s, %d-min points, %s\n" $db_id \
+    printf "%s  %s %s  %s  %s    last %s, %d-min points, now = latest minute, %s\n" $db_id \
       $(get_db_info $db_idx engine) $(get_db_info $db_idx engine_version) $db_class \
-      $(get_db_info $db_idx db_status) $window $((period_s/60)) "$(date '+%H:%M')"
+      $(get_db_info $db_idx db_status) $window $((period_s/60)) "$(date '+%H:%M:%S')"
     printf "%-20s %9s %9s %9s   %s\n" metric now avg peak trend
-    rds_aws cloudwatch get-metric-data --start-time $((end-window_s)) --end-time $end \
-      --scan-by TimestampAscending --metric-data-queries "$queries" --output json \
-      | jq -r --argjson vcpus $vcpus --argjson alloc_gib $(get_db_info $db_idx allocated_gib) \
+    # the window at $period_s for avg/peak/trend, then the last 10 minutes at
+    # 1-minute resolution for "now", so -w redraws show the newest minute
+    # rather than a 5-minute (or longer) average
+    {
+      rds_aws cloudwatch get-metric-data --start-time $((end-window_s)) --end-time $end \
+        --scan-by TimestampAscending --metric-data-queries "$(metric_queries $db_id $period_s)" --output json
+      rds_aws cloudwatch get-metric-data --start-time $((end-600)) --end-time $end \
+        --scan-by TimestampAscending --metric-data-queries "$(metric_queries $db_id 60)" --output json
+    } | jq -rs --argjson vcpus $vcpus --argjson alloc_gib $(get_db_info $db_idx allocated_gib) \
+          --argjson colors "$(jq -cn '$ARGS.positional' --args "${spark_colors[@]}")" --arg reset "$reset" \
           --args '
         def r1: . * 10 | round / 10;
         def human: if . >= 1073741824 then "\(. / 1073741824 | r1)G"
@@ -1155,9 +1174,25 @@ Uses the same ~/.aws/config and ~/.aws/credentials setup as -ec2."
           elif $unit == "bps" then human + "/s"
           elif $unit == "ms" then . * 1000 | r1 | tostring
           else r1 | tostring end;
-        def spark: min as $lo | max as $hi
-          | map(if $hi == $lo then 3 else (. - $lo) / ($hi - $lo) * 7 | round end
-                | "▁▂▃▄▅▆▇█"[.:.+1]) | join("");
+        # bar heights run over [$lo, $hi], clamped. Each bar is coloured by
+        # the fifth of that range it reaches, so red means above 80% -- or,
+        # with $low_is_bad, below 20%.
+        def spark($lo; $hi; $low_is_bad):
+          map((if $hi > $lo then (. - $lo) / ($hi - $lo) else 0 end
+               | if . < 0 then 0 elif . > 1 then 1 else . end) as $f
+              | ([$f * 5 | floor, 4] | min | if $low_is_bad then 4 - . else . end) as $band
+              | ($colors[$band] // "")
+                + "▁▂▃▄▅▆▇█"[($f * 7 | round):($f * 7 | round) + 1])
+          | join("") + (if $colors == [] then "" else $reset end);
+        # metrics with a natural ceiling get a fixed scale, so red there
+        # means high (or low) in absolute terms; the rest are scaled to their
+        # own window, where red means near its peak (or trough)
+        def spark_range($name; $v): if $name == "CPUUtilization" or $name == "BurstBalance" then [0, 100]
+          elif ($name | startswith("DBLoad")) and $vcpus != null then [0, $vcpus]
+          elif $name == "FreeStorageSpace" then [0, $alloc_gib * 1073741824]
+          else [($v | min), ($v | max)] end;
+        def low_is_bad($name):
+          $name | IN("FreeStorageSpace", "FreeableMemory", "BurstBalance", "CPUCreditBalance");
         # 2 = red, 1 = yellow, judged on the latest point
         def level($name; $now): if $name == "CPUUtilization" then
             (if $now >= 80 then 2 elif $now >= 60 then 1 else 0 end)
@@ -1171,20 +1206,23 @@ Uses the same ~/.aws/config and ~/.aws/credentials setup as -ec2."
           elif $name == "FreeStorageSpace" then
             "\($now / ($alloc_gib * 1073741824) * 100 | round)% of \($alloc_gib)G"
           else "" end;
-        .MetricDataResults[] | select(.Values | length > 0)
+        (.[1].MetricDataResults | map({(.Id): .Values[-1]}) | add) as $latest
+        | .[0].MetricDataResults[] | select(.Values | length > 0)
         | ($ARGS.positional[.Id[1:] | tonumber] | split(":")) as [$name, $label, $unit]
-        | .Values as $v | $v[-1] as $now
+        | .Values as $v | ($latest[.Id] // $v[-1]) as $now
         | [$label, ($now | fmt($unit)), ($v | add / length | fmt($unit)), ($v | max | fmt($unit)),
-           ($v | spark), note($name; $now), level($name; $now)]
+           (spark_range($name; $v) as [$lo, $hi] | $v | spark($lo; $hi; low_is_bad($name))),
+           note($name; $now), level($name; $now)]
         | join("\u001f")' "${RDS_METRICS[@]}" \
       | while IFS=$'\x1f' read -r label now avg peak trend note level; do
           case $level in (2) color=$red ;; (1) color=$yellow ;; (*) color= ;; esac
-          printf "%s%-20s %9s %9s %9s   %s  %s%s\n" "$color" "$label" $now $avg $peak $trend "$note" "${color:+$reset}"
+          printf "%s%-20s %9s %9s %9s%s   %s  %s%s%s\n" "$color" "$label" $now $avg $peak "${color:+$reset}" \
+            $trend "$color" "$note" "${color:+$reset}"
         done
   }
 
   main() {
-    local opt opts=hp:t:m:w: OPTIND choice fcn_array fcn fcn_args n_fcn_args i arg PS3 db_id watch out
+    local opt opts=hp:t:m:w OPTIND choice fcn_array fcn fcn_args n_fcn_args i arg PS3 db_id watch out
     while builtin getopts $opts opt; do
       case $opt in
         (h) usage
@@ -1196,7 +1234,7 @@ Uses the same ~/.aws/config and ~/.aws/credentials setup as -ec2."
           ;;
         (m) db_id=$OPTARG
           ;;
-        (w) watch=$OPTARG
+        (w) watch=1
           ;;
         (*) usage >&2
           return 1
@@ -1208,11 +1246,17 @@ Uses the same ~/.aws/config and ~/.aws/credentials setup as -ec2."
     region=${region:-us-east-1}
     if [ -t 1 ]; then
       red=$(tput setaf 1) yellow=$(tput setaf 3) reset=$(tput sgr0)
+      # sparkline bars are coloured by height, lowest fifth to highest
+      if [ "$(tput colors 2>/dev/null || echo 8)" -ge 256 ]; then
+        spark_colors=("$(tput setaf 34)" "$(tput setaf 112)" "$(tput setaf 220)" "$(tput setaf 208)" "$(tput setaf 196)")
+      else
+        spark_colors=("$(tput setaf 4)" "$(tput setaf 6)" "$(tput setaf 2)" "$(tput setaf 3)" "$(tput setaf 1)")
+      fi
     fi
     if [ -n "$db_id" ]; then
       find_db $db_id
       metrics $DB_IDX
-      while [ -n "$watch" ] && sleep $watch; do
+      while [ -n "$watch" ] && sleep 60; do
         out=$(metrics $DB_IDX) && clear && echo "$out"
       done
       return
@@ -1243,9 +1287,9 @@ Uses the same ~/.aws/config and ~/.aws/credentials setup as -ec2."
 )
 
 _aws-client-declare() {
-  local clients=(commcare commcare-test fundltc ohana cedarhurst) i client funcdef
-  for ((i=0;i<${#clients[@]};i++)); do
-    client=${clients[$i]}
+  local i client funcdef
+  for ((i=0;i<${#LINCWARE_AWS_CLIENTS[@]};i++)); do
+    client=${LINCWARE_AWS_CLIENTS[$i]}
     printf -v funcdef -- "-ec2%s() { -ec2 -p %s; }" $client $client
     eval -- "$funcdef"
     printf -v funcdef -- '-rds%s() { -rds -p %s "$@"; }' $client $client
