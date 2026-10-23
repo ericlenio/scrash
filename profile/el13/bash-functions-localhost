@@ -965,6 +965,7 @@ Uses the same ~/.aws/config and ~/.aws/credentials setup as -ec2."
     ) DB_MENU_CHOICES=(
       "edit_db_in_browser DB_ID"
       "events DB_ID"
+      "live_load DB_ID"
       "metrics DB_ID"
       "modify_db_in_browser DB_ID"
       "status"
@@ -1126,6 +1127,61 @@ Uses the same ~/.aws/config and ~/.aws/credentials setup as -ec2."
     pi_top db.sql_tokenized db.sql_tokenized.statement
   }
 
+  # DB load only means something next to the vCPU count: load above it is
+  # sessions queueing for CPU or I/O. RDS classes are EC2 types with "db."
+  # in front; print null for the odd class that is not.
+  get_vcpus() {
+    local db_class vcpus
+    db_class=$(get_db_info $1 db_class)
+    vcpus=$(rds_aws ec2 describe-instance-types --instance-types ${db_class#db.} \
+      --query 'InstanceTypes[0].VCpuInfo.DefaultVCpus' --output text 2>/dev/null || true)
+    [[ $vcpus =~ ^[0-9]+$ ]] || vcpus=null
+    echo $vcpus
+  }
+
+  # one line every 10s with the DB load over the latest 10 seconds, from
+  # Performance Insights' per-second samples, which run only ~5s behind
+  # (CloudWatch's DBLoad is once a minute). Any key returns to the menu.
+  live_load() {
+    local db_idx=$1 db_id dbi vcpus end wait key
+    db_id=$(get_db_info $db_idx db_id)
+    dbi=$(get_db_info $db_idx dbi_resource_id)
+    vcpus=$(get_vcpus $db_idx)
+    echo "$db_id: DB load, avg active sessions per 10s against $vcpus vCPUs; press any key to stop"
+    # a key rather than Ctrl-C: SIGINT reaches the whole job, and trapping it
+    # here left the menu stopped (SIGTTIN) once it read the terminal again
+    while :; do
+      end=$(date +%s)
+      rds_aws pi get-resource-metrics --service-type RDS --identifier $dbi \
+        --start-time $((end-30)) --end-time $end --period-in-seconds 1 \
+        --metric-queries '[{"Metric":"db.load.avg"},{"Metric":"db.load.avg","GroupBy":{"Group":"db.wait_event_type"}}]' \
+        --output json \
+        | jq -r --argjson vcpus $vcpus '
+          def avg10: map(.Value | values) | .[-10:] | if length > 0 then add / length else null end;
+          def r2: . * 100 | round / 100;
+          (.MetricList | map(select(.Key.Dimensions == null))[0].DataPoints) as $total
+          | ($total | avg10) as $load
+          | if $load == null then "-\u001f-\u001f0\u001f\u001fno data yet" else
+            [($total | map(select(.Value != null))[-1].Timestamp[11:19]),
+             ($load | r2 | tostring),
+             (if $vcpus == null then 0 elif $load > $vcpus then 2 elif $load > $vcpus * 0.7 then 1 else 0 end),
+             (if $vcpus == null then "" else
+                ([$load / $vcpus * 20 | round, 20] | min) as $n
+                | ([range($n)] | map("█") | join("")) + ([range(20 - $n)] | map("░") | join("")) end),
+             ([.MetricList[] | select(.Key.Dimensions != null)
+               | {name: .Key.Dimensions["db.wait_event_type.name"], v: (.DataPoints | avg10)}
+               | select(.v != null and .v >= 0.005)]
+              | sort_by(-.v) | map("\(.name) \(.v | r2)") | join("  "))]
+            | join("\u001f") end' \
+        | while IFS=$'\x1f' read -r time load level bar waits; do
+            case $level in (2) color=$red ;; (1) color=$yellow ;; (*) color= ;; esac
+            printf "%s  %s%5s %s%s  %s\n" $time "$color" $load "$bar" "${color:+$reset}" "$waits"
+          done
+      wait=$((10 - ($(date +%s) - end)))
+      read -s -n 1 -t $((wait > 0 ? wait : 1)) key && break
+    done
+  }
+
   # the get-metric-data queries for every metric in RDS_METRICS, at the
   # given period. Ids are m<index into RDS_METRICS>.
   metric_queries() {
@@ -1143,12 +1199,7 @@ Uses the same ~/.aws/config and ~/.aws/credentials setup as -ec2."
     local db_idx=$1 db_id db_class end vcpus row label now avg peak note level trend color
     db_id=$(get_db_info $db_idx db_id)
     db_class=$(get_db_info $db_idx db_class)
-    # DB load only means something next to the vCPU count: load above it is
-    # sessions queueing for CPU or I/O. RDS classes are EC2 types with "db."
-    # in front; leave it blank for the odd class that is not.
-    vcpus=$(rds_aws ec2 describe-instance-types --instance-types ${db_class#db.} \
-      --query 'InstanceTypes[0].VCpuInfo.DefaultVCpus' --output text 2>/dev/null || true)
-    [[ $vcpus =~ ^[0-9]+$ ]] || vcpus=null
+    vcpus=$(get_vcpus $db_idx)
     end=$(date +%s)
     printf "%s  %s %s  %s  %s    last %s, %d-min points, now = latest minute, %s\n" $db_id \
       $(get_db_info $db_idx engine) $(get_db_info $db_idx engine_version) $db_class \
