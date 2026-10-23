@@ -643,6 +643,28 @@ EOF
   rm $groovy
 }
 
+# trade the profile's IAM user keys for a federated console sign-in URL, so
+# the browser goes straight to destination_url without a password prompt.
+# The policy below grants nothing extra: a federated session gets only the
+# intersection of it and the IAM user's own permissions.
+-aws-console-signin-url() {
+  local aws_profile=$1 destination_url=$2 creds session resp signin_token destination
+  creds=$(aws sts get-federation-token --profile "$aws_profile" \
+    --name "${USER:-scrash}" \
+    --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}' \
+    --output json)
+  session=$(jq -c '{sessionId:.Credentials.AccessKeyId,sessionKey:.Credentials.SecretAccessKey,sessionToken:.Credentials.SessionToken}' <<<"$creds")
+  resp=$(curl -sSf --get https://signin.aws.amazon.com/federation \
+    --data-urlencode Action=getSigninToken --data-urlencode "Session=$session")
+  signin_token=$(jq -r '.SigninToken // empty' <<<"$resp")
+  if [ -z "$signin_token" ]; then
+    echo "$FUNCNAME: no sign-in token from AWS federation endpoint" >&2
+    return 1
+  fi
+  destination=$(jq -rn --arg u "$destination_url" '$u|@uri')
+  echo "https://signin.aws.amazon.com/federation?Action=login&Issuer=scrash&Destination=$destination&SigninToken=$signin_token"
+}
+
 -ec2() (
   set -e
   local aws_profile=lincware
@@ -768,31 +790,9 @@ and ~/.aws/credentials (or set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY):
     local instance_idx=$1 instance_id console_url url
     instance_id=$(get_instance_id $instance_idx)
     printf -v console_url "https://%s.console.aws.amazon.com/ec2/home?region=%s#InstanceDetails:instanceId=%s" $AWS_DEFAULT_REGION $AWS_DEFAULT_REGION $instance_id
-    url=$(console_signin_url "$console_url")
+    url=$(-aws-console-signin-url $aws_profile "$console_url")
     printf %s "$url" | -set-clipboard
     echo "sign-in URL is copied to clipboard (single use, valid 15 minutes, lands on $console_url)"
-  }
-
-  # trade the profile's IAM user keys for a federated console sign-in URL, so
-  # the browser goes straight to destination_url without a password prompt.
-  # The policy below grants nothing extra: a federated session gets only the
-  # intersection of it and the IAM user's own permissions.
-  console_signin_url() {
-    local destination_url=$1 creds session resp signin_token destination
-    creds=$(aws sts get-federation-token --profile $aws_profile \
-      --name "${USER:-scrash}" \
-      --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}' \
-      --output json)
-    session=$(jq -c '{sessionId:.Credentials.AccessKeyId,sessionKey:.Credentials.SecretAccessKey,sessionToken:.Credentials.SessionToken}' <<<"$creds")
-    resp=$(curl -sSf --get https://signin.aws.amazon.com/federation \
-      --data-urlencode Action=getSigninToken --data-urlencode "Session=$session")
-    signin_token=$(jq -r '.SigninToken // empty' <<<"$resp")
-    if [ -z "$signin_token" ]; then
-      echo "$FUNCNAME: no sign-in token from AWS federation endpoint" >&2
-      return 1
-    fi
-    destination=$(jq -rn --arg u "$destination_url" '$u|@uri')
-    echo "https://signin.aws.amazon.com/federation?Action=login&Issuer=scrash&Destination=$destination&SigninToken=$signin_token"
   }
 
   ec2_instance_cmd() {
@@ -889,15 +889,331 @@ and ~/.aws/credentials (or set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY):
   main "$@"
 )
 
-_ec2-declare() {
+-rds() (
+  set -e
+  local aws_profile=lincware
+
+  usage() {
+    echo "usage: ${FUNCNAME[2]} [-h][-p profile][-t window][-m db_id [-w seconds]]
+simple front end for LincWare AWS RDS instances
+-h: this help
+-p: specify a particular AWS CLI profile (default=$aws_profile)
+-t: how far back metrics, top_sql and events look: Nm, Nh or Nd (default=$window)
+-m: skip the menu and print the metrics for db_id
+-w: with -m, redraw the metrics every N seconds until interrupted
+
+Uses the same ~/.aws/config and ~/.aws/credentials setup as -ec2."
+  }
+
+  local DB_DATA=() DB_MENU=() DB_IDX region window=3h window_s period_s \
+    AWS_PAGER= \
+    DB_VARS=(
+      # this list should match up with the query in fetch_db_data
+      db_id
+      engine
+      engine_version
+      db_class
+      db_status
+      allocated_gib
+      dbi_resource_id
+    ) DB_MENU_CHOICES=(
+      "edit_db_in_browser DB_ID"
+      "events DB_ID"
+      "metrics DB_ID"
+      "modify_db_in_browser DB_ID"
+      "status"
+      "top_sql DB_ID"
+    ) RDS_METRICS=(
+      # CloudWatch metric name:label:unit -- rows with no data are skipped, so
+      # e.g. ReplicaLag only shows on replicas and BurstBalance only on gp2
+      "CPUUtilization:CPU %:pct"
+      "DBLoad:DB load (AAS):num"
+      "DBLoadCPU:  on CPU:num"
+      "DBLoadNonCPU:  waiting:num"
+      "DatabaseConnections:connections:num"
+      "FreeableMemory:freeable memory:bytes"
+      "SwapUsage:swap used:bytes"
+      "FreeStorageSpace:free storage:bytes"
+      "ReadIOPS:read IOPS:num"
+      "WriteIOPS:write IOPS:num"
+      "ReadLatency:read latency ms:ms"
+      "WriteLatency:write latency ms:ms"
+      "DiskQueueDepth:disk queue depth:num"
+      "ReadThroughput:read throughput:bps"
+      "WriteThroughput:write throughput:bps"
+      "NetworkReceiveThroughput:network in:bps"
+      "NetworkTransmitThroughput:network out:bps"
+      "ReplicaLag:replica lag s:num"
+      "BurstBalance:burst balance %:pct"
+      "CPUCreditBalance:CPU credits:num"
+    ) red= yellow= reset=
+
+  rds_aws() {
+    aws --profile $aws_profile --region $region "$@"
+  }
+
+  fetch_db_data() {
+    local i
+    [ ${#DB_DATA[@]} -gt 0 ] && return
+    IFS=$'\n' read -d '' -a DB_DATA <<< "$(rds_aws rds describe-db-instances --query 'DBInstances[].[DBInstanceIdentifier,Engine,EngineVersion,DBInstanceClass,DBInstanceStatus,AllocatedStorage,DbiResourceId]' --output text | sort -f)" || true
+    for((i=0;i<${#DB_DATA[@]};i++)); do
+      DB_MENU[$i]=$(printf "%-28s %-10s %-8s %-16s %-12s %sG" \
+        $(get_db_info $i db_id) $(get_db_info $i engine) $(get_db_info $i engine_version) \
+        $(get_db_info $i db_class) $(get_db_info $i db_status) $(get_db_info $i allocated_gib))
+    done
+    echo "loaded ${#DB_DATA[*]} rows of RDS instance data" >&2
+  }
+
+  get_db_info() {
+    local db_idx=$1 varname=$2 i db_info
+    for((i=0;i<${#DB_VARS[*]};i++)); do
+      if [ ${DB_VARS[$i]} = $varname ]; then
+        read -d '' -a db_info <<< "${DB_DATA[$db_idx]}" || true
+        echo "${db_info[$i]}"
+        return
+      fi
+    done
+    echo "$FUNCNAME: failed to find value for varname=$varname" >&2
+    return 1
+  }
+
+  pick_db() {
+    local fcn=$1 choice PS3
+    fetch_db_data
+    PS3="which DB to perform \"$fcn\" (1-${#DB_MENU[@]})? "
+    select choice in "${DB_MENU[@]}"; do
+      DB_IDX=$(($REPLY-1))
+      return 0
+    done
+    return 1
+  }
+
+  find_db() {
+    local db_id=$1 i
+    fetch_db_data
+    for((i=0;i<${#DB_DATA[@]};i++)); do
+      if [ "$(get_db_info $i db_id)" = "$db_id" ]; then
+        DB_IDX=$i
+        return
+      fi
+    done
+    echo "$FUNCNAME: no RDS instance \"$db_id\" in profile $aws_profile" >&2
+    return 1
+  }
+
+  # parse -t (e.g. 90m, 3h, 2d) and pick a period that gives ~36 points,
+  # which keeps the sparklines narrow. CloudWatch periods over 60s must be
+  # a multiple of 60.
+  parse_window() {
+    local n
+    if ! [[ $window =~ ^([0-9]+)([mhd])$ ]] || [ ${BASH_REMATCH[1]} -eq 0 ]; then
+      echo "$FUNCNAME: bad window \"$window\", expected e.g. 90m, 3h or 2d" >&2
+      return 1
+    fi
+    n=${BASH_REMATCH[1]}
+    case ${BASH_REMATCH[2]} in
+      (m) window_s=$((n*60)) ;;
+      (h) window_s=$((n*3600)) ;;
+      (d) window_s=$((n*86400)) ;;
+    esac
+    period_s=$(( (window_s/36 + 59) / 60 * 60 ))
+  }
+
+  open_console() {
+    local db_idx=$1 fragment=$2 db_id console_url url
+    db_id=$(get_db_info $db_idx db_id)
+    printf -v console_url "https://%s.console.aws.amazon.com/rds/home?region=%s#$fragment" $region $region $db_id
+    url=$(-aws-console-signin-url $aws_profile "$console_url")
+    printf %s "$url" | -set-clipboard
+    echo "sign-in URL is copied to clipboard (single use, valid 15 minutes, lands on $console_url)"
+  }
+
+  edit_db_in_browser() {
+    open_console $1 'database:id=%s;is-cluster=false'
+  }
+
+  modify_db_in_browser() {
+    open_console $1 'modify-instance:id=%s'
+  }
+
+  status() {
+    fetch_db_data
+    for line in "${DB_MENU[@]}"; do
+      echo "$line"
+    done
+  }
+
+  events() {
+    local db_idx=$1 db_id minutes
+    db_id=$(get_db_info $db_idx db_id)
+    # describe-events only goes back 14 days
+    minutes=$((window_s/60))
+    [ $minutes -gt 20160 ] && minutes=20160
+    rds_aws rds describe-events --source-type db-instance --source-identifier $db_id \
+      --duration $minutes --query 'Events[].[Date,Message]' --output text \
+      | sed 's/\.[0-9]*+00:00/Z/' | grep . || echo "no events for $db_id in the last $window"
+  }
+
+  # Performance Insights: where the load came from over the window, by wait
+  # event and by SQL statement. Load is in average active sessions, the same
+  # unit as DBLoad in metrics.
+  top_sql() {
+    local db_idx=$1 db_id dbi end cols
+    db_id=$(get_db_info $db_idx db_id)
+    dbi=$(get_db_info $db_idx dbi_resource_id)
+    end=$(date +%s)
+    cols=$(tput cols 2>/dev/null || echo 120)
+    pi_top() {
+      rds_aws pi describe-dimension-keys --service-type RDS --identifier $dbi \
+        --start-time $((end-window_s)) --end-time $end --metric db.load.avg \
+        --group-by "{\"Group\":\"$1\",\"Limit\":10}" --output json \
+        | jq -r --arg dim "$2" --argjson w $((cols-9)) \
+          '.Keys[] | "\(.Total)\t\(.Dimensions[$dim] | gsub("\\s+"; " ") | ltrimstr(" ") | .[0:$w])"' \
+        | while IFS=$'\t' read -r load text; do
+            printf "  %5.2f  %s\n" $load "$text"
+          done
+    }
+    echo "$db_id: top wait events, avg active sessions over the last $window"
+    pi_top db.wait_event db.wait_event.name
+    echo
+    echo "$db_id: top SQL, avg active sessions over the last $window"
+    pi_top db.sql_tokenized db.sql_tokenized.statement
+  }
+
+  metrics() {
+    local db_idx=$1 db_id db_class end vcpus queries row label now avg peak note level trend color
+    db_id=$(get_db_info $db_idx db_id)
+    db_class=$(get_db_info $db_idx db_class)
+    # DB load only means something next to the vCPU count: load above it is
+    # sessions queueing for CPU or I/O. RDS classes are EC2 types with "db."
+    # in front; leave it blank for the odd class that is not.
+    vcpus=$(rds_aws ec2 describe-instance-types --instance-types ${db_class#db.} \
+      --query 'InstanceTypes[0].VCpuInfo.DefaultVCpus' --output text 2>/dev/null || true)
+    [[ $vcpus =~ ^[0-9]+$ ]] || vcpus=null
+    queries=$(printf '%s\n' "${RDS_METRICS[@]}" | jq -R . | jq -sc --arg db $db_id --argjson p $period_s '
+      to_entries | map({
+        Id: "m\(.key)",
+        MetricStat: {
+          Metric: {Namespace: "AWS/RDS", MetricName: (.value | split(":")[0]),
+                   Dimensions: [{Name: "DBInstanceIdentifier", Value: $db}]},
+          Period: $p, Stat: "Average"}})')
+    end=$(date +%s)
+    printf "%s  %s %s  %s  %s    last %s, %d-min points, %s\n" $db_id \
+      $(get_db_info $db_idx engine) $(get_db_info $db_idx engine_version) $db_class \
+      $(get_db_info $db_idx db_status) $window $((period_s/60)) "$(date '+%H:%M')"
+    printf "%-20s %9s %9s %9s   %s\n" metric now avg peak trend
+    rds_aws cloudwatch get-metric-data --start-time $((end-window_s)) --end-time $end \
+      --scan-by TimestampAscending --metric-data-queries "$queries" --output json \
+      | jq -r --argjson vcpus $vcpus --argjson alloc_gib $(get_db_info $db_idx allocated_gib) \
+          --args '
+        def r1: . * 10 | round / 10;
+        def human: if . >= 1073741824 then "\(. / 1073741824 | r1)G"
+          elif . >= 1048576 then "\(. / 1048576 | r1)M"
+          elif . >= 1024 then "\(. / 1024 | r1)K"
+          else "\(r1)" end;
+        def fmt($unit): if $unit == "bytes" then human
+          elif $unit == "bps" then human + "/s"
+          elif $unit == "ms" then . * 1000 | r1 | tostring
+          else r1 | tostring end;
+        def spark: min as $lo | max as $hi
+          | map(if $hi == $lo then 3 else (. - $lo) / ($hi - $lo) * 7 | round end
+                | "▁▂▃▄▅▆▇█"[.:.+1]) | join("");
+        # 2 = red, 1 = yellow, judged on the latest point
+        def level($name; $now): if $name == "CPUUtilization" then
+            (if $now >= 80 then 2 elif $now >= 60 then 1 else 0 end)
+          elif $name == "DBLoad" and $vcpus != null then
+            (if $now > $vcpus then 2 elif $now > $vcpus * 0.7 then 1 else 0 end)
+          elif $name == "FreeStorageSpace" then
+            (($now / ($alloc_gib * 1073741824) * 100) as $pct
+             | if $pct < 10 then 2 elif $pct < 20 then 1 else 0 end)
+          else 0 end;
+        def note($name; $now): if $name == "DBLoad" and $vcpus != null then "vCPUs: \($vcpus)"
+          elif $name == "FreeStorageSpace" then
+            "\($now / ($alloc_gib * 1073741824) * 100 | round)% of \($alloc_gib)G"
+          else "" end;
+        .MetricDataResults[] | select(.Values | length > 0)
+        | ($ARGS.positional[.Id[1:] | tonumber] | split(":")) as [$name, $label, $unit]
+        | .Values as $v | $v[-1] as $now
+        | [$label, ($now | fmt($unit)), ($v | add / length | fmt($unit)), ($v | max | fmt($unit)),
+           ($v | spark), note($name; $now), level($name; $now)]
+        | join("\u001f")' "${RDS_METRICS[@]}" \
+      | while IFS=$'\x1f' read -r label now avg peak trend note level; do
+          case $level in (2) color=$red ;; (1) color=$yellow ;; (*) color= ;; esac
+          printf "%s%-20s %9s %9s %9s   %s  %s%s\n" "$color" "$label" $now $avg $peak $trend "$note" "${color:+$reset}"
+        done
+  }
+
+  main() {
+    local opt opts=hp:t:m:w: OPTIND choice fcn_array fcn fcn_args n_fcn_args i arg PS3 db_id watch out
+    while builtin getopts $opts opt; do
+      case $opt in
+        (h) usage
+          return
+          ;;
+        (p) aws_profile=$OPTARG
+          ;;
+        (t) window=$OPTARG
+          ;;
+        (m) db_id=$OPTARG
+          ;;
+        (w) watch=$OPTARG
+          ;;
+        (*) usage >&2
+          return 1
+          ;;
+      esac
+    done
+    parse_window
+    region=$(aws configure get region --profile $aws_profile || true)
+    region=${region:-us-east-1}
+    if [ -t 1 ]; then
+      red=$(tput setaf 1) yellow=$(tput setaf 3) reset=$(tput sgr0)
+    fi
+    if [ -n "$db_id" ]; then
+      find_db $db_id
+      metrics $DB_IDX
+      while [ -n "$watch" ] && sleep $watch; do
+        out=$(metrics $DB_IDX) && clear && echo "$out"
+      done
+      return
+    fi
+    PS3="choose an operation (1-${#DB_MENU_CHOICES[@]}): "
+    select choice in "${DB_MENU_CHOICES[@]}"; do
+      fcn_array=($choice)
+      fcn=${fcn_array[0]}
+      fcn_args=("${fcn_array[@]:1}")
+      n_fcn_args=${#fcn_args[@]}
+      for((i=0;i<$n_fcn_args;i++)); do
+        arg=${fcn_args[$i]}
+        case $arg in
+          # every operation here is read-only, so no confirm() as in -ec2
+          (DB_ID)
+            if ! pick_db $fcn; then
+              continue 2
+            fi
+            fcn_args[$i]=$DB_IDX
+            ;;
+        esac
+      done
+      $fcn "${fcn_args[@]}"
+    done
+  }
+
+  main "$@"
+)
+
+_aws-client-declare() {
   local clients=(commcare commcare-test fundltc ohana cedarhurst) i client funcdef
   for ((i=0;i<${#clients[@]};i++)); do
     client=${clients[$i]}
     printf -v funcdef -- "-ec2%s() { -ec2 -p %s; }" $client $client
     eval -- "$funcdef"
+    printf -v funcdef -- '-rds%s() { -rds -p %s "$@"; }' $client $client
+    eval -- "$funcdef"
   done
 }
-_ec2-declare && unset -f _ec2-declare
+
+_aws-client-declare && unset -f _aws-client-declare
 
 # load the LincWare devops secrets into vim:
 # https://us-east-1.console.aws.amazon.com/secretsmanager/secret?name=lincware-devops&region=us-east-1
