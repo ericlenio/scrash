@@ -181,7 +181,28 @@ c() {
   sqlite3 /usr/local/share/sqlports
 }
 
-# 
+# ssh to a host that is booting up: retry every 10 seconds until it connects.
+# goes through the ssh function, so a retry is a whole session attempt rather
+# than a probe; 255 is ssh's own failure code, anything else came from the
+# session and ends the loop. ctrl-c kills ssh or sleep with SIGINT, which
+# interactive bash takes as a reason to abandon the loop
+-ssh-loop() {
+  local rc arg timeout_opt=(-oConnectTimeout=10)
+  # ssh keeps the first value it sees for an option, so ours would always win
+  # over one given on the command line; only supply it when there is none
+  for arg in "$@"; do
+    case $arg in (*ConnectTimeout*) timeout_opt=(); break;; esac
+  done
+  while :; do
+    ssh "${timeout_opt[@]}" "$@" && return 0
+    rc=$?
+    [ $rc = 255 ] || return $rc
+    echo "$FUNCNAME: sleep 2 seconds" >&2
+    sleep 2
+  done
+}
+
+#
 # this function to help me swap out my old ssh key with a new one
 -ssh-swap-key() (
   local ssh_auth=$HOME/.ssh/authorized_keys tmp key_type key_options key_data key_comment old_key_data \
