@@ -1690,7 +1690,17 @@ bi_directional_pipe($socket0,$socket0,$socket1);
       return 1
     fi
   done
-  SSH_AUTH_SOCK=$SSH_AUTH_SOCK "$@"
+  local rc=0
+  SSH_AUTH_SOCK=$SSH_AUTH_SOCK "$@" || rc=$?
+  # the socket is unlinked on its one accept, so if it is still here nothing
+  # ever asked for a key -- typically a connection that failed before auth --
+  # and the perl would sit in accept() forever. one that was accepted is left
+  # alone: under -f or a ControlMaster it is still carrying agent traffic
+  if [ -S $SSH_AUTH_SOCK ]; then
+    kill $pid 2>/dev/null
+    rm -f $SSH_AUTH_SOCK
+  fi
+  return $rc
 }
 
 # this function is used for ssh connections back to the scrash server
