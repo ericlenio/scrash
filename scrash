@@ -167,6 +167,9 @@ main() {
       # scrash session under a fresh ssh-agent
       if [ $os = Darwin ]; then
         export DISPLAY=unknown SSH_ASKPASS=$SCR_HOME/src/main/bash/scr-ssh-askpass
+        # git falls back to $SSH_ASKPASS for https credential prompts; set but
+        # empty, GIT_ASKPASS makes it prompt on the terminal instead
+        export GIT_ASKPASS=
       fi
       shell_init_args+=(-s $(-ssh-serialize-cmd screen ssh-agent env SCR_LOCALHOST_FUNCS="$SCR_LOCALHOST_FUNCS" bash -c scr_server))
       ;;
