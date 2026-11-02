@@ -1,4 +1,4 @@
-5:backtick 97 0 10 bash -c -- -load
+5:backtick 97 10 10 bash -c -- -load
 # periodically make sure vim script exists
 backtick 98 360 360 bash -c 'vim --version >/dev/null'
 backtick 99 999999999 0 bash -c 'if [ -z "$SSH_TTY" ]; then echo " v$SCR_VERSION:$SCR_ENV"; fi'
@@ -22,4 +22,4 @@ defmonitor off
 msgwait 2
 shelltitle "$ |:"
 defbce on
-defscrollback 50000
+defscrollback 5000
