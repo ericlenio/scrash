@@ -1673,32 +1673,61 @@ my $socket0=create_unix_domain_socket($SSH_AUTH_SOCK);
 my $socket1=create_proxy_socket($SCR_PORT,$auth_hdr,$connect_dest,$resp_sig);
 bi_directional_pipe($socket0,$socket0,$socket1);
 '
+  # the perl is a background job, so a ^C never reaches it, and everything after
+  # it is spawned has to run for it to be cleaned up. bash 4+ aborts an
+  # interactive function outright when a foreground child dies of SIGINT, which
+  # skipped the cleanup below and left the perl in accept() forever whenever a
+  # slow-to-answer host was given up on. any INT trap stops that abort; ours only
+  # notes the interrupt, and the caller's trap is put back on the way out
+  local interrupted=0 int_trap
+  int_trap=$(trap -p INT)
+  trap 'interrupted=1' INT
   # important: our perl ssh-agent will inherit file descriptors, so we must
   # redirect standard I/O to /dev/null
   SCR_AUTH_HDR="$auth_hdr" SCR_RESP_SIG="$resp_sig" perl <(echo "$perl_code") $SCR_PORT "$connect_dest" $SSH_AUTH_SOCK >/dev/null 2>&1 </dev/null &
   pid=$!
+  local rc=0
   until [ -S $SSH_AUTH_SOCK ]; do
-    sleep 0.1
+    # bash 5 does not always run the trap when it is the child that took the
+    # SIGINT, so a sleep that dies of it counts as an interrupt too
+    if ! sleep 0.1 || [ $interrupted = 1 ]; then
+      rc=130
+      break
+    fi
     let elapsed=$SECONDS-$start || true
     if [ $elapsed -ge 10 ]; then
       echo "ERROR: $FUNCNAME failed to detect SSH_AUTH_SOCK" >&2
-      kill -KILL $pid
-      return 1
+      rc=1
+      break
     fi
     if ! kill -0 $pid 2>/dev/null && [ ! -S $SSH_AUTH_SOCK ]; then
       echo "ERROR: could not create SSH_AUTH_SOCK at $SSH_AUTH_SOCK" >&2
-      return 1
+      rc=1
+      break
     fi
   done
-  local rc=0
-  SSH_AUTH_SOCK=$SSH_AUTH_SOCK "$@" || rc=$?
+  local ran_ssh=0
+  if [ $rc = 0 ]; then
+    ran_ssh=1
+    SSH_AUTH_SOCK=$SSH_AUTH_SOCK "$@" || rc=$?
+  fi
   # the socket is unlinked on its one accept, so if it is still here nothing
-  # ever asked for a key -- typically a connection that failed before auth --
-  # and the perl would sit in accept() forever. one that was accepted is left
-  # alone: under -f or a ControlMaster it is still carrying agent traffic
-  if [ -S $SSH_AUTH_SOCK ]; then
+  # ever asked for a key -- typically a connection that failed or was given up
+  # on with ^C before auth -- and the perl would sit in accept() forever. one
+  # that was accepted is left alone: under -f or a ControlMaster it is still
+  # carrying agent traffic. if ssh never ran, nothing can have been accepted,
+  # and the perl goes whatever state it is in
+  if [ $ran_ssh = 0 ]; then
+    kill -KILL $pid 2>/dev/null
+    rm -f $SSH_AUTH_SOCK
+  elif [ -S $SSH_AUTH_SOCK ]; then
     kill $pid 2>/dev/null
     rm -f $SSH_AUTH_SOCK
+  fi
+  if [ -n "$int_trap" ]; then
+    eval "$int_trap"
+  else
+    trap - INT
   fi
   return $rc
 }
